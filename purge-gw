@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Wrapper to run the CLI with tsx and .env loading
+exec node --env-file="${BASH_SOURCE%/*}/.env" --import tsx "${BASH_SOURCE%/*}/cli/index.ts" "$@"

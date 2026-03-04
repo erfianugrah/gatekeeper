@@ -1,0 +1,32 @@
+{
+	"name": "purge-api-gateway",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"bin": {
+		"purge-gw": "./dist/cli/index.js"
+	},
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"cf-typegen": "wrangler types",
+		"test": "vitest run",
+		"test:worker": "vitest run -c vitest.worker.config.ts",
+		"test:cli": "vitest run -c vitest.cli.config.ts",
+		"build:cli": "tsc -p cli/tsconfig.json",
+		"cli": "node --env-file=.env --import tsx cli/index.ts"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.12.19",
+		"@types/node": "^25.3.3",
+		"tsx": "^4.21.0",
+		"typescript": "^5.5.2",
+		"vitest": "~3.2.0",
+		"wrangler": "^4.70.0"
+	},
+	"dependencies": {
+		"citty": "^0.2.1",
+		"hono": "^4.12.5"
+	}
+}

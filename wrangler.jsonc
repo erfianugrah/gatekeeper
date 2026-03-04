@@ -1,0 +1,50 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "purge-api-gateway",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-03-01",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "PurgeRateLimiter",
+				"name": "PURGE_RATE_LIMITER"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"new_sqlite_classes": [
+				"PurgeRateLimiter"
+			],
+			"tag": "v1"
+		}
+	],
+	"routes": [
+		{
+			"pattern": "purge.erfi.io",
+			"custom_domain": true
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "ANALYTICS_DB",
+			"database_name": "purge-analytics",
+			"database_id": "e27c1085-f743-46fa-9308-0c5a686dbec6"
+		}
+	],
+	"vars": {
+		"BULK_RATE": "50",
+		"BULK_BUCKET_SIZE": "500",
+		"BULK_MAX_OPS": "100",
+		"SINGLE_RATE": "3000",
+		"SINGLE_BUCKET_SIZE": "6000",
+		"SINGLE_MAX_OPS": "500",
+		"KEY_CACHE_TTL_MS": "60000"
+	}
+}
