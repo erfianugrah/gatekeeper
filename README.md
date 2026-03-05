@@ -72,7 +72,7 @@ cd dashboard && npm install && cd ..
 
 ### Configure `wrangler.jsonc`
 
-1. **Custom domain** — change `purge.erfi.io` to your domain, or remove the `routes` block for `*.workers.dev`:
+1. **Custom domain** — change `gate.erfi.io` to your domain, or remove the `routes` block for `*.workers.dev`:
    ```jsonc
    "routes": [{ "pattern": "purge.yourdomain.com", "custom_domain": true }]
    ```

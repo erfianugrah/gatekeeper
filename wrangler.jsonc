@@ -27,7 +27,7 @@
 	],
 	"routes": [
 		{
-			"pattern": "purge.erfi.io",
+			"pattern": "gate.erfi.io",
 			"custom_domain": true
 		}
 	],

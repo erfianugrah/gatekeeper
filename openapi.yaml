@@ -10,7 +10,7 @@ info:
     name: Erfi Anugrah
 
 servers:
-  - url: https://purge.erfi.io
+  - url: https://gate.erfi.io
     description: Production
 
 # ─── Security schemes ──────────────────────────────────────────────────────
