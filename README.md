@@ -1128,44 +1128,44 @@ Fixed sidebar + header shell:
 
 ### Dashboard pages
 
-| Route                        | Content                                                                                                                                                                                                          |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/dashboard`                 | Summary stat cards (total requests, by-status, collapsed %, avg latency). Traffic timeline chart (Recharts area). Purge type distribution (donut). Top zones bar chart. Recent events feed. Time range selector. |
-| `/dashboard/keys`            | Purge key list table (filterable by status). Create key dialog with visual policy builder. Revoke with confirmation. Shows policy preview inline.                                                                |
-| `/dashboard/s3-credentials`  | S3 credential list table. Create with S3 policy builder. Shows access key ID and secret once on creation. Revoke with confirmation.                                                                              |
-| `/dashboard/upstream-tokens` | Upstream CF API token list. Register new tokens with name, token value, and zone scope. Token preview (first 4 + last 4 chars). Revoke with confirmation.                                                        |
-| `/dashboard/upstream-r2`     | Upstream R2 endpoint list. Register with name, access key, secret, endpoint URL, and bucket scope. Access key preview. Revoke with confirmation.                                                                 |
-| `/dashboard/analytics`       | Event log table with filter bar (zone, key, status, action, time range). Expandable rows with detail panels. Pagination.                                                                                         |
-| `/dashboard/purge`           | Manual purge form: select type (URL/host/tag/prefix/everything), enter values, zone picker, submit. Live rate limit status display.                                                                              |
-| `/dashboard/settings`        | Config registry editor. Shows all 8 keys grouped by section. Each row: current value, default, source (Override/Default), last updated by whom. Inline edit, save, and reset-to-default.                         |
+| Route                        | Content                                                                                                                                                                                                                                                                |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/dashboard`                 | Summary stat cards (total requests, by-status, collapsed %, avg latency). Traffic timeline chart (Recharts area). Purge type distribution (donut). Top zones bar chart. Recent events feed. Time range selector.                                                       |
+| `/dashboard/keys`            | Purge key list table with status filter tabs (All/Active/Revoked), text search (name, ID, zone, created_by), and sortable columns. Create key dialog (responsive, scales to 1440p+) with visual policy builder. Revoke with confirmation. Shows policy preview inline. |
+| `/dashboard/s3-credentials`  | S3 credential list table with status filter tabs. Create dialog (responsive, scales to 1440p+) with S3 policy builder and AWS IAM import. Shows access key ID and secret once on creation. Revoke with confirmation.                                                   |
+| `/dashboard/upstream-tokens` | Upstream CF API token list. Register new tokens with name, token value, and zone scope. Token preview (first 4 + last 4 chars). Revoke with confirmation.                                                                                                              |
+| `/dashboard/upstream-r2`     | Upstream R2 endpoint list. Register with name, access key, secret, endpoint URL, and bucket scope. Access key preview. Revoke with confirmation.                                                                                                                       |
+| `/dashboard/analytics`       | Unified event log (purge + S3) with source tabs, status filter (Any/2xx/4xx/5xx), full-text search, and sortable columns (Time, Source, Status, Duration). Expandable detail rows with syntax-highlighted fields. Export to JSON / copy to clipboard.                  |
+| `/dashboard/purge`           | Manual purge form: select type (URL/host/tag/prefix/everything), enter values, zone picker, submit. Live rate limit status display.                                                                                                                                    |
+| `/dashboard/settings`        | Config registry editor. Shows all 8 keys grouped by section. Each row: current value, default, source (Override/Default), last updated by whom. Inline edit, save, and reset-to-default.                                                                               |
 
 ### Key creation flow in dashboard
 
-The "create key" form has a **policy builder UI** (similar to caddy-compose's condition builder):
+The "create key" form has a **policy builder UI**:
 
-1. Add statements (action checkboxes, resource input, condition builder)
-2. Condition builder: pick field → pick operator → enter value. Add/remove conditions.
-3. Preview the generated policy JSON (syntax-highlighted, read-only)
-4. Submit → `POST /admin/keys` with the policy document
-5. Key created with `created_by` from Access JWT email
-6. Show the secret key **once** in a copy-to-clipboard dialog
+1. Add statements — each has action toggles (with tooltips showing `purge:url — Purge by URL`), a resources input, and a condition editor
+2. **Resources field** — `zone:<id>`, `zone:*`, or `*` for purge keys; `bucket:<name>`, `object:<bucket>/*`, or `*` for S3
+3. **Condition editor** — supports flat leaf conditions and nested AND/OR/NOT groups. Groups render as indented, color-coded blocks (cyan=AND, yellow=OR, red=NOT) with a dropdown to switch type. `in`/`not_in` operators render values as removable pills with Enter/comma/paste input.
+4. **Human-readable summary** — always visible on each statement (e.g., "Allow URL, Host on zone:737f... where host = "erfi.io"")
+5. Preview the generated policy JSON (toggle-able, read-only)
+6. Submit → `POST /admin/keys` with the policy document
+7. Key created with `created_by` from Access JWT email
+8. Show the secret key **once** in a copy-to-clipboard dialog
 
 ### Key components
 
-| Component          | Purpose                                                         |
-| ------------------ | --------------------------------------------------------------- |
-| `DashboardLayout`  | Astro layout: sidebar, header, slot for content                 |
-| `Sidebar`          | Nav links with icons, active state, mobile toggle               |
-| `StatCard`         | Metric card with label, value (count-up), icon, click-to-filter |
-| `TimeRangePicker`  | Quick presets + custom range, auto-refresh toggle               |
-| `FilterBar`        | Cloudflare-style field/operator/value filter chips              |
-| `EventsTable`      | Sortable, filterable, expandable rows, pagination               |
-| `PolicyBuilder`    | Statement editor: actions, resources, condition builder         |
-| `ConditionBuilder` | AND/OR condition tree with field/operator/value inputs          |
-| `PolicyPreview`    | Read-only JSON view of the constructed policy                   |
-| `PurgeForm`        | Type selector, value inputs, zone picker, submit                |
-| `TrafficChart`     | Recharts area chart for request timeline                        |
-| `TypeDistribution` | Recharts donut for purge type breakdown                         |
+| Component           | Purpose                                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `DashboardLayout`   | Astro layout: sidebar, header, slot for content                                                                |
+| `OverviewDashboard` | Stat cards (count-up), traffic chart (Recharts area), purge type donut, status breakdown, recent events        |
+| `KeysPage`          | Purge key CRUD with status filter tabs, search bar, sortable column headers                                    |
+| `S3CredentialsPage` | S3 credential CRUD with status filter tabs, policy preview, AWS import                                         |
+| `AnalyticsPage`     | Unified event log with source/status filters, full-text search, sortable columns, expandable detail rows       |
+| `PolicyBuilder`     | Purge policy editor: action toggles with tooltips, resources input, condition editor, JSON preview             |
+| `S3PolicyBuilder`   | S3 policy editor: 19 S3 action toggles with tooltips, resources, condition editor, AWS IAM import dialog       |
+| `ConditionEditor`   | Shared recursive condition tree: leaf rows, AND/OR/NOT groups, pills for `in`/`not_in`, `summarizeStatement()` |
+| `PurgePage`         | Manual purge form: type selector, value inputs, zone picker, submit                                            |
+| `SettingsPage`      | Config registry editor: inline edit, save, reset-to-default per key                                            |
 
 ---
 
@@ -1360,8 +1360,9 @@ dashboard/
       SettingsPage.tsx               Config registry editor (inline edit, reset)
       AnalyticsPage.tsx              Event log + summary
       PurgePage.tsx                  Manual purge form
-      PolicyBuilder.tsx              Visual purge policy editor
-      S3PolicyBuilder.tsx            Visual S3 policy editor
+      ConditionEditor.tsx            Shared condition tree: leaf/AND/OR/NOT, pills, summary
+      PolicyBuilder.tsx              Visual purge policy editor (uses ConditionEditor)
+      S3PolicyBuilder.tsx            Visual S3 policy editor (uses ConditionEditor)
       ui/                            shadcn/ui primitives
   dist/                              Built output (served via Static Assets)
 ```
