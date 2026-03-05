@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { TokenBucket } from "./token-bucket";
 import { IamManager } from "./iam";
+import { S3CredentialManager } from "./s3/iam";
 import type {
 	PurgeBody,
 	ConsumeResult,
@@ -10,6 +11,8 @@ import type {
 	ApiKey,
 	PurgeResult,
 } from "./types";
+import type { S3Credential, CreateS3CredentialRequest } from "./s3/types";
+import type { RequestContext } from "./policy-types";
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
@@ -68,6 +71,7 @@ export class PurgeRateLimiter extends DurableObject<Env> {
 	private bulkBucket!: TokenBucket;
 	private singleBucket!: TokenBucket;
 	private iam!: IamManager;
+	private s3Iam!: S3CredentialManager;
 
 	/** Per-key rate limit buckets. Lazily created when a key with custom limits is first used. */
 	private keyBuckets = new Map<string, { bulk: TokenBucket; single: TokenBucket }>();
@@ -84,11 +88,13 @@ export class PurgeRateLimiter extends DurableObject<Env> {
 		this.singleBucket = new TokenBucket(config.single.rate, config.single.bucketSize);
 
 		ctx.blockConcurrencyWhile(async () => {
-			this.iam = new IamManager(
-				ctx.storage.sql,
-				Number(env.KEY_CACHE_TTL_MS) || 60_000,
-			);
+			const cacheTtl = Number(env.KEY_CACHE_TTL_MS) || 60_000;
+
+			this.iam = new IamManager(ctx.storage.sql, cacheTtl);
 			this.iam.initTables();
+
+			this.s3Iam = new S3CredentialManager(ctx.storage.sql, cacheTtl);
+			this.s3Iam.initTables();
 		});
 	}
 
@@ -330,5 +336,33 @@ export class PurgeRateLimiter extends DurableObject<Env> {
 	async revokeKey(id: string): Promise<boolean> {
 		this.keyBuckets.delete(id);
 		return this.iam.revokeKey(id);
+	}
+
+	// ─── S3 Credential RPC methods ──────────────────────────────────────
+
+	async createS3Credential(req: CreateS3CredentialRequest): Promise<{ credential: S3Credential }> {
+		return this.s3Iam.createCredential(req);
+	}
+
+	async listS3Credentials(filter?: 'active' | 'revoked'): Promise<S3Credential[]> {
+		return this.s3Iam.listCredentials(filter);
+	}
+
+	async getS3Credential(accessKeyId: string): Promise<{ credential: S3Credential } | null> {
+		return this.s3Iam.getCredential(accessKeyId);
+	}
+
+	async revokeS3Credential(accessKeyId: string): Promise<boolean> {
+		return this.s3Iam.revokeCredential(accessKeyId);
+	}
+
+	/** Get the secret for Sig V4 verification. Returns null if credential is invalid/revoked/expired. */
+	async getS3Secret(accessKeyId: string): Promise<string | null> {
+		return this.s3Iam.getSecretForAuth(accessKeyId);
+	}
+
+	/** Authorize an S3 request against the credential's policy. */
+	async authorizeS3(accessKeyId: string, contexts: RequestContext[]): Promise<AuthResult> {
+		return this.s3Iam.authorize(accessKeyId, contexts);
 	}
 }

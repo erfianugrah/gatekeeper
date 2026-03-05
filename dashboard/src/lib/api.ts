@@ -71,7 +71,7 @@ export interface PurgeEvent {
 
 export interface AnalyticsSummary {
 	total_requests: number;
-	total_cost: number;
+	total_urls_purged: number;
 	by_status: Record<string, number>;
 	by_purge_type: Record<string, number>;
 	collapsed_count: number;

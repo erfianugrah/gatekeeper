@@ -6,6 +6,7 @@ import { validateAccessJwt } from "../auth-access";
 import { parseConfig } from "../durable-object";
 import type { CreateKeyRequest, HonoEnv } from "../types";
 import type { PolicyDocument } from "../policy-types";
+import type { CreateS3CredentialRequest } from "../s3/types";
 
 // ─── DO stub helper ─────────────────────────────────────────────────────────
 
@@ -323,6 +324,156 @@ adminApp.get("/analytics/summary", async (c) => {
 	}));
 
 	return c.json({ success: true, result: summary });
+});
+
+// ─── S3 Credentials: create ─────────────────────────────────────────────────
+
+adminApp.post("/s3/credentials", async (c) => {
+	const log: Record<string, unknown> = {
+		route: "admin.createS3Credential",
+		ts: new Date().toISOString(),
+	};
+
+	let raw: Record<string, unknown>;
+	try {
+		raw = await c.req.json<Record<string, unknown>>();
+	} catch {
+		log.status = 400;
+		log.error = "invalid_json";
+		console.log(JSON.stringify(log));
+		return c.json(
+			{ success: false, errors: [{ code: 400, message: "Invalid JSON body" }] },
+			400,
+		);
+	}
+
+	if (!raw.name || typeof raw.name !== "string") {
+		log.status = 400;
+		log.error = "missing_name";
+		console.log(JSON.stringify(log));
+		return c.json(
+			{ success: false, errors: [{ code: 400, message: "Required field: name (string)" }] },
+			400,
+		);
+	}
+
+	if (!raw.policy || typeof raw.policy !== "object") {
+		log.status = 400;
+		log.error = "missing_policy";
+		console.log(JSON.stringify(log));
+		return c.json(
+			{ success: false, errors: [{ code: 400, message: "Required field: policy (object with version + statements)" }] },
+			400,
+		);
+	}
+
+	const policyErrors = validatePolicy(raw.policy);
+	if (policyErrors.length > 0) {
+		log.status = 400;
+		log.error = "invalid_policy";
+		log.policyErrors = policyErrors;
+		console.log(JSON.stringify(log));
+		return c.json(
+			{
+				success: false,
+				errors: policyErrors.map((e) => ({
+					code: 400,
+					message: `${e.path}: ${e.message}`,
+				})),
+			},
+			400,
+		);
+	}
+
+	const identity = c.get("accessIdentity");
+	const req: CreateS3CredentialRequest = {
+		name: raw.name as string,
+		policy: raw.policy as PolicyDocument,
+		created_by: identity?.email ?? (typeof raw.created_by === "string" ? raw.created_by : undefined),
+		expires_in_days: typeof raw.expires_in_days === "number" ? raw.expires_in_days : undefined,
+	};
+
+	log.credentialName = req.name;
+	log.statementCount = req.policy.statements.length;
+
+	const stub = getStub(c.env);
+	const result = await stub.createS3Credential(req);
+
+	log.status = 200;
+	log.accessKeyId = result.credential.access_key_id;
+	console.log(JSON.stringify(log));
+
+	return c.json({ success: true, result });
+});
+
+// ─── S3 Credentials: list ───────────────────────────────────────────────────
+
+adminApp.get("/s3/credentials", async (c) => {
+	const statusFilter = c.req.query("status") as "active" | "revoked" | undefined;
+	const validFilters = ["active", "revoked"];
+	const filter = statusFilter && validFilters.includes(statusFilter) ? statusFilter : undefined;
+
+	const stub = getStub(c.env);
+	const credentials = await stub.listS3Credentials(filter);
+
+	console.log(JSON.stringify({
+		route: "admin.listS3Credentials",
+		filter: filter ?? "all",
+		count: credentials.length,
+		ts: new Date().toISOString(),
+	}));
+
+	return c.json({ success: true, result: credentials });
+});
+
+// ─── S3 Credentials: get ────────────────────────────────────────────────────
+
+adminApp.get("/s3/credentials/:id", async (c) => {
+	const accessKeyId = c.req.param("id");
+	const stub = getStub(c.env);
+	const result = await stub.getS3Credential(accessKeyId);
+
+	if (!result) {
+		return c.json(
+			{ success: false, errors: [{ code: 404, message: "Credential not found" }] },
+			404,
+		);
+	}
+
+	return c.json({ success: true, result });
+});
+
+// ─── S3 Credentials: revoke ─────────────────────────────────────────────────
+
+adminApp.delete("/s3/credentials/:id", async (c) => {
+	const accessKeyId = c.req.param("id");
+	const stub = getStub(c.env);
+
+	const existing = await stub.getS3Credential(accessKeyId);
+	if (!existing) {
+		return c.json(
+			{ success: false, errors: [{ code: 404, message: "Credential not found or already revoked" }] },
+			404,
+		);
+	}
+
+	const revoked = await stub.revokeS3Credential(accessKeyId);
+
+	console.log(JSON.stringify({
+		route: "admin.revokeS3Credential",
+		accessKeyId,
+		revoked,
+		ts: new Date().toISOString(),
+	}));
+
+	if (!revoked) {
+		return c.json(
+			{ success: false, errors: [{ code: 404, message: "Credential not found or already revoked" }] },
+			404,
+		);
+	}
+
+	return c.json({ success: true, result: { revoked: true } });
 });
 
 // ─── Private helpers ────────────────────────────────────────────────────────

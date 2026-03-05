@@ -186,7 +186,7 @@ const summary = defineCommand({
 		console.error("");
 
 		label("Total requests", bold(String(s.total_requests)));
-		label("Total cost", bold(String(s.total_cost)));
+		label("URLs purged", bold(String(s.total_urls_purged)));
 		label("Collapsed", bold(String(s.collapsed_count)));
 		label("Avg duration", bold(String(s.avg_duration_ms) + "ms"));
 

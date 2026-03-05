@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { purgeRoute, __testClearInflightCache } from "./routes/purge";
 import { adminApp } from "./routes/admin";
+import { s3App } from "./s3/routes";
 import { deleteOldEvents } from "./analytics";
 import type { HonoEnv } from "./types";
 
@@ -17,6 +18,7 @@ const app = new Hono<HonoEnv>();
 app.get("/health", (c) => c.json({ ok: true }));
 app.route("/", purgeRoute);
 app.route("/admin", adminApp);
+app.route("/s3", s3App);
 
 // ─── Exports ────────────────────────────────────────────────────────────────
 

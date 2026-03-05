@@ -80,7 +80,7 @@ describe("Analytics — empty state", () => {
 		const data = await res.json<any>();
 		expect(data.success).toBe(true);
 		expect(data.result.total_requests).toBe(0);
-		expect(data.result.total_cost).toBe(0);
+		expect(data.result.total_urls_purged).toBe(0);
 		expect(data.result.collapsed_count).toBe(0);
 	});
 });
@@ -152,7 +152,7 @@ describe("Analytics — event logging", () => {
 		expect(res.status).toBe(200);
 		const data = await res.json<any>();
 		expect(data.result.total_requests).toBeGreaterThanOrEqual(2);
-		expect(data.result.total_cost).toBeGreaterThanOrEqual(2);
+		expect(data.result.total_urls_purged).toBeGreaterThanOrEqual(2);
 		expect(data.result.by_status["200"]).toBeGreaterThanOrEqual(2);
 		expect(data.result.by_purge_type["bulk"]).toBeGreaterThanOrEqual(2);
 	});

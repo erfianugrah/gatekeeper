@@ -7,5 +7,9 @@ declare namespace Cloudflare {
 		CF_ACCESS_TEAM_NAME?: string;
 		/** Cloudflare Access Application Audience (AUD) tag */
 		CF_ACCESS_AUD?: string;
+		/** R2 admin credentials for S3 proxy re-signing */
+		R2_ACCESS_KEY_ID: string;
+		R2_SECRET_ACCESS_KEY: string;
+		R2_ENDPOINT: string;
 	}
 }

@@ -554,7 +554,7 @@ Returns purge events from D1. `since`/`until` are unix ms. `limit` defaults to 1
 
 #### `GET /admin/analytics/summary?zone_id=<zone_id>[&key_id=...][&since=...][&until=...]`
 
-Returns `total_requests`, `total_cost`, `by_status`, `by_purge_type`, `collapsed_count`, `avg_duration_ms`.
+Returns `total_requests`, `total_urls_purged`, `by_status`, `by_purge_type`, `collapsed_count`, `avg_duration_ms`.
 
 ### OpenAPI specification
 

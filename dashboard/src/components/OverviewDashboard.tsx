@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import {
 	Activity,
-	DollarSign,
+	Link,
 	Timer,
 	Layers,
 	AlertTriangle,
@@ -206,9 +206,9 @@ export function OverviewDashboard() {
 							delay={0}
 						/>
 						<StatCard
-							label="Total Cost"
-							value={formatNumber(summary.total_cost)}
-							icon={<DollarSign className="h-5 w-5 text-lv-peach" />}
+							label="URLs Purged"
+							value={formatNumber(summary.total_urls_purged)}
+							icon={<Link className="h-5 w-5 text-lv-peach" />}
 							iconBg="bg-lv-peach/15"
 							delay={60}
 						/>

@@ -25,6 +25,7 @@
 		"wrangler": "^4.70.0"
 	},
 	"dependencies": {
+		"aws4fetch": "^1.0.20",
 		"citty": "^0.2.1",
 		"hono": "^4.12.5"
 	}

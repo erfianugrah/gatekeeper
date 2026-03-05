@@ -95,7 +95,7 @@ export interface AnalyticsQuery {
 
 export interface AnalyticsSummary {
 	total_requests: number;
-	total_cost: number;
+	total_urls_purged: number;
 	by_status: Record<string, number>;
 	by_purge_type: Record<string, number>;
 	collapsed_count: number;
@@ -163,7 +163,7 @@ export async function querySummary(
 	const where = conditions.join(" AND ");
 
 	const [totalRow, statusRows, typeRows, collapsedRow, durationRow] = await db.batch([
-		db.prepare(`SELECT COUNT(*) as cnt, SUM(cost) as total_cost FROM purge_events WHERE ${where}`).bind(...params),
+		db.prepare(`SELECT COUNT(*) as cnt, SUM(cost) as total_urls_purged FROM purge_events WHERE ${where}`).bind(...params),
 		db.prepare(`SELECT status, COUNT(*) as cnt FROM purge_events WHERE ${where} GROUP BY status`).bind(...params),
 		db.prepare(`SELECT purge_type, COUNT(*) as cnt FROM purge_events WHERE ${where} GROUP BY purge_type`).bind(...params),
 		db.prepare(`SELECT COUNT(*) as cnt FROM purge_events WHERE ${where} AND collapsed IS NOT NULL`).bind(...params),
@@ -182,7 +182,7 @@ export async function querySummary(
 
 	return {
 		total_requests: total?.cnt ?? 0,
-		total_cost: total?.total_cost ?? 0,
+		total_urls_purged: total?.total_urls_purged ?? 0,
 		by_status: byStatus,
 		by_purge_type: byType,
 		collapsed_count: (collapsedRow.results[0] as any)?.cnt ?? 0,

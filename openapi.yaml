@@ -350,7 +350,7 @@ components:
       type: object
       required:
         - total_requests
-        - total_cost
+        - total_urls_purged
         - by_status
         - by_purge_type
         - collapsed_count
@@ -358,8 +358,9 @@ components:
       properties:
         total_requests:
           type: integer
-        total_cost:
+        total_urls_purged:
           type: integer
+          description: Total number of individual URLs purged (single-file count, 1 per bulk request)
         by_status:
           type: object
           additionalProperties:
