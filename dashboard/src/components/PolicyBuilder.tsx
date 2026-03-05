@@ -1,60 +1,53 @@
-import { useState, useCallback } from "react";
-import { Plus, Trash2, ChevronDown, ChevronRight, Eye, EyeOff } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
-import type { PolicyDocument, Statement, LeafCondition } from "@/lib/api";
-import { cn } from "@/lib/utils";
-import { T } from "@/lib/typography";
+import { useState, useCallback } from 'react';
+import { Plus, Trash2, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import type { PolicyDocument, Statement, LeafCondition } from '@/lib/api';
+import { cn } from '@/lib/utils';
+import { T } from '@/lib/typography';
 
 // ─── Constants ──────────────────────────────────────────────────────
 
 const PURGE_ACTIONS = [
-	{ value: "purge:*", label: "All Purge", description: "All purge types" },
-	{ value: "purge:url", label: "URL", description: "Purge by URL (files)" },
-	{ value: "purge:host", label: "Host", description: "Purge by hostname" },
-	{ value: "purge:tag", label: "Tag", description: "Purge by cache tag" },
-	{ value: "purge:prefix", label: "Prefix", description: "Purge by URL prefix" },
-	{ value: "purge:everything", label: "Everything", description: "Purge all" },
+	{ value: 'purge:*', label: 'All Purge', description: 'All purge types' },
+	{ value: 'purge:url', label: 'URL', description: 'Purge by URL (files)' },
+	{ value: 'purge:host', label: 'Host', description: 'Purge by hostname' },
+	{ value: 'purge:tag', label: 'Tag', description: 'Purge by cache tag' },
+	{ value: 'purge:prefix', label: 'Prefix', description: 'Purge by URL prefix' },
+	{ value: 'purge:everything', label: 'Everything', description: 'Purge all' },
 ] as const;
 
 const CONDITION_FIELDS = [
-	{ value: "host", label: "Host", hint: "e.g. example.com" },
-	{ value: "tag", label: "Tag", hint: "e.g. static-v2" },
-	{ value: "prefix", label: "Prefix", hint: "e.g. example.com/assets/" },
-	{ value: "url", label: "URL", hint: "e.g. https://example.com/page" },
-	{ value: "url.path", label: "URL Path", hint: "e.g. /api/v1/" },
-	{ value: "purge_everything", label: "Purge Everything", hint: "true/false" },
+	{ value: 'host', label: 'Host', hint: 'e.g. example.com' },
+	{ value: 'tag', label: 'Tag', hint: 'e.g. static-v2' },
+	{ value: 'prefix', label: 'Prefix', hint: 'e.g. example.com/assets/' },
+	{ value: 'url', label: 'URL', hint: 'e.g. https://example.com/page' },
+	{ value: 'url.path', label: 'URL Path', hint: 'e.g. /api/v1/' },
+	{ value: 'purge_everything', label: 'Purge Everything', hint: 'true/false' },
 ] as const;
 
 const OPERATORS = [
-	{ value: "eq", label: "equals" },
-	{ value: "ne", label: "not equals" },
-	{ value: "contains", label: "contains" },
-	{ value: "not_contains", label: "not contains" },
-	{ value: "starts_with", label: "starts with" },
-	{ value: "ends_with", label: "ends with" },
-	{ value: "wildcard", label: "wildcard (*)" },
-	{ value: "matches", label: "regex" },
-	{ value: "in", label: "in (comma-sep)" },
-	{ value: "exists", label: "exists" },
-	{ value: "not_exists", label: "not exists" },
+	{ value: 'eq', label: 'equals' },
+	{ value: 'ne', label: 'not equals' },
+	{ value: 'contains', label: 'contains' },
+	{ value: 'not_contains', label: 'not contains' },
+	{ value: 'starts_with', label: 'starts with' },
+	{ value: 'ends_with', label: 'ends with' },
+	{ value: 'wildcard', label: 'wildcard (*)' },
+	{ value: 'matches', label: 'regex' },
+	{ value: 'in', label: 'in (comma-sep)' },
+	{ value: 'exists', label: 'exists' },
+	{ value: 'not_exists', label: 'not exists' },
 ] as const;
 
-const NO_VALUE_OPERATORS = new Set(["exists", "not_exists"]);
+const NO_VALUE_OPERATORS = new Set(['exists', 'not_exists']);
 
 // ─── Types ──────────────────────────────────────────────────────────
 
 interface PolicyBuilderProps {
-	zoneId: string;
 	value: PolicyDocument;
 	onChange: (policy: PolicyDocument) => void;
 }
@@ -70,10 +63,7 @@ interface ConditionRowProps {
 function ConditionRow({ condition, onChange, onRemove }: ConditionRowProps) {
 	return (
 		<div className="flex items-start gap-2">
-			<Select
-				value={condition.field}
-				onValueChange={(v) => onChange({ ...condition, field: v })}
-			>
+			<Select value={condition.field} onValueChange={(v) => onChange({ ...condition, field: v })}>
 				<SelectTrigger className="w-[130px] text-xs font-data">
 					<SelectValue />
 				</SelectTrigger>
@@ -86,10 +76,7 @@ function ConditionRow({ condition, onChange, onRemove }: ConditionRowProps) {
 				</SelectContent>
 			</Select>
 
-			<Select
-				value={condition.operator}
-				onValueChange={(v) => onChange({ ...condition, operator: v })}
-			>
+			<Select value={condition.operator} onValueChange={(v) => onChange({ ...condition, operator: v })}>
 				<SelectTrigger className="w-[140px] text-xs font-data">
 					<SelectValue />
 				</SelectTrigger>
@@ -104,17 +91,11 @@ function ConditionRow({ condition, onChange, onRemove }: ConditionRowProps) {
 
 			{!NO_VALUE_OPERATORS.has(condition.operator) && (
 				<Input
-					placeholder={CONDITION_FIELDS.find((f) => f.value === condition.field)?.hint ?? "value"}
-					value={
-						Array.isArray(condition.value)
-							? condition.value.join(", ")
-							: String(condition.value ?? "")
-					}
+					placeholder={CONDITION_FIELDS.find((f) => f.value === condition.field)?.hint ?? 'value'}
+					value={Array.isArray(condition.value) ? condition.value.join(', ') : String(condition.value ?? '')}
 					onChange={(e) => {
 						const raw = e.target.value;
-						const value = condition.operator === "in"
-							? raw.split(",").map((s) => s.trim())
-							: raw;
+						const value = condition.operator === 'in' ? raw.split(',').map((s) => s.trim()) : raw;
 						onChange({ ...condition, value });
 					}}
 					className="flex-1 text-xs font-data"
@@ -139,27 +120,26 @@ function ConditionRow({ condition, onChange, onRemove }: ConditionRowProps) {
 interface StatementEditorProps {
 	index: number;
 	statement: Statement;
-	zoneId: string;
 	onChange: (s: Statement) => void;
 	onRemove: () => void;
 	canRemove: boolean;
 }
 
-function StatementEditor({ index, statement, zoneId, onChange, onRemove, canRemove }: StatementEditorProps) {
+function StatementEditor({ index, statement, onChange, onRemove, canRemove }: StatementEditorProps) {
 	const [collapsed, setCollapsed] = useState(false);
 
 	const toggleAction = (action: string) => {
 		const current = new Set(statement.actions);
-		if (action === "purge:*") {
+		if (action === 'purge:*') {
 			// Toggle all — if wildcard is set, clear it; otherwise set only wildcard
 			onChange({
 				...statement,
-				actions: current.has("purge:*") ? [] : ["purge:*"],
+				actions: current.has('purge:*') ? [] : ['purge:*'],
 			});
 			return;
 		}
 		// Remove wildcard if selecting individual actions
-		current.delete("purge:*");
+		current.delete('purge:*');
 		if (current.has(action)) {
 			current.delete(action);
 		} else {
@@ -168,9 +148,7 @@ function StatementEditor({ index, statement, zoneId, onChange, onRemove, canRemo
 		onChange({ ...statement, actions: Array.from(current) });
 	};
 
-	const conditions = (statement.conditions ?? []).filter(
-		(c): c is LeafCondition => "field" in c
-	);
+	const conditions = (statement.conditions ?? []).filter((c): c is LeafCondition => 'field' in c);
 
 	const updateCondition = (i: number, c: LeafCondition) => {
 		const next = [...conditions];
@@ -189,40 +167,25 @@ function StatementEditor({ index, statement, zoneId, onChange, onRemove, canRemo
 	const addCondition = () => {
 		onChange({
 			...statement,
-			conditions: [...conditions, { field: "host", operator: "eq", value: "" }],
+			conditions: [...conditions, { field: 'host', operator: 'eq', value: '' }],
 		});
 	};
 
-	const isWildcard = statement.actions.includes("purge:*");
-	const resourceDisplay = statement.resources[0] === `zone:${zoneId}`
-		? "current zone"
-		: statement.resources[0] === "*"
-			? "all resources"
-			: statement.resources[0];
+	const isWildcard = statement.actions.includes('purge:*');
 
 	return (
 		<div className="rounded-lg border border-border bg-card/50 p-3 space-y-3">
 			{/* ── Statement header ──────────────────────────────── */}
 			<div className="flex items-center gap-2">
-				<button
-					type="button"
-					onClick={() => setCollapsed(!collapsed)}
-					className="text-muted-foreground hover:text-foreground"
-				>
-					{collapsed ? (
-						<ChevronRight className="h-4 w-4" />
-					) : (
-						<ChevronDown className="h-4 w-4" />
-					)}
+				<button type="button" onClick={() => setCollapsed(!collapsed)} className="text-muted-foreground hover:text-foreground">
+					{collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
 				</button>
 				<span className={T.sectionLabel}>Statement {index + 1}</span>
-				<Badge className="bg-lv-green/20 text-lv-green border-lv-green/30 text-[10px]">
-					ALLOW
-				</Badge>
+				<Badge className="bg-lv-green/20 text-lv-green border-lv-green/30 text-[10px]">ALLOW</Badge>
 				{collapsed && (
 					<span className="text-xs text-muted-foreground ml-2">
-						{isWildcard ? "purge:*" : statement.actions.join(", ")} on {resourceDisplay}
-						{conditions.length > 0 && ` (${conditions.length} condition${conditions.length > 1 ? "s" : ""})`}
+						{isWildcard ? 'purge:*' : statement.actions.join(', ')}
+						{conditions.length > 0 && ` (${conditions.length} condition${conditions.length > 1 ? 's' : ''})`}
 					</span>
 				)}
 				{canRemove && (
@@ -245,19 +208,17 @@ function StatementEditor({ index, statement, zoneId, onChange, onRemove, canRemo
 						<Label className={T.formLabel}>Actions</Label>
 						<div className="flex flex-wrap gap-1.5">
 							{PURGE_ACTIONS.map((a) => {
-								const active = isWildcard
-									? a.value === "purge:*"
-									: statement.actions.includes(a.value);
+								const active = isWildcard ? a.value === 'purge:*' : statement.actions.includes(a.value);
 								return (
 									<button
 										key={a.value}
 										type="button"
 										onClick={() => toggleAction(a.value)}
 										className={cn(
-											"rounded-md border px-2.5 py-1 text-xs font-data transition-colors",
+											'rounded-md border px-2.5 py-1 text-xs font-data transition-colors',
 											active
-												? "border-lv-purple/50 bg-lv-purple/20 text-lv-purple"
-												: "border-border text-muted-foreground hover:border-lv-purple/30 hover:text-foreground"
+												? 'border-lv-purple/50 bg-lv-purple/20 text-lv-purple'
+												: 'border-border text-muted-foreground hover:border-lv-purple/30 hover:text-foreground',
 										)}
 										title={a.description}
 									>
@@ -268,36 +229,10 @@ function StatementEditor({ index, statement, zoneId, onChange, onRemove, canRemo
 						</div>
 					</div>
 
-					{/* ── Resource ──────────────────────────────────── */}
-					<div className="space-y-2">
-						<Label className={T.formLabel}>Resource</Label>
-						<Select
-							value={statement.resources[0] ?? "*"}
-							onValueChange={(v) => onChange({ ...statement, resources: [v] })}
-						>
-							<SelectTrigger className="w-full text-xs font-data">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value={`zone:${zoneId}`} className="text-xs">
-									zone:{zoneId ? zoneId.slice(0, 12) + "..." : "<zone>"}
-								</SelectItem>
-								<SelectItem value="zone:*" className="text-xs">
-									zone:* (all zones)
-								</SelectItem>
-								<SelectItem value="*" className="text-xs">
-									* (everything)
-								</SelectItem>
-							</SelectContent>
-						</Select>
-					</div>
-
 					{/* ── Conditions ────────────────────────────────── */}
 					<div className="space-y-2">
 						<div className="flex items-center justify-between">
-							<Label className={T.formLabel}>
-								Conditions {conditions.length > 0 && `(${conditions.length})`}
-							</Label>
+							<Label className={T.formLabel}>Conditions {conditions.length > 0 && `(${conditions.length})`}</Label>
 							<Button
 								type="button"
 								variant="ghost"
@@ -309,18 +244,9 @@ function StatementEditor({ index, statement, zoneId, onChange, onRemove, canRemo
 								Add
 							</Button>
 						</div>
-						{conditions.length === 0 && (
-							<p className={cn(T.muted, "italic")}>
-								No conditions — all matching actions are allowed.
-							</p>
-						)}
+						{conditions.length === 0 && <p className={cn(T.muted, 'italic')}>No conditions — all matching actions are allowed.</p>}
 						{conditions.map((c, i) => (
-							<ConditionRow
-								key={i}
-								condition={c}
-								onChange={(updated) => updateCondition(i, updated)}
-								onRemove={() => removeCondition(i)}
-							/>
+							<ConditionRow key={i} condition={c} onChange={(updated) => updateCondition(i, updated)} onRemove={() => removeCondition(i)} />
 						))}
 					</div>
 				</>
@@ -331,7 +257,7 @@ function StatementEditor({ index, statement, zoneId, onChange, onRemove, canRemo
 
 // ─── Policy Builder ─────────────────────────────────────────────────
 
-export function PolicyBuilder({ zoneId, value, onChange }: PolicyBuilderProps) {
+export function PolicyBuilder({ value, onChange }: PolicyBuilderProps) {
 	const [showJson, setShowJson] = useState(false);
 
 	const updateStatement = useCallback(
@@ -340,7 +266,7 @@ export function PolicyBuilder({ zoneId, value, onChange }: PolicyBuilderProps) {
 			next[index] = stmt;
 			onChange({ ...value, statements: next });
 		},
-		[value, onChange]
+		[value, onChange],
 	);
 
 	const removeStatement = useCallback(
@@ -350,7 +276,7 @@ export function PolicyBuilder({ zoneId, value, onChange }: PolicyBuilderProps) {
 				statements: value.statements.filter((_, i) => i !== index),
 			});
 		},
-		[value, onChange]
+		[value, onChange],
 	);
 
 	const addStatement = useCallback(() => {
@@ -359,13 +285,13 @@ export function PolicyBuilder({ zoneId, value, onChange }: PolicyBuilderProps) {
 			statements: [
 				...value.statements,
 				{
-					effect: "allow",
-					actions: ["purge:*"],
-					resources: [`zone:${zoneId}`],
+					effect: 'allow',
+					actions: ['purge:*'],
+					resources: ['*'],
 				},
 			],
 		});
-	}, [value, zoneId, onChange]);
+	}, [value, onChange]);
 
 	return (
 		<div className="space-y-3">
@@ -375,7 +301,6 @@ export function PolicyBuilder({ zoneId, value, onChange }: PolicyBuilderProps) {
 					key={i}
 					index={i}
 					statement={stmt}
-					zoneId={zoneId}
 					onChange={(s) => updateStatement(i, s)}
 					onRemove={() => removeStatement(i)}
 					canRemove={value.statements.length > 1}
@@ -384,13 +309,7 @@ export function PolicyBuilder({ zoneId, value, onChange }: PolicyBuilderProps) {
 
 			{/* ── Add / Preview buttons ──────────────────────────── */}
 			<div className="flex items-center gap-2">
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					className="text-xs"
-					onClick={addStatement}
-				>
+				<Button type="button" variant="outline" size="sm" className="text-xs" onClick={addStatement}>
 					<Plus className="h-3 w-3 mr-1" />
 					Add Statement
 				</Button>
@@ -402,7 +321,7 @@ export function PolicyBuilder({ zoneId, value, onChange }: PolicyBuilderProps) {
 					onClick={() => setShowJson(!showJson)}
 				>
 					{showJson ? <EyeOff className="h-3 w-3 mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
-					{showJson ? "Hide" : "Show"} JSON
+					{showJson ? 'Hide' : 'Show'} JSON
 				</Button>
 			</div>
 

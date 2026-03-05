@@ -6,7 +6,7 @@
 export interface ApiKey {
 	id: string;
 	name: string;
-	zone_id: string;
+	zone_id: string | null;
 	created_at: number;
 	expires_at: number | null;
 	revoked: number;
@@ -30,7 +30,7 @@ export interface PolicyDocument {
 }
 
 export interface Statement {
-	effect: "allow";
+	effect: 'allow';
 	actions: string[];
 	resources: string[];
 	conditions?: Condition[];
@@ -60,7 +60,7 @@ export interface PurgeEvent {
 	id: number;
 	key_id: string;
 	zone_id: string;
-	purge_type: "single" | "bulk";
+	purge_type: 'single' | 'bulk';
 	cost: number;
 	status: number;
 	collapsed: string | null;
@@ -80,7 +80,7 @@ export interface AnalyticsSummary {
 
 export interface CreateKeyRequest {
 	name: string;
-	zone_id: string;
+	zone_id?: string;
 	policy: PolicyDocument;
 	expires_in_days?: number;
 	rate_limit?: {
@@ -105,9 +105,9 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 	const res = await fetch(path, {
 		...init,
 		// Include cookies so the CF_Authorization cookie (Access SSO) is sent
-		credentials: "include",
+		credentials: 'include',
 		headers: {
-			"Content-Type": "application/json",
+			'Content-Type': 'application/json',
 			...adminHeaders(),
 			...init?.headers,
 		},
@@ -116,7 +116,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 	const data: ApiResponse<T> = await res.json();
 
 	if (!data.success || !data.result) {
-		const msg = data.errors?.map((e) => e.message).join("; ") ?? "Unknown error";
+		const msg = data.errors?.map((e) => e.message).join('; ') ?? 'Unknown error';
 		throw new Error(msg);
 	}
 
@@ -128,41 +128,41 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 // For local dev without Access, an admin key can be set in localStorage.
 
 function adminHeaders(): Record<string, string> {
-	const adminKey = typeof window !== "undefined" ? localStorage.getItem("adminKey") : null;
+	const adminKey = typeof window !== 'undefined' ? localStorage.getItem('adminKey') : null;
 	if (adminKey) {
-		return { "X-Admin-Key": adminKey };
+		return { 'X-Admin-Key': adminKey };
 	}
 	return {};
 }
 
 // ─── Key management ──────────────────────────────────────────────────
 
-export async function listKeys(zoneId?: string, status?: "active" | "revoked"): Promise<ApiKey[]> {
+export async function listKeys(zoneId?: string, status?: 'active' | 'revoked'): Promise<ApiKey[]> {
 	const params = new URLSearchParams();
-	if (zoneId) params.set("zone_id", zoneId);
-	if (status) params.set("status", status);
+	if (zoneId) params.set('zone_id', zoneId);
+	if (status) params.set('status', status);
 	const qs = params.toString();
-	return apiFetch<ApiKey[]>(`/admin/keys${qs ? `?${qs}` : ""}`);
+	return apiFetch<ApiKey[]>(`/admin/keys${qs ? `?${qs}` : ''}`);
 }
 
 export async function getKey(id: string, zoneId?: string): Promise<{ key: ApiKey }> {
 	const params = new URLSearchParams();
-	if (zoneId) params.set("zone_id", zoneId);
+	if (zoneId) params.set('zone_id', zoneId);
 	const qs = params.toString();
-	return apiFetch<{ key: ApiKey }>(`/admin/keys/${id}${qs ? `?${qs}` : ""}`);
+	return apiFetch<{ key: ApiKey }>(`/admin/keys/${id}${qs ? `?${qs}` : ''}`);
 }
 
 /** Create a key. The key.id (gw_...) IS the Bearer token — there is no separate secret field. */
 export async function createKey(req: CreateKeyRequest): Promise<{ key: ApiKey }> {
-	return apiFetch<{ key: ApiKey }>("/admin/keys", {
-		method: "POST",
+	return apiFetch<{ key: ApiKey }>('/admin/keys', {
+		method: 'POST',
 		body: JSON.stringify(req),
 	});
 }
 
 export async function revokeKey(id: string): Promise<{ revoked: boolean }> {
 	return apiFetch<{ revoked: boolean }>(`/admin/keys/${id}`, {
-		method: "DELETE",
+		method: 'DELETE',
 	});
 }
 
@@ -178,23 +178,23 @@ export interface EventsQuery {
 
 export async function getEvents(query: EventsQuery = {}): Promise<PurgeEvent[]> {
 	const params = new URLSearchParams();
-	if (query.zone_id) params.set("zone_id", query.zone_id);
-	if (query.key_id) params.set("key_id", query.key_id);
-	if (query.since) params.set("since", String(query.since));
-	if (query.until) params.set("until", String(query.until));
-	if (query.limit) params.set("limit", String(query.limit));
+	if (query.zone_id) params.set('zone_id', query.zone_id);
+	if (query.key_id) params.set('key_id', query.key_id);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	if (query.limit) params.set('limit', String(query.limit));
 	const qs = params.toString();
-	return apiFetch<PurgeEvent[]>(`/admin/analytics/events${qs ? `?${qs}` : ""}`);
+	return apiFetch<PurgeEvent[]>(`/admin/analytics/events${qs ? `?${qs}` : ''}`);
 }
 
-export async function getSummary(query: Omit<EventsQuery, "limit"> = {}): Promise<AnalyticsSummary> {
+export async function getSummary(query: Omit<EventsQuery, 'limit'> = {}): Promise<AnalyticsSummary> {
 	const params = new URLSearchParams();
-	if (query.zone_id) params.set("zone_id", query.zone_id);
-	if (query.key_id) params.set("key_id", query.key_id);
-	if (query.since) params.set("since", String(query.since));
-	if (query.until) params.set("until", String(query.until));
+	if (query.zone_id) params.set('zone_id', query.zone_id);
+	if (query.key_id) params.set('key_id', query.key_id);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
 	const qs = params.toString();
-	return apiFetch<AnalyticsSummary>(`/admin/analytics/summary${qs ? `?${qs}` : ""}`);
+	return apiFetch<AnalyticsSummary>(`/admin/analytics/summary${qs ? `?${qs}` : ''}`);
 }
 
 // ─── S3 Credentials ──────────────────────────────────────────────────
@@ -217,11 +217,11 @@ export interface CreateS3CredentialRequest {
 	created_by?: string;
 }
 
-export async function listS3Credentials(status?: "active" | "revoked"): Promise<S3Credential[]> {
+export async function listS3Credentials(status?: 'active' | 'revoked'): Promise<S3Credential[]> {
 	const params = new URLSearchParams();
-	if (status) params.set("status", status);
+	if (status) params.set('status', status);
 	const qs = params.toString();
-	return apiFetch<S3Credential[]>(`/admin/s3/credentials${qs ? `?${qs}` : ""}`);
+	return apiFetch<S3Credential[]>(`/admin/s3/credentials${qs ? `?${qs}` : ''}`);
 }
 
 export async function getS3Credential(accessKeyId: string): Promise<{ credential: S3Credential }> {
@@ -229,15 +229,15 @@ export async function getS3Credential(accessKeyId: string): Promise<{ credential
 }
 
 export async function createS3Credential(req: CreateS3CredentialRequest): Promise<{ credential: S3Credential }> {
-	return apiFetch<{ credential: S3Credential }>("/admin/s3/credentials", {
-		method: "POST",
+	return apiFetch<{ credential: S3Credential }>('/admin/s3/credentials', {
+		method: 'POST',
 		body: JSON.stringify(req),
 	});
 }
 
 export async function revokeS3Credential(accessKeyId: string): Promise<{ revoked: boolean }> {
 	return apiFetch<{ revoked: boolean }>(`/admin/s3/credentials/${accessKeyId}`, {
-		method: "DELETE",
+		method: 'DELETE',
 	});
 }
 
@@ -273,30 +273,30 @@ export interface S3EventsQuery {
 
 export async function getS3Events(query: S3EventsQuery = {}): Promise<S3Event[]> {
 	const params = new URLSearchParams();
-	if (query.credential_id) params.set("credential_id", query.credential_id);
-	if (query.bucket) params.set("bucket", query.bucket);
-	if (query.operation) params.set("operation", query.operation);
-	if (query.since) params.set("since", String(query.since));
-	if (query.until) params.set("until", String(query.until));
-	if (query.limit) params.set("limit", String(query.limit));
+	if (query.credential_id) params.set('credential_id', query.credential_id);
+	if (query.bucket) params.set('bucket', query.bucket);
+	if (query.operation) params.set('operation', query.operation);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	if (query.limit) params.set('limit', String(query.limit));
 	const qs = params.toString();
-	return apiFetch<S3Event[]>(`/admin/s3/analytics/events${qs ? `?${qs}` : ""}`);
+	return apiFetch<S3Event[]>(`/admin/s3/analytics/events${qs ? `?${qs}` : ''}`);
 }
 
-export async function getS3Summary(query: Omit<S3EventsQuery, "limit"> = {}): Promise<S3AnalyticsSummary> {
+export async function getS3Summary(query: Omit<S3EventsQuery, 'limit'> = {}): Promise<S3AnalyticsSummary> {
 	const params = new URLSearchParams();
-	if (query.credential_id) params.set("credential_id", query.credential_id);
-	if (query.bucket) params.set("bucket", query.bucket);
-	if (query.operation) params.set("operation", query.operation);
-	if (query.since) params.set("since", String(query.since));
-	if (query.until) params.set("until", String(query.until));
+	if (query.credential_id) params.set('credential_id', query.credential_id);
+	if (query.bucket) params.set('bucket', query.bucket);
+	if (query.operation) params.set('operation', query.operation);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
 	const qs = params.toString();
-	return apiFetch<S3AnalyticsSummary>(`/admin/s3/analytics/summary${qs ? `?${qs}` : ""}`);
+	return apiFetch<S3AnalyticsSummary>(`/admin/s3/analytics/summary${qs ? `?${qs}` : ''}`);
 }
 
 // ─── Health ──────────────────────────────────────────────────────────
 
 export async function healthCheck(): Promise<{ ok: boolean }> {
-	const res = await fetch("/health");
+	const res = await fetch('/health');
 	return res.json();
 }

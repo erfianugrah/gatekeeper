@@ -1,37 +1,18 @@
-import { useState, useEffect, useCallback } from "react";
-import {
-	Plus,
-	ShieldOff,
-	Loader2,
-} from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-	DialogTrigger,
-} from "@/components/ui/dialog";
-import { PolicyBuilder } from "@/components/PolicyBuilder";
-import { listKeys, createKey, revokeKey } from "@/lib/api";
-import type { ApiKey, PolicyDocument } from "@/lib/api";
-import { cn } from "@/lib/utils";
-import { T } from "@/lib/typography";
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, ShieldOff, Loader2 } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { PolicyBuilder } from '@/components/PolicyBuilder';
+import { listKeys, createKey, revokeKey } from '@/lib/api';
+import type { ApiKey, PolicyDocument } from '@/lib/api';
+import { cn } from '@/lib/utils';
+import { T } from '@/lib/typography';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -40,10 +21,10 @@ function truncateId(id: string, len = 12): string {
 }
 
 function formatDate(epoch: number): string {
-	return new Date(epoch).toLocaleDateString("en-US", {
-		year: "numeric",
-		month: "short",
-		day: "numeric",
+	return new Date(epoch).toLocaleDateString('en-US', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
 	});
 }
 
@@ -55,12 +36,12 @@ interface CreateKeyDialogProps {
 
 function makeDefaultPolicy(): PolicyDocument {
 	return {
-		version: "2025-01-01",
+		version: '2025-01-01',
 		statements: [
 			{
-				effect: "allow",
-				actions: ["purge:*"],
-				resources: ["*"],
+				effect: 'allow',
+				actions: ['purge:*'],
+				resources: ['*'],
 			},
 		],
 	};
@@ -68,37 +49,31 @@ function makeDefaultPolicy(): PolicyDocument {
 
 function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 	const [open, setOpen] = useState(false);
-	const [name, setName] = useState("");
-	const [zoneId, setZoneId] = useState("");
+	const [name, setName] = useState('');
 	const [policy, setPolicy] = useState<PolicyDocument>(() => makeDefaultPolicy());
 	const [creating, setCreating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
 	const handleCreate = async () => {
 		setError(null);
-		if (!zoneId.trim()) {
-			setError("Zone ID is required");
-			return;
-		}
 		if (policy.statements.length === 0) {
-			setError("Policy must have at least one statement");
+			setError('Policy must have at least one statement');
 			return;
 		}
 		if (policy.statements.some((s: any) => s.actions.length === 0)) {
-			setError("Each statement must have at least one action");
+			setError('Each statement must have at least one action');
 			return;
 		}
 
 		setCreating(true);
 		try {
-			const result = await createKey({ name, zone_id: zoneId.trim(), policy });
+			const result = await createKey({ name, policy });
 			onCreated(result.key.id);
 			setOpen(false);
-			setName("");
-			setZoneId("");
+			setName('');
 			setPolicy(makeDefaultPolicy());
 		} catch (e: any) {
-			setError(e.message ?? "Failed to create key");
+			setError(e.message ?? 'Failed to create key');
 		} finally {
 			setCreating(false);
 		}
@@ -121,46 +96,28 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 			<DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>Create API Key</DialogTitle>
-					<DialogDescription>
-						Create a new purge API key scoped to a specific zone.
-					</DialogDescription>
+					<DialogDescription>Create a new purge API key. The zone is determined at purge time, not key creation.</DialogDescription>
 				</DialogHeader>
 
 				<div className="space-y-4">
 					<div className="space-y-2">
 						<Label className={T.formLabel}>Key Name</Label>
-						<Input
-							placeholder="e.g. deploy-bot"
-							value={name}
-							onChange={(e: any) => setName(e.target.value)}
-						/>
-					</div>
-
-					<div className="space-y-2">
-						<Label className={T.formLabel}>Zone ID</Label>
-						<Input
-							placeholder="e.g. a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
-							value={zoneId}
-							onChange={(e: any) => setZoneId(e.target.value)}
-							className="font-data"
-						/>
+						<Input placeholder="e.g. deploy-bot" value={name} onChange={(e: any) => setName(e.target.value)} />
 					</div>
 
 					<div className="space-y-2">
 						<Label className={T.formLabel}>Policy</Label>
-						<PolicyBuilder zoneId={zoneId || "*"} value={policy} onChange={setPolicy} />
+						<PolicyBuilder value={policy} onChange={setPolicy} />
 					</div>
 
-					{error && (
-						<p className="text-sm text-lv-red">{error}</p>
-					)}
+					{error && <p className="text-sm text-lv-red">{error}</p>}
 				</div>
 
 				<DialogFooter>
 					<Button variant="outline" onClick={() => setOpen(false)}>
 						Cancel
 					</Button>
-					<Button onClick={handleCreate} disabled={creating || !name.trim() || !zoneId.trim()}>
+					<Button onClick={handleCreate} disabled={creating || !name.trim()}>
 						{creating && <Loader2 className="h-4 w-4 animate-spin" />}
 						Create
 					</Button>
@@ -183,15 +140,11 @@ function SecretBanner({ secret, onDismiss }: { secret: string; onDismiss: () => 
 
 	return (
 		<div className="rounded-lg border border-lv-green/30 bg-lv-green/10 px-4 py-3 space-y-2">
-			<p className="text-sm font-medium text-lv-green">
-				Key created! Copy the secret now — it will not be shown again.
-			</p>
+			<p className="text-sm font-medium text-lv-green">Key created! Copy the secret now — it will not be shown again.</p>
 			<div className="flex items-center gap-2">
-				<code className="flex-1 break-all rounded bg-lovelace-800 px-3 py-1.5 font-data text-xs text-foreground">
-					{secret}
-				</code>
+				<code className="flex-1 break-all rounded bg-lovelace-800 px-3 py-1.5 font-data text-xs text-foreground">{secret}</code>
 				<Button size="sm" variant="outline" onClick={handleCopy}>
-					{copied ? "Copied!" : "Copy"}
+					{copied ? 'Copied!' : 'Copy'}
 				</Button>
 				<Button size="sm" variant="ghost" onClick={onDismiss}>
 					Dismiss
@@ -229,7 +182,7 @@ export function KeysPage() {
 			const data = await listKeys();
 			setKeys(data);
 		} catch (e: any) {
-			setError(e.message ?? "Failed to load keys");
+			setError(e.message ?? 'Failed to load keys');
 			setKeys([]);
 		} finally {
 			setLoading(false);
@@ -247,7 +200,7 @@ export function KeysPage() {
 			await revokeKey(keyId);
 			await fetchKeys();
 		} catch (e: any) {
-			setError(e.message ?? "Failed to revoke key");
+			setError(e.message ?? 'Failed to revoke key');
 		} finally {
 			setRevokingId(null);
 		}
@@ -271,11 +224,7 @@ export function KeysPage() {
 			{secret && <SecretBanner secret={secret} onDismiss={() => setSecret(null)} />}
 
 			{/* ── Error ──────────────────────────────────────────────── */}
-			{error && (
-				<div className="rounded-lg border border-lv-red/30 bg-lv-red/10 px-4 py-3 text-sm text-lv-red">
-					{error}
-				</div>
-			)}
+			{error && <div className="rounded-lg border border-lv-red/30 bg-lv-red/10 px-4 py-3 text-sm text-lv-red">{error}</div>}
 
 			{/* ── Loading ────────────────────────────────────────────── */}
 			{loading && <KeysTableSkeleton />}
@@ -291,9 +240,7 @@ export function KeysPage() {
 			{!loading && keys.length > 0 && (
 				<Card>
 					<CardHeader>
-						<CardTitle className={T.sectionHeading}>
-							API Keys ({keys.length})
-						</CardTitle>
+						<CardTitle className={T.sectionHeading}>API Keys ({keys.length})</CardTitle>
 					</CardHeader>
 					<CardContent className="p-0">
 						<Table>
@@ -306,7 +253,7 @@ export function KeysPage() {
 									<TableHead className={T.sectionLabel}>Created</TableHead>
 									<TableHead className={T.sectionLabel}>Expires</TableHead>
 									<TableHead className={T.sectionLabel}>Created By</TableHead>
-									<TableHead className={cn(T.sectionLabel, "text-right")}>Actions</TableHead>
+									<TableHead className={cn(T.sectionLabel, 'text-right')}>Actions</TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -319,9 +266,13 @@ export function KeysPage() {
 											</code>
 										</TableCell>
 										<TableCell>
-											<code className={T.tableCellMono} title={k.zone_id}>
-												{truncateId(k.zone_id, 8)}
-											</code>
+											{k.zone_id ? (
+												<code className={T.tableCellMono} title={k.zone_id}>
+													{truncateId(k.zone_id, 8)}
+												</code>
+											) : (
+												<span className={T.muted}>Any</span>
+											)}
 										</TableCell>
 										<TableCell>
 											{k.revoked ? (
@@ -334,9 +285,7 @@ export function KeysPage() {
 										<TableCell className={T.tableCell}>
 											{k.expires_at ? formatDate(k.expires_at) : <span className={T.muted}>Never</span>}
 										</TableCell>
-										<TableCell className={T.tableCell}>
-											{k.created_by ?? <span className={T.muted}>—</span>}
-										</TableCell>
+										<TableCell className={T.tableCell}>{k.created_by ?? <span className={T.muted}>—</span>}</TableCell>
 										<TableCell className="text-right">
 											{!k.revoked && (
 												<Button
@@ -346,11 +295,7 @@ export function KeysPage() {
 													onClick={() => handleRevoke(k.id)}
 													disabled={revokingId === k.id}
 												>
-													{revokingId === k.id ? (
-														<Loader2 className="h-3.5 w-3.5 animate-spin" />
-													) : (
-														<ShieldOff className="h-3.5 w-3.5" />
-													)}
+													{revokingId === k.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldOff className="h-3.5 w-3.5" />}
 													Revoke
 												</Button>
 											)}

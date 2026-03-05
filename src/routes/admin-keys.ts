@@ -33,11 +33,11 @@ adminKeysApp.post('/', async (c) => {
 		console.log(JSON.stringify(log));
 		return c.json({ success: false, errors: [{ code: 400, message: 'Required field: name (string)' }] }, 400);
 	}
-	if (!raw.zone_id || typeof raw.zone_id !== 'string') {
+	if (raw.zone_id !== undefined && typeof raw.zone_id !== 'string') {
 		log.status = 400;
-		log.error = 'missing_zone_id';
+		log.error = 'invalid_zone_id';
 		console.log(JSON.stringify(log));
-		return c.json({ success: false, errors: [{ code: 400, message: 'Required field: zone_id (string)' }] }, 400);
+		return c.json({ success: false, errors: [{ code: 400, message: 'zone_id must be a string if provided' }] }, 400);
 	}
 
 	if (!raw.policy || typeof raw.policy !== 'object') {
@@ -79,14 +79,14 @@ adminKeysApp.post('/', async (c) => {
 	const identity = c.get('accessIdentity');
 	const req: CreateKeyRequest = {
 		name: raw.name as string,
-		zone_id: raw.zone_id as string,
+		zone_id: typeof raw.zone_id === 'string' ? raw.zone_id : undefined,
 		policy: raw.policy as PolicyDocument,
 		created_by: identity?.email ?? (typeof raw.created_by === 'string' ? raw.created_by : undefined),
 		expires_in_days: typeof raw.expires_in_days === 'number' ? raw.expires_in_days : undefined,
 		rate_limit: rateLimit,
 	};
 
-	log.zoneId = req.zone_id;
+	log.zoneId = req.zone_id ?? 'none';
 	log.keyName = req.name;
 	log.statementCount = req.policy.statements.length;
 

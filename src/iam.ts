@@ -22,7 +22,7 @@ export class IamManager {
 			CREATE TABLE IF NOT EXISTS api_keys (
 				id TEXT PRIMARY KEY,
 				name TEXT NOT NULL,
-				zone_id TEXT NOT NULL,
+				zone_id TEXT,
 				created_at INTEGER NOT NULL,
 				expires_at INTEGER,
 				revoked INTEGER NOT NULL DEFAULT 0,
@@ -52,7 +52,7 @@ export class IamManager {
 			 VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
 			id,
 			req.name,
-			req.zone_id,
+			req.zone_id ?? null,
 			now,
 			expiresAt,
 			rl?.bulk_rate ?? null,
@@ -66,7 +66,7 @@ export class IamManager {
 		const key: ApiKey = {
 			id,
 			name: req.name,
-			zone_id: req.zone_id,
+			zone_id: req.zone_id ?? null,
 			created_at: now,
 			expires_at: expiresAt,
 			revoked: 0,
@@ -138,7 +138,8 @@ export class IamManager {
 			return { authorized: false, error: 'API key has expired' };
 		}
 
-		if (key.zone_id !== zoneId) {
+		// If the key is scoped to a specific zone, enforce it
+		if (key.zone_id && key.zone_id !== zoneId) {
 			return { authorized: false, error: 'API key is not authorized for this zone' };
 		}
 

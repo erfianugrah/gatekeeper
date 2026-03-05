@@ -57,7 +57,7 @@ export interface RateLimitConfig {
 export interface ApiKey {
 	id: string;
 	name: string;
-	zone_id: string;
+	zone_id: string | null;
 	created_at: number;
 	expires_at: number | null;
 	revoked: number;
@@ -78,7 +78,7 @@ export interface ApiKey {
 /** Key creation request with policy document. */
 export interface CreateKeyRequest {
 	name: string;
-	zone_id: string;
+	zone_id?: string;
 	expires_in_days?: number;
 	/** Policy document. */
 	policy: PolicyDocument;
