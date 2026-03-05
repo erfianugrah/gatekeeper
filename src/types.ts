@@ -1,14 +1,9 @@
 import type { PolicyDocument } from './policy-types';
-import type { AccessIdentity } from './auth-access';
 
 // --- Hono env ───────────────────────────────────────────────────────────────
 
 type HonoEnv = {
 	Bindings: Env;
-	Variables: {
-		/** Set when authenticated via Cloudflare Access JWT */
-		accessIdentity?: AccessIdentity;
-	};
 };
 
 export type { HonoEnv };
@@ -63,7 +58,7 @@ export interface ApiKey {
 	revoked: number;
 	/** JSON-serialized PolicyDocument. */
 	policy: string;
-	/** Email of the user who created this key (from Access JWT). NULL for admin-key created keys. */
+	/** Email of the user who created this key. NULL if not provided. */
 	created_by: string | null;
 	/** Per-key bulk rate limit (req/sec). NULL = use account default. */
 	bulk_rate: number | null;
@@ -82,7 +77,7 @@ export interface CreateKeyRequest {
 	expires_in_days?: number;
 	/** Policy document. */
 	policy: PolicyDocument;
-	/** Email of the user creating this key (from Access JWT). */
+	/** Email of the user creating this key. */
 	created_by?: string;
 	/** Optional per-key rate limit overrides. */
 	rate_limit?: {

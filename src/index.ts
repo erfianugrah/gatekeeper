@@ -3,6 +3,7 @@ import { purgeRoute, __testClearInflightCache } from "./routes/purge";
 import { adminApp } from "./routes/admin";
 import { s3App } from "./s3/routes";
 import { deleteOldEvents } from "./analytics";
+import { deleteOldS3Events } from "./s3/analytics";
 import type { HonoEnv } from "./types";
 
 // Re-export DO class — wrangler requires it from the main entrypoint
@@ -29,12 +30,16 @@ export default {
 	async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
 		const retentionDays = Number(env.RETENTION_DAYS) || 30;
 		try {
-			const deleted = await deleteOldEvents(env.ANALYTICS_DB, retentionDays);
+			const [purgeDeleted, s3Deleted] = await Promise.all([
+				deleteOldEvents(env.ANALYTICS_DB, retentionDays),
+				deleteOldS3Events(env.ANALYTICS_DB, retentionDays),
+			]);
 			console.log(JSON.stringify({
 				event: 'retention_cron',
 				cron: controller.cron,
 				retentionDays,
-				deleted,
+				purgeDeleted,
+				s3Deleted,
 				ts: new Date(controller.scheduledTime).toISOString(),
 			}));
 		} catch (e: any) {

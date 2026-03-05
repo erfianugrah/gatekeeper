@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { SELF, fetchMock } from 'cloudflare:test';
-import { adminHeaders, ADMIN_KEY } from './helpers';
+import { s3WildcardPolicy, s3ReadOnlyPolicy } from './s3-helpers';
+import { adminHeaders } from './helpers';
 
 // --- Helpers ---
 
@@ -17,30 +18,16 @@ async function createS3Credential(
 	return res;
 }
 
-function s3WildcardPolicy() {
-	return {
-		version: '2025-01-01',
-		statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['*'] }],
-	};
-}
-
-function s3ReadOnlyPolicy(bucket: string) {
-	return {
-		version: '2025-01-01',
-		statements: [{
-			effect: 'allow',
-			actions: ['s3:GetObject', 's3:ListBucket'],
-			resources: [`bucket:${bucket}`, `object:${bucket}/*`],
-		}],
-	};
-}
-
 // --- Tests ---
 
 describe('S3 credentials — CRUD', () => {
 	beforeAll(() => {
 		fetchMock.activate();
 		fetchMock.disableNetConnect();
+	});
+
+	afterEach(() => {
+		fetchMock.assertNoPendingInterceptors();
 	});
 
 	it('create credential -> returns access_key_id and secret_access_key', async () => {

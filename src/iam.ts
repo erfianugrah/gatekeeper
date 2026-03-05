@@ -1,3 +1,5 @@
+import { evaluatePolicy } from './policy-engine';
+import { queryAll } from './crypto';
 import type {
 	ApiKey,
 	CachedKey,
@@ -6,12 +8,6 @@ import type {
 	PurgeBody,
 } from './types';
 import type { PolicyDocument, RequestContext } from './policy-types';
-import { evaluatePolicy } from './policy-engine';
-
-/** Type-safe helper to avoid repetitive `as unknown as T[]` on every query. */
-function queryAll<T>(sql: SqlStorage, query: string, ...params: unknown[]): T[] {
-	return sql.exec(query, ...params).toArray() as unknown as T[];
-}
 
 /** Key prefix for all keys. */
 const KEY_PREFIX = 'gw_';

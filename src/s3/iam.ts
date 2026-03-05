@@ -1,12 +1,8 @@
-import type { PolicyDocument, RequestContext } from '../policy-types';
 import { evaluatePolicy } from '../policy-engine';
+import { queryAll } from '../crypto';
+import type { PolicyDocument, RequestContext } from '../policy-types';
 import type { S3Credential, CachedS3Credential, CreateS3CredentialRequest } from './types';
 import type { AuthResult } from '../types';
-
-/** Type-safe helper to avoid repetitive `as unknown as T[]` on every query. */
-function queryAll<T>(sql: SqlStorage, query: string, ...params: unknown[]): T[] {
-	return sql.exec(query, ...params).toArray() as unknown as T[];
-}
 
 /** Access key ID prefix. */
 const KEY_PREFIX = 'GK';

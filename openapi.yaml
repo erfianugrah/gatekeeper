@@ -2,10 +2,13 @@ openapi: 3.1.0
 info:
   title: Gatekeeper
   description: >
-    Rate-limited API gateway with AWS IAM-style policy authorization.
-    Fronts Cloudflare's cache purge API with per-key policies, token-bucket
-    rate limiting, request collapsing, and D1-backed analytics.
-  version: 2.0.0
+    API gateway on Cloudflare Workers with AWS IAM-style policy authorization.
+    Fronts Cloudflare's cache purge API and S3-compatible R2 storage with
+    per-key/credential policies, token-bucket rate limiting, request collapsing,
+    and D1-backed analytics. The S3 proxy provides fine-grained object-level
+    access control that R2's native tokens cannot — key-prefix restrictions,
+    per-operation permissions, cross-bucket mixed policies.
+  version: 3.0.0
   contact:
     name: Erfi Anugrah
 
@@ -43,6 +46,16 @@ components:
         Cloudflare Access JWT. Injected automatically by Access for
         browser-based dashboard users. Also accepted via `CF_Authorization`
         cookie.
+
+    S3SigV4Auth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: >
+        AWS Signature Version 4 authentication. S3 clients (rclone, boto3,
+        aws-cli) send this automatically. Credentials are issued via
+        `POST /admin/s3/credentials` (access key prefix `GK`). Also
+        supports presigned URL authentication via query parameters.
 
   # ─── Reusable schemas ──────────────────────────────────────────────────
 
@@ -378,6 +391,104 @@ components:
         avg_duration_ms:
           type: integer
 
+    # --- S3 Credentials ---
+
+    S3Credential:
+      type: object
+      required: [access_key_id, name, created_at, revoked, policy]
+      properties:
+        access_key_id:
+          type: string
+          description: Access key ID (prefix `GK`).
+          examples: ["GK1A2B3C4D5E6F7890AB"]
+        secret_access_key:
+          type: string
+          description: >
+            Secret access key. Only returned on creation — redacted in list/get.
+        name:
+          type: string
+        created_at:
+          type: integer
+          description: Unix timestamp (ms).
+        expires_at:
+          type: ["integer", "null"]
+          description: Unix timestamp (ms), or null if no expiration.
+        revoked:
+          type: integer
+          enum: [0, 1]
+          description: 0 = active, 1 = revoked.
+        policy:
+          type: string
+          description: JSON-serialized PolicyDocument with S3 actions.
+        created_by:
+          type: ["string", "null"]
+          description: Email of the creator (from Access JWT), or null.
+
+    CreateS3CredentialRequest:
+      type: object
+      required: [name, policy]
+      properties:
+        name:
+          type: string
+        policy:
+          $ref: "#/components/schemas/PolicyDocument"
+          description: >
+            Policy with S3 actions (e.g. `s3:GetObject`, `s3:PutObject`, `s3:*`)
+            and S3 resources (e.g. `object:my-bucket/*`, `bucket:my-bucket`, `*`).
+        expires_in_days:
+          type: integer
+          minimum: 1
+        created_by:
+          type: string
+
+    # --- S3 Analytics ---
+
+    S3Event:
+      type: object
+      required: [id, credential_id, operation, status, duration_ms, created_at]
+      properties:
+        id:
+          type: integer
+        credential_id:
+          type: string
+        operation:
+          type: string
+          description: S3 operation name (e.g. GetObject, PutObject, ListBuckets).
+        bucket:
+          type: ["string", "null"]
+        key:
+          type: ["string", "null"]
+        status:
+          type: integer
+        duration_ms:
+          type: integer
+        created_at:
+          type: integer
+          description: Unix timestamp (ms).
+
+    S3AnalyticsSummary:
+      type: object
+      required: [total_requests, by_status, by_operation, by_bucket, avg_duration_ms]
+      properties:
+        total_requests:
+          type: integer
+        by_status:
+          type: object
+          additionalProperties:
+            type: integer
+        by_operation:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Top 20 operations by count.
+        by_bucket:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Top 20 buckets by count.
+        avg_duration_ms:
+          type: integer
+
   # ─── Reusable parameters ─────────────────────────────────────────────────
 
   parameters:
@@ -406,6 +517,16 @@ components:
       schema:
         type: string
       description: API key ID.
+
+    AccessKeyIdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: S3 credential access key ID (prefix `GK`).
+      examples:
+        - GK1A2B3C4D5E6F7890AB
 
 # ─── Paths ─────────────────────────────────────────────────────────────────
 
@@ -912,6 +1033,447 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  # ─── Admin: S3 Credentials ────────────────────────────────────────────────
+
+  /admin/s3/credentials:
+    post:
+      operationId: createS3Credential
+      summary: Create S3 credential
+      description: >
+        Create a new S3 credential with an attached IAM policy document.
+        Returns the `access_key_id` (prefix `GK`) and `secret_access_key`.
+        The secret is only shown on creation — it cannot be retrieved later.
+        Use these credentials with any S3-compatible client (rclone, boto3,
+        aws-cli) pointed at `https://<gateway>/s3`.
+      tags: [S3Credentials]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateS3CredentialRequest"
+            examples:
+              full-access:
+                summary: Full S3 access to all buckets
+                value:
+                  name: dev-full-access
+                  policy:
+                    version: "2025-01-01"
+                    statements:
+                      - effect: allow
+                        actions: ["s3:*"]
+                        resources: ["*"]
+              read-only-prefix:
+                summary: Read-only access to a key prefix
+                value:
+                  name: cdn-reader
+                  policy:
+                    version: "2025-01-01"
+                    statements:
+                      - effect: allow
+                        actions: ["s3:GetObject", "s3:ListBucket"]
+                        resources: ["object:my-bucket/public/*", "bucket:my-bucket"]
+                        conditions:
+                          - field: key.prefix
+                            operator: starts_with
+                            value: "public/"
+                  expires_in_days: 90
+      responses:
+        "200":
+          description: Credential created. Secret is only returned here.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: object
+                    required: [credential]
+                    properties:
+                      credential:
+                        $ref: "#/components/schemas/S3Credential"
+                        description: >
+                          The created credential. `secret_access_key` is only
+                          present in this response — store it securely.
+        "400":
+          description: Validation error (missing fields, invalid policy).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    get:
+      operationId: listS3Credentials
+      summary: List S3 credentials
+      description: >
+        Returns all S3 credentials. Secrets are redacted. Filter by
+        status to get only active or revoked credentials.
+      tags: [S3Credentials]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, revoked]
+          description: Filter by credential status.
+      responses:
+        "200":
+          description: List of S3 credentials (secrets redacted).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/S3Credential"
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/s3/credentials/{id}:
+    get:
+      operationId: getS3Credential
+      summary: Get S3 credential details
+      description: >
+        Returns credential metadata including the serialized policy.
+        The secret is redacted.
+      tags: [S3Credentials]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AccessKeyIdPath"
+      responses:
+        "200":
+          description: Credential details (secret redacted).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: object
+                    required: [credential]
+                    properties:
+                      credential:
+                        $ref: "#/components/schemas/S3Credential"
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Credential not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    delete:
+      operationId: revokeS3Credential
+      summary: Revoke S3 credential
+      description: >
+        Soft-revoke — sets `revoked = 1`. The credential is immediately
+        rejected on subsequent S3 requests (cache TTL up to 60s).
+      tags: [S3Credentials]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AccessKeyIdPath"
+      responses:
+        "200":
+          description: Credential revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: object
+                    required: [revoked]
+                    properties:
+                      revoked:
+                        type: boolean
+                        const: true
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Credential not found or already revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  # ─── Admin: S3 Analytics ─────────────────────────────────────────────────
+
+  /admin/s3/analytics/events:
+    get:
+      operationId: getS3AnalyticsEvents
+      summary: Query S3 event logs
+      description: >
+        Returns recent S3 proxy events from D1. Unlike purge analytics,
+        S3 analytics are account-level (no zone_id required).
+      tags: [S3Analytics]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: credential_id
+          in: query
+          schema:
+            type: string
+          description: Filter events by S3 credential access key ID.
+        - name: bucket
+          in: query
+          schema:
+            type: string
+          description: Filter events by bucket name.
+        - name: operation
+          in: query
+          schema:
+            type: string
+          description: Filter events by S3 operation (e.g. GetObject, PutObject).
+        - name: since
+          in: query
+          schema:
+            type: integer
+          description: Start time (unix ms).
+        - name: until
+          in: query
+          schema:
+            type: integer
+          description: End time (unix ms).
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+          description: Max events to return.
+      responses:
+        "200":
+          description: List of S3 events.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/S3Event"
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Analytics not configured (ANALYTICS_DB binding absent).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/s3/analytics/summary:
+    get:
+      operationId: getS3AnalyticsSummary
+      summary: Aggregated S3 analytics
+      description: >
+        Returns aggregate stats: total requests, breakdowns by status code,
+        top 20 operations, top 20 buckets, and average duration.
+      tags: [S3Analytics]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: credential_id
+          in: query
+          schema:
+            type: string
+          description: Filter by S3 credential access key ID.
+        - name: bucket
+          in: query
+          schema:
+            type: string
+          description: Filter by bucket name.
+        - name: operation
+          in: query
+          schema:
+            type: string
+          description: Filter by S3 operation.
+        - name: since
+          in: query
+          schema:
+            type: integer
+          description: Start time (unix ms).
+        - name: until
+          in: query
+          schema:
+            type: integer
+          description: End time (unix ms).
+      responses:
+        "200":
+          description: Aggregated S3 analytics.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    $ref: "#/components/schemas/S3AnalyticsSummary"
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Analytics not configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  # ─── S3 Proxy ────────────────────────────────────────────────────────────
+
+  /s3/{path}:
+    get:
+      operationId: s3ProxyGet
+      summary: S3 proxy (GET)
+      description: &s3proxy-description >
+        S3-compatible proxy to Cloudflare R2. Authenticates via AWS
+        Signature Version 4 (header or presigned URL), evaluates the
+        request against the credential's IAM policy, then re-signs and
+        forwards to R2. Supports all S3 operations — 26 R2-native
+        operations and 40 extended operations (forwarded to R2 which
+        returns its own errors for unsupported ones).
+
+
+        Use any S3-compatible client pointed at `https://<gateway>/s3`
+        as the endpoint. Credentials are issued via
+        `POST /admin/s3/credentials`.
+      tags: [S3Proxy]
+      security:
+        - S3SigV4Auth: []
+      parameters: &s3proxy-params
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+          description: >
+            S3 path: empty for ListBuckets, `<bucket>` for bucket ops,
+            `<bucket>/<key>` for object ops.
+      responses: &s3proxy-responses
+        "200":
+          description: Proxied R2 response. Content type varies by operation.
+        "400":
+          description: Invalid S3 request (malformed auth, bad path).
+          content:
+            application/xml:
+              schema:
+                type: string
+                description: S3-compatible XML error response.
+        "403":
+          description: >
+            Authentication failed (bad signature, revoked credential) or
+            IAM policy denied the operation.
+          content:
+            application/xml:
+              schema:
+                type: string
+        "501":
+          description: >
+            Operation not implemented by R2 (returned by R2 itself).
+          content:
+            application/xml:
+              schema:
+                type: string
+    put:
+      operationId: s3ProxyPut
+      summary: S3 proxy (PUT)
+      description: *s3proxy-description
+      tags: [S3Proxy]
+      security:
+        - S3SigV4Auth: []
+      parameters: *s3proxy-params
+      responses: *s3proxy-responses
+    post:
+      operationId: s3ProxyPost
+      summary: S3 proxy (POST)
+      description: *s3proxy-description
+      tags: [S3Proxy]
+      security:
+        - S3SigV4Auth: []
+      parameters: *s3proxy-params
+      responses: *s3proxy-responses
+    delete:
+      operationId: s3ProxyDelete
+      summary: S3 proxy (DELETE)
+      description: *s3proxy-description
+      tags: [S3Proxy]
+      security:
+        - S3SigV4Auth: []
+      parameters: *s3proxy-params
+      responses: *s3proxy-responses
+    head:
+      operationId: s3ProxyHead
+      summary: S3 proxy (HEAD)
+      description: *s3proxy-description
+      tags: [S3Proxy]
+      security:
+        - S3SigV4Auth: []
+      parameters: *s3proxy-params
+      responses: *s3proxy-responses
+
 tags:
   - name: System
     description: Health and status endpoints.
@@ -921,3 +1483,18 @@ tags:
     description: API key management with IAM policy documents.
   - name: Analytics
     description: D1-backed purge event analytics.
+  - name: S3Credentials
+    description: >
+      S3 credential management. Credentials are separate from purge API keys
+      and use access key ID (prefix `GK`) + secret access key authentication
+      via AWS Signature Version 4.
+  - name: S3Analytics
+    description: >
+      D1-backed analytics for S3 proxy requests. Account-level (no zone_id
+      required, unlike purge analytics).
+  - name: S3Proxy
+    description: >
+      S3-compatible proxy to Cloudflare R2 with IAM policy authorization.
+      Clients use standard S3 SDKs (rclone, boto3, aws-cli) pointed at the
+      gateway's `/s3` endpoint. Authentication uses AWS Signature Version 4
+      with credentials issued via the S3Credentials admin endpoints.

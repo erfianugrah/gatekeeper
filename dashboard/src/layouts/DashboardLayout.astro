@@ -13,6 +13,7 @@ const navItems = [
   { id: "keys", label: "Keys", href: "/dashboard/keys", icon: "key" },
   { id: "analytics", label: "Analytics", href: "/dashboard/analytics", icon: "list" },
   { id: "purge", label: "Purge", href: "/dashboard/purge", icon: "zap" },
+  { id: "s3-credentials", label: "S3 Credentials", href: "/dashboard/s3-credentials", icon: "s3" },
 ];
 ---
 
@@ -125,6 +126,23 @@ const navItems = [
                       stroke-linejoin="round"
                     >
                       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                    </svg>
+                  )}
+                  {/* S3 / Cloud Storage */}
+                  {item.icon === "s3" && (
+                    <svg
+                      class="h-4 w-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4" />
+                      <path d="M14 2v5h5" />
+                      <path d="M3 15h6" />
+                      <path d="M6 12l-3 3 3 3" />
                     </svg>
                   )}
                   <span>{item.label}</span>

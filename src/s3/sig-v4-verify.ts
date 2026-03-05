@@ -12,8 +12,13 @@ const ENCODER = new TextEncoder();
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
+/** Check if a request uses presigned URL authentication (Sig V4 in query params). */
+export function isPresignedUrl(searchParams: URLSearchParams): boolean {
+	return searchParams.get('X-Amz-Algorithm') === 'AWS4-HMAC-SHA256';
+}
+
 /**
- * Verify an inbound AWS Sig V4 signed request.
+ * Verify an inbound AWS Sig V4 signed request (header-based auth).
  * Returns the access_key_id if valid, or an error message.
  *
  * @param request - The incoming HTTP request
@@ -73,6 +78,117 @@ export async function verifySigV4(
 		parsed.signedHeaders,
 		contentHash,
 		url,
+		false,
+		request,
+	);
+
+	// 6. Build string to sign
+	const canonicalRequestHash = await sha256Hex(canonicalRequest);
+	const stringToSign = [
+		'AWS4-HMAC-SHA256',
+		amzDate,
+		parsed.credentialScope,
+		canonicalRequestHash,
+	].join('\n');
+
+	// 7. Derive signing key
+	const signingKey = await deriveSigningKey(secret, parsed.date, parsed.region, parsed.service);
+
+	// 8. Compute expected signature
+	const expectedSig = await hmacHex(signingKey, stringToSign);
+
+	// 9. Constant-time comparison
+	const isValid = await timingSafeCompare(parsed.signature, expectedSig);
+
+	if (!isValid) {
+		return { valid: false, accessKeyId: parsed.accessKeyId, error: 'SignatureDoesNotMatch' };
+	}
+
+	return { valid: true, accessKeyId: parsed.accessKeyId };
+}
+
+/**
+ * Verify an inbound AWS Sig V4 presigned URL (query string auth).
+ *
+ * Presigned URLs carry auth parameters in query strings:
+ *   X-Amz-Algorithm, X-Amz-Credential, X-Amz-Date, X-Amz-Expires,
+ *   X-Amz-SignedHeaders, X-Amz-Signature
+ *
+ * The canonical request differs from header-based auth:
+ * - Canonical query string includes all X-Amz-* params EXCEPT X-Amz-Signature
+ * - Payload hash is always UNSIGNED-PAYLOAD for S3
+ * - Signed headers typically only contain "host"
+ */
+export async function verifySigV4Presigned(
+	request: Request,
+	url: URL,
+	getSecret: (accessKeyId: string) => string | null,
+): Promise<SigV4VerifyResult> {
+	// 1. Parse presigned URL parameters
+	const parsed = parsePresignedParams(url.searchParams);
+	if (!parsed) {
+		return { valid: false, error: 'Malformed presigned URL parameters' };
+	}
+
+	// 2. Validate region
+	if (!VALID_REGIONS.has(parsed.region)) {
+		return { valid: false, error: `Invalid region: ${parsed.region}` };
+	}
+
+	// 3. Validate timestamp and expiry
+	const amzDate = url.searchParams.get('X-Amz-Date');
+	if (!amzDate) {
+		return { valid: false, error: 'Missing X-Amz-Date parameter' };
+	}
+
+	const requestTime = parseAmzDate(amzDate);
+	if (!requestTime) {
+		return { valid: false, error: 'Invalid X-Amz-Date format' };
+	}
+
+	const expiresStr = url.searchParams.get('X-Amz-Expires');
+	if (!expiresStr) {
+		return { valid: false, error: 'Missing X-Amz-Expires parameter' };
+	}
+
+	const expiresSec = Number(expiresStr);
+	if (!Number.isFinite(expiresSec) || expiresSec <= 0) {
+		return { valid: false, error: 'Invalid X-Amz-Expires value' };
+	}
+
+	// AWS max is 7 days (604800 seconds)
+	if (expiresSec > 604800) {
+		return { valid: false, error: 'X-Amz-Expires exceeds maximum (604800 seconds)' };
+	}
+
+	const now = Date.now();
+	const expiryTime = requestTime + expiresSec * 1000;
+	if (now > expiryTime) {
+		return { valid: false, error: 'Request has expired' };
+	}
+
+	// Also check that the request wasn't signed too far in the future
+	if (requestTime > now + MAX_CLOCK_SKEW_MS) {
+		return { valid: false, error: 'Request timestamp is too far in the future' };
+	}
+
+	// 4. Look up secret
+	const secret = getSecret(parsed.accessKeyId);
+	if (secret === null) {
+		return { valid: false, accessKeyId: parsed.accessKeyId, error: 'InvalidAccessKeyId' };
+	}
+
+	// 5. Build canonical request — exclude X-Amz-Signature from query string
+	const canonicalRequest = buildCanonicalRequest(
+		request.method,
+		url.pathname,
+		url.searchParams,
+		request.headers,
+		parsed.signedHeaders,
+		'UNSIGNED-PAYLOAD',
+		url,
+		true, // excludeSignature — omit X-Amz-Signature from canonical query string
+		request,
 	);
 
 	// 6. Build string to sign
@@ -138,6 +254,44 @@ export function parseAuthHeader(header: string): SigV4Components | null {
 	};
 }
 
+// ─── Presigned URL parameter parsing ────────────────────────────────────────
+
+/**
+ * Parse Sig V4 components from presigned URL query parameters.
+ *
+ * Expected params:
+ *   X-Amz-Algorithm=AWS4-HMAC-SHA256
+ *   X-Amz-Credential={accessKeyId}/{date}/{region}/s3/aws4_request
+ *   X-Amz-SignedHeaders={headers}
+ *   X-Amz-Signature={sig}
+ */
+export function parsePresignedParams(searchParams: URLSearchParams): SigV4Components | null {
+	const algorithm = searchParams.get('X-Amz-Algorithm');
+	if (algorithm !== 'AWS4-HMAC-SHA256') return null;
+
+	const credential = searchParams.get('X-Amz-Credential');
+	const signedHeaders = searchParams.get('X-Amz-SignedHeaders');
+	const signature = searchParams.get('X-Amz-Signature');
+
+	if (!credential || !signedHeaders || !signature) return null;
+
+	const credParts = credential.split('/');
+	if (credParts.length !== 5) return null;
+
+	const [accessKeyId, date, region, service, requestType] = credParts;
+	if (requestType !== 'aws4_request') return null;
+
+	return {
+		accessKeyId,
+		date,
+		region,
+		service,
+		signedHeaders: signedHeaders.split(';'),
+		signature,
+		credentialScope: `${date}/${region}/${service}/aws4_request`,
+	};
+}
+
 // ─── Canonical request ──────────────────────────────────────────────────────
 
 function buildCanonicalRequest(
@@ -148,10 +302,12 @@ function buildCanonicalRequest(
 	signedHeaders: string[],
 	contentHash: string,
 	url: URL,
+	excludeSignature = false,
+	request?: Request,
 ): string {
 	const canonicalUri = encodeCanonicalPath(path);
-	const canonicalQueryString = buildCanonicalQueryString(searchParams);
-	const canonicalHeaders = buildCanonicalHeaders(headers, signedHeaders, url);
+	const canonicalQueryString = buildCanonicalQueryString(searchParams, excludeSignature);
+	const canonicalHeaders = buildCanonicalHeaders(headers, signedHeaders, url, request);
 	const signedHeadersStr = signedHeaders.join(';');
 
 	return [
@@ -166,36 +322,65 @@ function buildCanonicalRequest(
 }
 
 /**
- * URI-encode the path component per AWS Sig V4 rules.
- * Each segment is individually encoded; slashes are preserved.
+ * URI-encode the path component per AWS Sig V4 rules for S3.
+ *
+ * Must match aws4fetch's algorithm exactly:
+ * 1. Decode the path fully (handles already-percent-encoded segments like %20)
+ * 2. Re-encode with encodeURIComponent, then restore slashes
+ * 3. Encode RFC 3986 extra characters (! ' ( ) *) that encodeURIComponent misses
  */
 function encodeCanonicalPath(path: string): string {
 	if (path === '/' || !path) return '/';
 
-	return path
-		.split('/')
-		.map((segment) => encodeURIComponent(segment).replace(/%2F/g, '/'))
-		.join('/');
+	// Step 1: Fully decode — normalizes any existing percent-encoding
+	let decoded: string;
+	try {
+		decoded = decodeURIComponent(path.replace(/\+/g, ' '));
+	} catch {
+		// Malformed percent sequences — use as-is
+		decoded = path;
+	}
+
+	// Step 2: Re-encode everything, then restore forward slashes
+	const encoded = encodeURIComponent(decoded).replace(/%2F/g, '/');
+
+	// Step 3: Encode RFC 3986 characters not covered by encodeURIComponent
+	return encoded.replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 }
 
-/** Build the canonical query string — sorted by key, then value. */
-function buildCanonicalQueryString(searchParams: URLSearchParams): string {
+/**
+ * Build the canonical query string — sorted by key, then value.
+ * When excludeSignature is true, X-Amz-Signature is omitted (for presigned URL verification).
+ */
+function buildCanonicalQueryString(searchParams: URLSearchParams, excludeSignature = false): string {
 	const pairs: [string, string][] = [];
 	searchParams.forEach((value, key) => {
+		if (excludeSignature && key === 'X-Amz-Signature') return;
 		pairs.push([encodeURIComponent(key), encodeURIComponent(value)]);
 	});
 	pairs.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
 	return pairs.map(([k, v]) => `${k}=${v}`).join('&');
 }
 
-/** Build canonical headers — lowercase, trimmed, newline-terminated. */
-function buildCanonicalHeaders(headers: Headers, signedHeaders: string[], url: URL): string {
+/**
+ * Build canonical headers — lowercase, trimmed, newline-terminated.
+ *
+ * Special handling for `accept-encoding`: Cloudflare's edge rewrites this
+ * header (e.g. "identity" → "gzip, br"), which breaks Sig V4 verification.
+ * We use `request.cf.clientAcceptEncoding` to recover the original value.
+ */
+function buildCanonicalHeaders(headers: Headers, signedHeaders: string[], url: URL, request?: Request): string {
+	// Recover original accept-encoding from Cloudflare's request metadata
+	const originalAcceptEncoding = (request?.cf as Record<string, unknown> | undefined)?.clientAcceptEncoding as string | undefined;
+
 	return signedHeaders
 		.map((name) => {
 			let value = headers.get(name) || '';
-			// If host header is missing, derive it from the URL
 			if (name === 'host' && !value) {
 				value = url.host;
+			}
+			if (name === 'accept-encoding' && originalAcceptEncoding) {
+				value = originalAcceptEncoding;
 			}
 			return `${name}:${value.trim().replace(/\s+/g, ' ')}`;
 		})

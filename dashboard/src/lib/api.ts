@@ -121,12 +121,9 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 // ─── Admin key header ────────────────────────────────────────────────
-// In the dashboard, the admin key is passed via a cookie or header
-// set by Cloudflare Access. For local dev, we read from a config.
 
 function adminHeaders(): Record<string, string> {
-	// Access JWT is sent automatically via cookie.
-	// For dev without Access, the admin key can be set in localStorage.
+	// Admin key can be set in localStorage via the dashboard settings.
 	const adminKey = typeof window !== "undefined" ? localStorage.getItem("adminKey") : null;
 	if (adminKey) {
 		return { "X-Admin-Key": adminKey };
@@ -189,6 +186,52 @@ export async function getSummary(query: Omit<EventsQuery, "limit">): Promise<Ana
 	if (query.since) params.set("since", String(query.since));
 	if (query.until) params.set("until", String(query.until));
 	return apiFetch<AnalyticsSummary>(`/admin/analytics/summary?${params}`, { headers: adminHeaders() });
+}
+
+// ─── S3 Credentials ──────────────────────────────────────────────────
+
+export interface S3Credential {
+	access_key_id: string;
+	secret_access_key: string;
+	name: string;
+	created_at: number;
+	expires_at: number | null;
+	revoked: number;
+	policy: string;
+	created_by: string | null;
+}
+
+export interface CreateS3CredentialRequest {
+	name: string;
+	policy: PolicyDocument;
+	expires_in_days?: number;
+	created_by?: string;
+}
+
+export async function listS3Credentials(status?: "active" | "revoked"): Promise<S3Credential[]> {
+	const params = new URLSearchParams();
+	if (status) params.set("status", status);
+	const qs = params.toString();
+	return apiFetch<S3Credential[]>(`/admin/s3/credentials${qs ? `?${qs}` : ""}`, { headers: adminHeaders() });
+}
+
+export async function getS3Credential(accessKeyId: string): Promise<{ credential: S3Credential }> {
+	return apiFetch<{ credential: S3Credential }>(`/admin/s3/credentials/${accessKeyId}`, { headers: adminHeaders() });
+}
+
+export async function createS3Credential(req: CreateS3CredentialRequest): Promise<{ credential: S3Credential }> {
+	return apiFetch<{ credential: S3Credential }>("/admin/s3/credentials", {
+		method: "POST",
+		headers: adminHeaders(),
+		body: JSON.stringify(req),
+	});
+}
+
+export async function revokeS3Credential(accessKeyId: string): Promise<{ revoked: boolean }> {
+	return apiFetch<{ revoked: boolean }>(`/admin/s3/credentials/${accessKeyId}`, {
+		method: "DELETE",
+		headers: adminHeaders(),
+	});
 }
 
 // ─── Health ──────────────────────────────────────────────────────────

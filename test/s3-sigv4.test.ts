@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { SELF, fetchMock } from 'cloudflare:test';
 import { parseAuthHeader } from '../src/s3/sig-v4-verify';
 import { adminHeaders } from './helpers';
@@ -57,6 +57,10 @@ describe('S3 proxy — auth flow', () => {
 	beforeAll(() => {
 		fetchMock.activate();
 		fetchMock.disableNetConnect();
+	});
+
+	afterEach(() => {
+		fetchMock.assertNoPendingInterceptors();
 	});
 
 	it('rejects request with no Authorization header -> AccessDenied XML', async () => {

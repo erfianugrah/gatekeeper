@@ -1,18 +1,9 @@
 import { Hono } from "hono";
 import { logPurgeEvent } from "../analytics";
+import { getStub } from "../do-stub";
 import type { PurgeEvent } from "../analytics";
 import type { PurgeBody, ParsedPurgeRequest, PurgeResult, HonoEnv } from "../types";
 import type { PurgeRateLimiter } from "../durable-object";
-
-// ─── DO stub helper ─────────────────────────────────────────────────────────
-
-const DO_NAME = "account";
-
-function getStub(env: Env) {
-	return env.PURGE_RATE_LIMITER.get(
-		env.PURGE_RATE_LIMITER.idFromName(DO_NAME),
-	);
-}
 
 // ─── Per-isolate request collapsing ─────────────────────────────────────────
 
