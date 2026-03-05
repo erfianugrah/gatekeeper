@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluatePolicy, validatePolicy, migrateV1Scopes } from '../src/policy-engine';
+import { evaluatePolicy, validatePolicy } from '../src/policy-engine';
 import type { PolicyDocument, RequestContext, Statement, Condition } from '../src/policy-types';
 
 // --- Helpers ---
@@ -477,74 +477,4 @@ describe('validatePolicy', () => {
 	});
 });
 
-// --- v1 scope migration ---
 
-describe('migrateV1Scopes', () => {
-	it('wildcard scope -> allow purge:* on zone', () => {
-		const policy = migrateV1Scopes([{ scope_type: '*', scope_value: '*' }], 'zone123');
-		expect(policy.statements).toHaveLength(1);
-		expect(policy.statements[0].actions).toEqual(['purge:*']);
-		expect(policy.statements[0].resources).toEqual(['zone:zone123']);
-		expect(policy.statements[0].conditions).toBeUndefined();
-	});
-
-	it('host scope -> eq condition', () => {
-		const policy = migrateV1Scopes([{ scope_type: 'host', scope_value: 'example.com' }], 'z1');
-		expect(policy.statements).toHaveLength(1);
-		expect(policy.statements[0].conditions).toEqual([
-			{ field: 'host', operator: 'eq', value: 'example.com' },
-		]);
-	});
-
-	it('url_prefix scope -> starts_with on url field, action purge:url', () => {
-		const policy = migrateV1Scopes([{ scope_type: 'url_prefix', scope_value: 'https://example.com/api/' }], 'z1');
-		expect(policy.statements).toHaveLength(1);
-		expect(policy.statements[0].actions).toEqual(['purge:url']);
-		expect(policy.statements[0].conditions).toEqual([
-			{ field: 'url', operator: 'starts_with', value: 'https://example.com/api/' },
-		]);
-	});
-
-	it('purge_everything scope -> action purge:everything, no conditions', () => {
-		const policy = migrateV1Scopes([{ scope_type: 'purge_everything', scope_value: 'true' }], 'z1');
-		expect(policy.statements).toHaveLength(1);
-		expect(policy.statements[0].actions).toEqual(['purge:everything']);
-		expect(policy.statements[0].conditions).toBeUndefined();
-	});
-
-	it('multiple scopes -> multiple statements', () => {
-		const policy = migrateV1Scopes([
-			{ scope_type: 'host', scope_value: 'a.com' },
-			{ scope_type: 'tag', scope_value: 'blog' },
-		], 'z1');
-		expect(policy.statements).toHaveLength(2);
-	});
-
-	it('empty scopes -> unrestricted on zone', () => {
-		const policy = migrateV1Scopes([], 'z1');
-		expect(policy.statements).toHaveLength(1);
-		expect(policy.statements[0].actions).toEqual(['purge:*']);
-		expect(policy.statements[0].conditions).toBeUndefined();
-	});
-
-	it('migrated policy evaluates correctly', () => {
-		const policy = migrateV1Scopes([
-			{ scope_type: 'host', scope_value: 'example.com' },
-		], 'zone123');
-
-		// Should allow purge:host on zone:zone123 when host=example.com
-		expect(evaluatePolicy(policy, [
-			makeCtx('purge:host', 'zone:zone123', { host: 'example.com' }),
-		])).toBe(true);
-
-		// Should deny when host doesn't match
-		expect(evaluatePolicy(policy, [
-			makeCtx('purge:host', 'zone:zone123', { host: 'other.com' }),
-		])).toBe(false);
-
-		// Should deny wrong zone
-		expect(evaluatePolicy(policy, [
-			makeCtx('purge:host', 'zone:wrongzone', { host: 'example.com' }),
-		])).toBe(false);
-	});
-});

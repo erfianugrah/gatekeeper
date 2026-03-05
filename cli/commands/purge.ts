@@ -121,7 +121,7 @@ const hosts = defineCommand({
 		...sharedArgs,
 		host: {
 			type: "string",
-			description: "Comma-separated hostnames (e.g. erfi.io,www.erfi.io)",
+			description: "Comma-separated hostnames (e.g. example.com,www.example.com)",
 			required: true,
 		},
 	},
@@ -152,7 +152,7 @@ const tags = defineCommand({
 const prefixes = defineCommand({
 	meta: {
 		name: "prefixes",
-		description: "Purge by prefix(es) (e.g. erfi.io/blog)",
+		description: "Purge by prefix(es) (e.g. example.com/blog)",
 	},
 	args: {
 		...sharedArgs,

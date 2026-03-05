@@ -1,129 +1,59 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
-	validateScope,
-	ScopeError,
-	SCOPE_TYPES,
 	formatDuration,
+	parsePolicy,
 } from "./ui.js";
 import { resolveConfig, resolveZoneId } from "./client.js";
 
-// ---------- validateScope ----------
+// ---------- parsePolicy ----------
 
-describe("validateScope", () => {
-	it("parses host scope", () => {
-		expect(validateScope("host:example.com")).toEqual({
-			scope_type: "host",
-			scope_value: "example.com",
+describe("parsePolicy", () => {
+	beforeEach(() => {
+		vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
+		vi.spyOn(console, "error").mockImplementation(() => {});
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("parses inline JSON", () => {
+		const policy = parsePolicy(
+			'{"version":"2025-01-01","statements":[{"actions":["purge:*"],"resources":["*"],"conditions":[]}]}',
+		);
+		expect(policy).toEqual({
+			version: "2025-01-01",
+			statements: [{ actions: ["purge:*"], resources: ["*"], conditions: [] }],
 		});
 	});
 
-	it("parses tag scope", () => {
-		expect(validateScope("tag:product-page")).toEqual({
-			scope_type: "tag",
-			scope_value: "product-page",
-		});
+	it("parses minimal policy", () => {
+		const policy = parsePolicy('{"version":"2025-01-01","statements":[]}');
+		expect(policy).toEqual({ version: "2025-01-01", statements: [] });
 	});
 
-	it("parses prefix scope", () => {
-		expect(validateScope("prefix:example.com/blog")).toEqual({
-			scope_type: "prefix",
-			scope_value: "example.com/blog",
-		});
-	});
-
-	it("parses url_prefix scope with full URL (colon in value)", () => {
-		expect(validateScope("url_prefix:https://example.com/assets/")).toEqual({
-			scope_type: "url_prefix",
-			scope_value: "https://example.com/assets/",
-		});
-	});
-
-	it("parses purge_everything scope", () => {
-		expect(validateScope("purge_everything:true")).toEqual({
-			scope_type: "purge_everything",
-			scope_value: "true",
-		});
-	});
-
-	it("parses wildcard scope", () => {
-		expect(validateScope("*:*")).toEqual({
-			scope_type: "*",
-			scope_value: "*",
-		});
-	});
-
-	it("trims whitespace", () => {
-		expect(validateScope("  host:example.com  ")).toEqual({
-			scope_type: "host",
-			scope_value: "example.com",
-		});
-	});
-
-	it("throws format error for missing colon", () => {
-		expect(() => validateScope("example.com")).toThrow(ScopeError);
+	it("reads from @file path", () => {
+		const tmpFile = join(tmpdir(), `test-policy-${Date.now()}.json`);
+		writeFileSync(tmpFile, '{"version":"2025-01-01","statements":[]}');
 		try {
-			validateScope("example.com");
-		} catch (e) {
-			const err = e as ScopeError;
-			expect(err.kind).toBe("format");
-			expect(err.raw).toBe("example.com");
+			const policy = parsePolicy(`@${tmpFile}`);
+			expect(policy).toEqual({ version: "2025-01-01", statements: [] });
+		} finally {
+			unlinkSync(tmpFile);
 		}
 	});
 
-	it("throws format error for plain path", () => {
-		expect(() => validateScope("waf.example.com/blocklists")).toThrow(ScopeError);
-		try {
-			validateScope("waf.example.com/blocklists");
-		} catch (e) {
-			const err = e as ScopeError;
-			expect(err.kind).toBe("format");
-		}
+	it("exits on invalid JSON", () => {
+		parsePolicy("not json at all");
+		expect(process.exit).toHaveBeenCalledWith(1);
 	});
 
-	it("throws type error for unknown scope type", () => {
-		expect(() => validateScope("hostname:example.com")).toThrow(ScopeError);
-		try {
-			validateScope("hostname:example.com");
-		} catch (e) {
-			const err = e as ScopeError;
-			expect(err.kind).toBe("type");
-			expect(err.raw).toBe("hostname:example.com");
-		}
-	});
-
-	it("throws type error for 'domain' type", () => {
-		expect(() => validateScope("domain:example.com")).toThrow(ScopeError);
-		try {
-			validateScope("domain:example.com");
-		} catch (e) {
-			expect((e as ScopeError).kind).toBe("type");
-		}
-	});
-
-	it("handles empty scope type before colon", () => {
-		// ":value" — empty string is not a valid scope type
-		expect(() => validateScope(":example.com")).toThrow(ScopeError);
-		try {
-			validateScope(":example.com");
-		} catch (e) {
-			expect((e as ScopeError).kind).toBe("type");
-		}
-	});
-
-	it("handles empty scope value after colon", () => {
-		// "host:" — valid type, empty value (the API will reject it, but parsing succeeds)
-		expect(validateScope("host:")).toEqual({
-			scope_type: "host",
-			scope_value: "",
-		});
-	});
-
-	it("accepts all valid scope types", () => {
-		for (const t of SCOPE_TYPES) {
-			const result = validateScope(`${t}:test`);
-			expect(result.scope_type).toBe(t);
-			expect(result.scope_value).toBe("test");
-		}
+	it("exits on missing file", () => {
+		parsePolicy("@nonexistent-file-that-does-not-exist.json");
+		expect(process.exit).toHaveBeenCalledWith(1);
 	});
 });
 
@@ -163,7 +93,7 @@ describe("resolveConfig", () => {
 		delete process.env["PURGE_GATEWAY_API_KEY"];
 
 		const config = resolveConfig({});
-		expect(config.baseUrl).toBe("https://purge.erfi.io");
+		expect(config.baseUrl).toBe("https://purge.example.com");
 		expect(config.adminKey).toBeUndefined();
 		expect(config.apiKey).toBeUndefined();
 	});
@@ -239,37 +169,5 @@ describe("resolveZoneId", () => {
 		delete process.env["PURGE_GATEWAY_ZONE_ID"];
 		resolveZoneId({});
 		expect(process.exit).toHaveBeenCalledWith(1);
-	});
-});
-
-// ---------- ScopeError ----------
-
-describe("ScopeError", () => {
-	it("has correct name property", () => {
-		const err = new ScopeError("test", "format", "raw");
-		expect(err.name).toBe("ScopeError");
-		expect(err.message).toBe("test");
-		expect(err.kind).toBe("format");
-		expect(err.raw).toBe("raw");
-	});
-
-	it("is instanceof Error", () => {
-		const err = new ScopeError("test", "type", "raw");
-		expect(err).toBeInstanceOf(Error);
-		expect(err).toBeInstanceOf(ScopeError);
-	});
-});
-
-// ---------- SCOPE_TYPES constant ----------
-
-describe("SCOPE_TYPES", () => {
-	it("includes all expected types", () => {
-		expect(SCOPE_TYPES).toContain("host");
-		expect(SCOPE_TYPES).toContain("tag");
-		expect(SCOPE_TYPES).toContain("prefix");
-		expect(SCOPE_TYPES).toContain("url_prefix");
-		expect(SCOPE_TYPES).toContain("purge_everything");
-		expect(SCOPE_TYPES).toContain("*");
-		expect(SCOPE_TYPES).toHaveLength(6);
 	});
 });

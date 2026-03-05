@@ -1,5 +1,7 @@
 /** Terminal UI helpers — colors, formatting, tables, spinners */
 
+import { readFileSync } from "node:fs";
+
 const isTTY = process.stdout.isTTY ?? false;
 const isColorDisabled = !!process.env["NO_COLOR"];
 const useColor = isTTY && !isColorDisabled;
@@ -212,118 +214,6 @@ export function formatDuration(ms: number): string {
 	return `${(ms / 1000).toFixed(1)}s`;
 }
 
-// --- Scope helpers ---
-
-export const SCOPE_TYPES = [
-	"host",
-	"tag",
-	"prefix",
-	"url_prefix",
-	"purge_everything",
-	"*",
-] as const;
-
-export const SCOPE_EXAMPLES: Record<string, string> = {
-	host: "host:example.com",
-	tag: "tag:product-page",
-	prefix: "prefix:example.com/blog",
-	url_prefix: "url_prefix:https://example.com/assets/",
-	purge_everything: "purge_everything:true",
-	"*": "*:*",
-};
-
-export const SCOPE_DESCRIPTIONS: Record<string, string> = {
-	host: "Exact hostname match for bulk host purge",
-	tag: "Exact cache tag match for bulk tag purge",
-	prefix: "Prefix match for bulk prefix purge (host/path)",
-	url_prefix: "URL prefix match for single-file purge (full URL)",
-	purge_everything: "Allow purge_everything: true requests",
-	"*": "Wildcard -- unrestricted access to all purge types",
-};
-
-/**
- * Validate and parse a single scope string like "host:erfi.io".
- * Returns the parsed scope or throws a ScopeError.
- */
-export class ScopeError extends Error {
-	constructor(
-		message: string,
-		public readonly kind: "format" | "type",
-		public readonly raw: string,
-	) {
-		super(message);
-		this.name = "ScopeError";
-	}
-}
-
-export function validateScope(raw: string): {
-	scope_type: string;
-	scope_value: string;
-} {
-	const trimmed = raw.trim();
-	const idx = trimmed.indexOf(":");
-	if (idx === -1) {
-		throw new ScopeError(
-			`Invalid scope: "${trimmed}". Expected "type:value" format.`,
-			"format",
-			trimmed,
-		);
-	}
-
-	const scope_type = trimmed.slice(0, idx);
-	const scope_value = trimmed.slice(idx + 1);
-
-	if (!SCOPE_TYPES.includes(scope_type as (typeof SCOPE_TYPES)[number])) {
-		throw new ScopeError(
-			`Unknown scope type: "${scope_type}". Valid types: ${SCOPE_TYPES.join(", ")}`,
-			"type",
-			trimmed,
-		);
-	}
-
-	return { scope_type, scope_value };
-}
-
-export function parseScopes(
-	input: string,
-): { scope_type: string; scope_value: string }[] {
-	try {
-		return input.split(",").map((s) => validateScope(s));
-	} catch (err) {
-		if (!(err instanceof ScopeError)) throw err;
-
-		if (err.kind === "format") {
-			error(`Invalid scope: ${bold(err.raw)}`);
-			console.error("");
-			console.error(`  Scopes must be in ${bold("type:value")} format.`);
-			console.error(`  Separate multiple scopes with commas.`);
-			console.error("");
-			console.error(`  ${bold("Available scope types:")}`);
-			for (const t of SCOPE_TYPES) {
-				console.error(
-					`    ${cyan(SCOPE_EXAMPLES[t].padEnd(42))} ${dim(SCOPE_DESCRIPTIONS[t])}`,
-				);
-			}
-			console.error("");
-			console.error(`  ${bold("Example:")}`);
-			console.error(
-				`    --scope ${cyan('"host:erfi.io,tag:blog,url_prefix:https://erfi.io/assets/"')}`,
-			);
-		} else {
-			const type = err.raw.slice(0, err.raw.indexOf(":"));
-			error(`Unknown scope type: ${bold(type)}`);
-			console.error("");
-			console.error(`  ${bold("Valid scope types:")}`);
-			for (const t of SCOPE_TYPES) {
-				console.error(
-					`    ${cyan(t.padEnd(20))} ${dim(SCOPE_DESCRIPTIONS[t])}`,
-				);
-			}
-		}
-		process.exit(1);
-	}
-}
-
 // --- Key formatting ---
 
 export function formatKey(key: {
@@ -333,6 +223,7 @@ export function formatKey(key: {
 	created_at: number;
 	expires_at: number | null;
 	revoked: number;
+	created_by?: string | null;
 }): void {
 	const status =
 		key.revoked === 1
@@ -349,16 +240,121 @@ export function formatKey(key: {
 	if (key.expires_at) {
 		label("Expires", new Date(key.expires_at).toISOString());
 	}
+	if (key.created_by) {
+		label("Created by", key.created_by);
+	}
 }
 
-export function formatScopes(
-	scopes: { scope_type: string; scope_value: string }[],
-): void {
-	if (scopes.length === 0) {
-		console.error(`  ${dim("No scopes (key cannot authorize anything)")}`);
+// --- Policy helpers ---
+
+/** Pretty-print a v2 policy document for terminal display. */
+export function formatPolicy(policyJson: string): void {
+	let doc: PolicyDoc;
+	try {
+		doc = JSON.parse(policyJson) as PolicyDoc;
+	} catch {
+		console.error(`  ${dim("(invalid policy JSON)")}`);
 		return;
 	}
-	for (const s of scopes) {
-		console.error(`  ${symbols.bullet} ${cyan(s.scope_type)}${dim(":")}${s.scope_value}`);
+
+	console.error(`  ${dim("version:")} ${doc.version ?? "unknown"}`);
+	const stmts = doc.statements ?? [];
+	if (stmts.length === 0) {
+		console.error(`  ${dim("No statements (key cannot authorize anything)")}`);
+		return;
+	}
+
+	for (let i = 0; i < stmts.length; i++) {
+		const s = stmts[i];
+		const effect = s.effect === "deny" ? red("deny") : green("allow");
+		console.error(`  ${dim(`[${i + 1}]`)} ${bold(effect)}`);
+
+		// Actions
+		if (s.actions && s.actions.length > 0) {
+			console.error(`      ${dim("actions:")} ${s.actions.map((a: string) => cyan(a)).join(dim(", "))}`);
+		}
+
+		// Resources
+		if (s.resources && s.resources.length > 0) {
+			console.error(`      ${dim("resources:")} ${s.resources.map((r: string) => cyan(r)).join(dim(", "))}`);
+		}
+
+		// Conditions
+		if (s.conditions && s.conditions.length > 0) {
+			console.error(`      ${dim("conditions:")}`);
+			for (const c of s.conditions) {
+				formatCondition(c, 8);
+			}
+		}
+	}
+}
+
+interface PolicyDoc {
+	version?: string;
+	statements?: PolicyStatement[];
+}
+
+interface PolicyStatement {
+	effect?: string;
+	actions?: string[];
+	resources?: string[];
+	conditions?: PolicyCondition[];
+}
+
+interface PolicyCondition {
+	field?: string;
+	operator?: string;
+	value?: unknown;
+	any?: PolicyCondition[];
+	all?: PolicyCondition[];
+	not?: PolicyCondition;
+}
+
+function formatCondition(c: PolicyCondition, indent: number): void {
+	const pad = " ".repeat(indent);
+	if (c.any) {
+		console.error(`${pad}${yellow("any")}${dim(":")}`);
+		for (const child of c.any) formatCondition(child, indent + 2);
+	} else if (c.all) {
+		console.error(`${pad}${yellow("all")}${dim(":")}`);
+		for (const child of c.all) formatCondition(child, indent + 2);
+	} else if (c.not) {
+		console.error(`${pad}${yellow("not")}${dim(":")}`);
+		formatCondition(c.not, indent + 2);
+	} else {
+		const val = typeof c.value === "string" ? c.value : JSON.stringify(c.value);
+		console.error(`${pad}${symbols.bullet} ${cyan(c.field ?? "?")} ${dim(c.operator ?? "?")} ${val}`);
+	}
+}
+
+/**
+ * Parse a --policy argument. Accepts either inline JSON or @path/to/file.json.
+ * Returns the parsed policy object.
+ */
+export function parsePolicy(input: string): unknown {
+	let jsonStr: string;
+
+	if (input.startsWith("@")) {
+		const filePath = input.slice(1);
+		try {
+			jsonStr = readFileSync(filePath, "utf-8");
+		} catch (err: any) {
+			error(`Cannot read policy file: ${bold(filePath)}`);
+			console.error(`  ${dim(err.message)}`);
+			process.exit(1);
+		}
+	} else {
+		jsonStr = input;
+	}
+
+	try {
+		return JSON.parse(jsonStr);
+	} catch {
+		error("Invalid JSON in --policy argument.");
+		console.error("");
+		console.error(`  ${bold("Usage:")}`);
+		console.error(`    ${dim("Inline:")}  --policy '${cyan('{"version":"2025-01-01","statements":[...]}')}'`);
+		console.error(`    ${dim("File:")}    --policy ${cyan("@policy.json")}`);
+		process.exit(1);
 	}
 }

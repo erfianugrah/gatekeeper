@@ -1,26 +1,19 @@
 import type {
 	ApiKey,
-	KeyScope,
 	CachedKey,
 	CreateKeyRequest,
-	CreateKeyRequestV2,
 	AuthResult,
 	PurgeBody,
-	ScopeType,
 } from './types';
 import type { PolicyDocument, RequestContext } from './policy-types';
-import { evaluatePolicy, migrateV1Scopes } from './policy-engine';
+import { evaluatePolicy } from './policy-engine';
 
-/**
- * IAM key management backed by DO SQLite storage.
- * Supports both v1 (scopes) and v2 (policy documents) key formats.
- */
 /** Type-safe helper to avoid repetitive `as unknown as T[]` on every query. */
 function queryAll<T>(sql: SqlStorage, query: string, ...params: unknown[]): T[] {
 	return sql.exec(query, ...params).toArray() as unknown as T[];
 }
 
-/** Key prefix for new keys. Old pgw_ prefix still accepted. */
+/** Key prefix for all keys. */
 const KEY_PREFIX = 'gw_';
 
 export class IamManager {
@@ -46,105 +39,17 @@ export class IamManager {
 				bulk_rate REAL,
 				bulk_bucket REAL,
 				single_rate REAL,
-				single_bucket REAL
+				single_bucket REAL,
+				policy TEXT NOT NULL,
+				created_by TEXT
 			);
 		`);
-		this.sql.exec(`
-			CREATE TABLE IF NOT EXISTS key_scopes (
-				key_id TEXT NOT NULL REFERENCES api_keys(id),
-				scope_type TEXT NOT NULL,
-				scope_value TEXT NOT NULL,
-				PRIMARY KEY (key_id, scope_type, scope_value)
-			);
-		`);
-
-		// Migration: add rate limit columns if table already existed without them
-		try {
-			this.sql.exec('SELECT bulk_rate FROM api_keys LIMIT 0');
-		} catch {
-			this.sql.exec('ALTER TABLE api_keys ADD COLUMN bulk_rate REAL');
-			this.sql.exec('ALTER TABLE api_keys ADD COLUMN bulk_bucket REAL');
-			this.sql.exec('ALTER TABLE api_keys ADD COLUMN single_rate REAL');
-			this.sql.exec('ALTER TABLE api_keys ADD COLUMN single_bucket REAL');
-		}
-
-		// Migration: add policy and created_by columns
-		try {
-			this.sql.exec('SELECT policy FROM api_keys LIMIT 0');
-		} catch {
-			this.sql.exec('ALTER TABLE api_keys ADD COLUMN policy TEXT');
-			this.sql.exec('ALTER TABLE api_keys ADD COLUMN created_by TEXT');
-		}
 	}
 
 	// ─── Key creation ───────────────────────────────────────────────────
 
-	/**
-	 * Create a key with v1 scopes (backward compatible).
-	 * Auto-generates a v2 policy document from the scopes and stores both.
-	 */
-	createKey(req: CreateKeyRequest): { key: ApiKey; scopes: KeyScope[] } {
-		const id = this.generateKeyId();
-		const now = Date.now();
-		const expiresAt = req.expires_in_days
-			? now + req.expires_in_days * 86400_000
-			: null;
-
-		// Auto-migrate scopes to a policy document
-		const policy = migrateV1Scopes(req.scopes, req.zone_id);
-		const policyJson = JSON.stringify(policy);
-
-		const rl = req.rate_limit;
-		this.sql.exec(
-			`INSERT INTO api_keys (id, name, zone_id, created_at, expires_at, revoked, bulk_rate, bulk_bucket, single_rate, single_bucket, policy, created_by)
-			 VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, NULL)`,
-			id,
-			req.name,
-			req.zone_id,
-			now,
-			expiresAt,
-			rl?.bulk_rate ?? null,
-			rl?.bulk_bucket ?? null,
-			rl?.single_rate ?? null,
-			rl?.single_bucket ?? null,
-			policyJson,
-		);
-
-		const scopes: KeyScope[] = [];
-		for (const s of req.scopes) {
-			this.sql.exec(
-				`INSERT INTO key_scopes (key_id, scope_type, scope_value)
-				 VALUES (?, ?, ?)`,
-				id,
-				s.scope_type,
-				s.scope_value,
-			);
-			scopes.push({ key_id: id, scope_type: s.scope_type as ScopeType, scope_value: s.scope_value });
-		}
-
-		const key: ApiKey = {
-			id,
-			name: req.name,
-			zone_id: req.zone_id,
-			created_at: now,
-			expires_at: expiresAt,
-			revoked: 0,
-			policy: policyJson,
-			created_by: null,
-			bulk_rate: rl?.bulk_rate ?? null,
-			bulk_bucket: rl?.bulk_bucket ?? null,
-			single_rate: rl?.single_rate ?? null,
-			single_bucket: rl?.single_bucket ?? null,
-		};
-
-		return { key, scopes };
-	}
-
-	/**
-	 * Create a key with a v2 policy document.
-	 * Scopes are not stored — only the policy column is used.
-	 */
-	createKeyV2(req: CreateKeyRequestV2): { key: ApiKey } {
+	/** Create a key with a policy document. */
+	createKey(req: CreateKeyRequest): { key: ApiKey } {
 		const id = this.generateKeyId();
 		const now = Date.now();
 		const expiresAt = req.expires_in_days
@@ -212,14 +117,11 @@ export class IamManager {
 		return queryAll<ApiKey>(this.sql, `SELECT * FROM api_keys${where} ORDER BY created_at DESC`, ...params);
 	}
 
-	/** Get a single key with its scopes (for backward compat in API responses). */
-	getKey(id: string): { key: ApiKey; scopes: KeyScope[] } | null {
+	/** Get a single key. */
+	getKey(id: string): { key: ApiKey } | null {
 		const rows = queryAll<ApiKey>(this.sql, 'SELECT * FROM api_keys WHERE id = ?', id);
 		if (rows.length === 0) return null;
-
-		const scopes = queryAll<KeyScope>(this.sql, 'SELECT * FROM key_scopes WHERE key_id = ?', id);
-
-		return { key: rows[0], scopes };
+		return { key: rows[0] };
 	}
 
 	/** Soft-revoke a key. */
@@ -234,11 +136,8 @@ export class IamManager {
 
 	// ─── Authorization ──────────────────────────────────────────────────
 
-	/**
-	 * v2 authorization: evaluate the key's policy against request contexts.
-	 * This is the primary authorization path going forward.
-	 */
-	authorizeV2(keyId: string, zoneId: string, contexts: RequestContext[]): AuthResult {
+	/** Evaluate the key's policy against request contexts. */
+	authorize(keyId: string, zoneId: string, contexts: RequestContext[]): AuthResult {
 		const cached = this.getCachedOrLoad(keyId);
 		if (!cached) {
 			return { authorized: false, error: 'Invalid API key' };
@@ -259,7 +158,6 @@ export class IamManager {
 		}
 
 		if (!evaluatePolicy(resolvedPolicy, contexts)) {
-			// Find which contexts were denied — format for backward-compatible error messages
 			const denied: string[] = [];
 			for (const ctx of contexts) {
 				if (!evaluatePolicy(resolvedPolicy, [ctx])) {
@@ -277,12 +175,11 @@ export class IamManager {
 	}
 
 	/**
-	 * v1 authorization (backward compatible).
-	 * Delegates to v2 by converting the purge body to request contexts.
+	 * Convenience: authorize from a PurgeBody (converts to RequestContext[] internally).
 	 */
-	authorize(keyId: string, zoneId: string, body: PurgeBody): AuthResult {
+	authorizeFromBody(keyId: string, zoneId: string, body: PurgeBody): AuthResult {
 		const contexts = purgeBodyToContexts(body, zoneId);
-		return this.authorizeV2(keyId, zoneId, contexts);
+		return this.authorize(keyId, zoneId, contexts);
 	}
 
 	// ─── Private helpers ────────────────────────────────────────────────
@@ -299,23 +196,16 @@ export class IamManager {
 			return null;
 		}
 
-		// Resolve policy: prefer stored policy, fall back to migrating v1 scopes
 		let resolvedPolicy: PolicyDocument;
-		if (loaded.key.policy) {
-			try {
-				resolvedPolicy = JSON.parse(loaded.key.policy) as PolicyDocument;
-			} catch {
-				// Corrupt policy JSON — fall back to v1 scopes
-				resolvedPolicy = migrateV1Scopes(loaded.scopes, loaded.key.zone_id);
-			}
-		} else {
-			// No policy stored — migrate from v1 scopes
-			resolvedPolicy = migrateV1Scopes(loaded.scopes, loaded.key.zone_id);
+		try {
+			resolvedPolicy = JSON.parse(loaded.key.policy) as PolicyDocument;
+		} catch {
+			// Corrupt policy JSON — deny everything
+			resolvedPolicy = { version: '2025-01-01', statements: [] };
 		}
 
 		const entry: CachedKey = {
 			key: loaded.key,
-			scopes: loaded.scopes,
 			resolvedPolicy,
 			cachedAt: Date.now(),
 		};
@@ -335,12 +225,6 @@ export class IamManager {
 
 /**
  * Format a denied RequestContext into a human-readable string.
- * Backward compatible with v1 denied format:
- *   purge:url → the URL string
- *   purge:host → "host:<hostname>"
- *   purge:tag → "tag:<tag>"
- *   purge:prefix → "prefix:<prefix>"
- *   purge:everything → "purge_everything"
  */
 function formatDeniedContext(ctx: RequestContext): string {
 	switch (ctx.action) {
@@ -360,7 +244,6 @@ function formatDeniedContext(ctx: RequestContext): string {
 }
 
 // ─── Purge body → RequestContext conversion ─────────────────────────────────
-// Converts a v1 PurgeBody into v2 RequestContext[] for policy evaluation.
 
 export function purgeBodyToContexts(body: PurgeBody, zoneId: string): RequestContext[] {
 	const resource = `zone:${zoneId}`;
@@ -382,13 +265,12 @@ export function purgeBodyToContexts(body: PurgeBody, zoneId: string): RequestCon
 
 			const fields: Record<string, string | boolean> = { url };
 
-			// Parse URL components for condition evaluation
 			try {
 				const parsed = new URL(url);
 				fields.host = parsed.hostname;
 				fields['url.path'] = parsed.pathname;
 				if (parsed.search) {
-					fields['url.query'] = parsed.search.slice(1); // remove leading ?
+					fields['url.query'] = parsed.search.slice(1);
 					for (const [k, v] of parsed.searchParams) {
 						fields[`url.query.${k}`] = v;
 					}
@@ -397,7 +279,6 @@ export function purgeBodyToContexts(body: PurgeBody, zoneId: string): RequestCon
 				// Invalid URL — still include raw url field
 			}
 
-			// Include headers as header.<name> fields
 			for (const [name, value] of Object.entries(headers)) {
 				fields[`header.${name}`] = value;
 			}
@@ -408,31 +289,19 @@ export function purgeBodyToContexts(body: PurgeBody, zoneId: string): RequestCon
 
 	if (body.hosts) {
 		for (const host of body.hosts) {
-			contexts.push({
-				action: 'purge:host',
-				resource,
-				fields: { host },
-			});
+			contexts.push({ action: 'purge:host', resource, fields: { host } });
 		}
 	}
 
 	if (body.tags) {
 		for (const tag of body.tags) {
-			contexts.push({
-				action: 'purge:tag',
-				resource,
-				fields: { tag },
-			});
+			contexts.push({ action: 'purge:tag', resource, fields: { tag } });
 		}
 	}
 
 	if (body.prefixes) {
 		for (const prefix of body.prefixes) {
-			contexts.push({
-				action: 'purge:prefix',
-				resource,
-				fields: { prefix },
-			});
+			contexts.push({ action: 'purge:prefix', resource, fields: { prefix } });
 		}
 	}
 

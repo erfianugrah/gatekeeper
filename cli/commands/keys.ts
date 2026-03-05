@@ -4,6 +4,7 @@ import {
 	success,
 	info,
 	warn,
+	error,
 	bold,
 	dim,
 	cyan,
@@ -15,8 +16,8 @@ import {
 	label,
 	printJson,
 	formatKey,
-	formatScopes,
-	parseScopes,
+	formatPolicy,
+	parsePolicy,
 	formatDuration,
 	symbols,
 } from "../ui.js";
@@ -46,7 +47,7 @@ const globalArgs = {
 const create = defineCommand({
 	meta: {
 		name: "create",
-		description: "Create a new scoped API key",
+		description: "Create a new API key with a policy document",
 	},
 	args: {
 		...globalArgs,
@@ -55,9 +56,9 @@ const create = defineCommand({
 			description: "Human-readable key name",
 			required: true,
 		},
-		scope: {
+		policy: {
 			type: "string",
-			description: 'Scopes as type:value (e.g. "host:erfi.io,tag:blog")',
+			description: "Policy document as JSON string or @path/to/file.json",
 			required: true,
 		},
 		"expires-in-days": {
@@ -68,13 +69,13 @@ const create = defineCommand({
 	async run({ args }) {
 		const config = resolveConfig(args);
 		const zoneId = resolveZoneId(args);
-		const scopes = parseScopes(args.scope);
 
 		const body: Record<string, unknown> = {
 			name: args.name,
 			zone_id: zoneId,
-			scopes,
+			policy: parsePolicy(args.policy),
 		};
+
 		if (args["expires-in-days"]) {
 			body["expires_in_days"] = Number(args["expires-in-days"]);
 		}
@@ -98,18 +99,14 @@ const create = defineCommand({
 			unknown
 		>;
 		const key = result.key as Record<string, unknown>;
-		const keyScopes = result.scopes as {
-			scope_type: string;
-			scope_value: string;
-		}[];
 
 		console.error("");
 		success(`Key created ${dim(`(${formatDuration(durationMs)})`)}`);
 		console.error("");
 		formatKey(key as Parameters<typeof formatKey>[0]);
 		console.error("");
-		info("Scopes:");
-		formatScopes(keyScopes);
+		info("Policy:");
+		formatPolicy(key.policy as string);
 		console.error("");
 		console.error(
 			`  ${symbols.arrow} Use as: ${cyan(`Authorization: Bearer ${key.id}`)}`,
@@ -197,7 +194,7 @@ const get = defineCommand({
 		...globalArgs,
 		"key-id": {
 			type: "string",
-			description: "The API key ID (pgw_...)",
+			description: "The API key ID (gw_...)",
 			required: true,
 		},
 	},
@@ -223,17 +220,15 @@ const get = defineCommand({
 			string,
 			unknown
 		>;
-		const key = result.key as Parameters<typeof formatKey>[0];
-		const scopes = result.scopes as {
-			scope_type: string;
-			scope_value: string;
-		}[];
+		const key = result.key as Record<string, unknown>;
 
 		console.error("");
-		formatKey(key);
+		formatKey(key as Parameters<typeof formatKey>[0]);
 		console.error("");
-		info("Scopes:");
-		formatScopes(scopes);
+		if (key.policy) {
+			info("Policy:");
+			formatPolicy(key.policy as string);
+		}
 		console.error("");
 	},
 });
@@ -245,7 +240,7 @@ const revoke = defineCommand({
 		...globalArgs,
 		"key-id": {
 			type: "string",
-			description: "The API key ID to revoke (pgw_...)",
+			description: "The API key ID to revoke (gw_...)",
 			required: true,
 		},
 		force: {

@@ -1,0 +1,908 @@
+openapi: 3.1.0
+info:
+  title: Purge API Gateway
+  description: >
+    Rate-limited API gateway with AWS IAM-style policy authorization.
+    Fronts Cloudflare's cache purge API with per-key policies, token-bucket
+    rate limiting, request collapsing, and D1-backed analytics.
+  version: 2.0.0
+  contact:
+    name: Erfi Anugrah
+
+servers:
+  - url: https://purge.erfi.io
+    description: Production
+
+# ─── Security schemes ──────────────────────────────────────────────────────
+
+security: []
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Gateway API key (prefix `gw_`). Issued via `POST /admin/keys`.
+        Each key has an attached IAM policy that controls which actions,
+        resources, and conditions it can access.
+
+    AdminKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Admin-Key
+      description: >
+        Shared admin secret for CLI and automation. Falls back when
+        Cloudflare Access is not configured.
+
+    CloudflareAccess:
+      type: apiKey
+      in: header
+      name: Cf-Access-Jwt-Assertion
+      description: >
+        Cloudflare Access JWT. Injected automatically by Access for
+        browser-based dashboard users. Also accepted via `CF_Authorization`
+        cookie.
+
+  # ─── Reusable schemas ──────────────────────────────────────────────────
+
+  schemas:
+    # --- Envelopes ---
+
+    ErrorEnvelope:
+      type: object
+      required: [success, errors]
+      properties:
+        success:
+          type: boolean
+          const: false
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiError"
+
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+
+    # --- Policy document ---
+
+    PolicyDocument:
+      type: object
+      required: [version, statements]
+      properties:
+        version:
+          type: string
+          const: "2025-01-01"
+        statements:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Statement"
+
+    Statement:
+      type: object
+      required: [effect, actions, resources]
+      properties:
+        effect:
+          type: string
+          const: allow
+        actions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: >
+            Actions this statement permits. Wildcard suffix supported.
+            Purge actions: `purge:url`, `purge:host`, `purge:tag`,
+            `purge:prefix`, `purge:everything`, `purge:*`.
+          examples:
+            - ["purge:url", "purge:host"]
+            - ["purge:*"]
+        resources:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: >
+            Resources this statement applies to. Format: `zone:<id>`.
+            Wildcard: `zone:*` or `*`.
+          examples:
+            - ["zone:aaaa1111bbbb2222cccc3333dddd4444"]
+            - ["zone:*"]
+        conditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Condition"
+          description: >
+            Optional conditions — all must match (AND).
+            Omit or empty array for no conditions.
+
+    Condition:
+      oneOf:
+        - $ref: "#/components/schemas/LeafCondition"
+        - $ref: "#/components/schemas/AnyCondition"
+        - $ref: "#/components/schemas/AllCondition"
+        - $ref: "#/components/schemas/NotCondition"
+
+    LeafCondition:
+      type: object
+      required: [field, operator, value]
+      properties:
+        field:
+          type: string
+          description: >
+            Request context field. Purge fields: `host`, `tag`, `prefix`,
+            `url`, `url.path`, `url.query`, `url.query.<param>`,
+            `header.<name>`, `purge_everything`.
+        operator:
+          type: string
+          enum:
+            - eq
+            - ne
+            - contains
+            - not_contains
+            - starts_with
+            - ends_with
+            - matches
+            - not_matches
+            - "in"
+            - not_in
+            - wildcard
+            - exists
+            - not_exists
+        value:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+            - type: boolean
+
+    AnyCondition:
+      type: object
+      required: [any]
+      properties:
+        any:
+          type: array
+          items:
+            $ref: "#/components/schemas/Condition"
+          description: OR — any child must match.
+
+    AllCondition:
+      type: object
+      required: [all]
+      properties:
+        all:
+          type: array
+          items:
+            $ref: "#/components/schemas/Condition"
+          description: AND — all children must match (explicit).
+
+    NotCondition:
+      type: object
+      required: [not]
+      properties:
+        not:
+          $ref: "#/components/schemas/Condition"
+          description: Negation of a single condition.
+
+    # --- API key ---
+
+    ApiKey:
+      type: object
+      required: [id, name, zone_id, created_at, revoked, policy]
+      properties:
+        id:
+          type: string
+          examples: ["gw_a1b2c3d4e5f6"]
+        name:
+          type: string
+        zone_id:
+          type: string
+          pattern: "^[a-f0-9]{32}$"
+        created_at:
+          type: integer
+          description: Unix timestamp (ms).
+        expires_at:
+          type: ["integer", "null"]
+          description: Unix timestamp (ms), or null if no expiration.
+        revoked:
+          type: integer
+          enum: [0, 1]
+          description: 0 = active, 1 = revoked.
+        policy:
+          type: string
+          description: JSON-serialized PolicyDocument.
+        created_by:
+          type: ["string", "null"]
+          description: Email of the creator (from Access JWT), or null.
+        bulk_rate:
+          type: ["integer", "null"]
+          description: Per-key bulk rate limit (req/sec). Null = account default.
+        bulk_bucket:
+          type: ["integer", "null"]
+        single_rate:
+          type: ["integer", "null"]
+          description: Per-key single-file rate limit (URLs/sec). Null = account default.
+        single_bucket:
+          type: ["integer", "null"]
+
+    CachedKey:
+      type: object
+      required: [key, resolvedPolicy, cachedAt]
+      properties:
+        key:
+          $ref: "#/components/schemas/ApiKey"
+        resolvedPolicy:
+          $ref: "#/components/schemas/PolicyDocument"
+        cachedAt:
+          type: integer
+          description: Unix timestamp (ms) when the key was cached.
+
+    # --- Create key request ---
+
+    CreateKeyRequest:
+      type: object
+      required: [name, zone_id, policy]
+      properties:
+        name:
+          type: string
+        zone_id:
+          type: string
+          pattern: "^[a-f0-9]{32}$"
+        policy:
+          $ref: "#/components/schemas/PolicyDocument"
+        expires_in_days:
+          type: integer
+          minimum: 1
+        created_by:
+          type: string
+          description: >
+            Auto-populated from Access JWT email when authenticated
+            via Cloudflare Access. Can be set manually when using admin key.
+        rate_limit:
+          type: object
+          properties:
+            bulk_rate:
+              type: integer
+              description: Must not exceed account default.
+            bulk_bucket:
+              type: integer
+            single_rate:
+              type: integer
+            single_bucket:
+              type: integer
+
+    # --- Purge body ---
+
+    PurgeBody:
+      type: object
+      description: >
+        Exactly one of `files`, `hosts`, `tags`, `prefixes`, or
+        `purge_everything` must be present.
+      properties:
+        files:
+          type: array
+          items:
+            oneOf:
+              - type: string
+                description: Plain URL string.
+              - type: object
+                required: [url]
+                properties:
+                  url:
+                    type: string
+                  headers:
+                    type: object
+                    additionalProperties:
+                      type: string
+                    description: >
+                      Custom cache key headers (e.g. CF-Device-Type).
+          description: Purge by URL(s). Max 500 items (configurable).
+        hosts:
+          type: array
+          items:
+            type: string
+          description: Purge by hostname(s).
+        tags:
+          type: array
+          items:
+            type: string
+          description: Purge by cache tag(s).
+        prefixes:
+          type: array
+          items:
+            type: string
+          description: Purge by URL prefix(es).
+        purge_everything:
+          type: boolean
+          const: true
+          description: Purge all cached content in the zone.
+
+    # --- Analytics ---
+
+    PurgeEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        key_id:
+          type: string
+        zone_id:
+          type: string
+        purge_type:
+          type: string
+          enum: [single, bulk]
+        cost:
+          type: integer
+        status:
+          type: integer
+        collapsed:
+          type: ["string", "null"]
+          enum: [isolate, do, null]
+          description: Request collapsing level, or null if not collapsed.
+        upstream_status:
+          type: ["integer", "null"]
+        duration_ms:
+          type: integer
+        created_at:
+          type: integer
+          description: Unix timestamp (ms).
+
+    AnalyticsSummary:
+      type: object
+      required:
+        - total_requests
+        - total_cost
+        - by_status
+        - by_purge_type
+        - collapsed_count
+        - avg_duration_ms
+      properties:
+        total_requests:
+          type: integer
+        total_cost:
+          type: integer
+        by_status:
+          type: object
+          additionalProperties:
+            type: integer
+          examples:
+            - {"200": 45, "429": 3}
+        by_purge_type:
+          type: object
+          additionalProperties:
+            type: integer
+          examples:
+            - {"single": 30, "bulk": 18}
+        collapsed_count:
+          type: integer
+        avg_duration_ms:
+          type: integer
+
+  # ─── Reusable parameters ─────────────────────────────────────────────────
+
+  parameters:
+    ZoneIdQuery:
+      name: zone_id
+      in: query
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-f0-9]{32}$"
+      description: Cloudflare zone ID.
+
+    ZoneIdPath:
+      name: zoneId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-f0-9]{32}$"
+      description: Cloudflare zone ID.
+
+    KeyIdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: API key ID.
+
+# ─── Paths ─────────────────────────────────────────────────────────────────
+
+paths:
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Health check
+      tags: [System]
+      responses:
+        "200":
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+
+  /v1/zones/{zoneId}/purge_cache:
+    post:
+      operationId: purgeCache
+      summary: Purge cache
+      description: >
+        Proxy to Cloudflare's purge API with IAM policy authorization,
+        token-bucket rate limiting, and isolate+DO request collapsing.
+      tags: [Purge]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ZoneIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurgeBody"
+            examples:
+              purge-urls:
+                summary: Purge specific URLs
+                value:
+                  files:
+                    - "https://example.com/styles.css"
+                    - "https://example.com/app.js"
+              purge-urls-with-headers:
+                summary: Purge URLs with custom cache key headers
+                value:
+                  files:
+                    - url: "https://example.com/"
+                      headers:
+                        CF-Device-Type: mobile
+              purge-hosts:
+                summary: Purge by hostname
+                value:
+                  hosts: ["cdn.example.com"]
+              purge-tags:
+                summary: Purge by cache tags
+                value:
+                  tags: ["blog", "release-v2.1"]
+              purge-prefixes:
+                summary: Purge by URL prefix
+                value:
+                  prefixes: ["https://example.com/api/"]
+              purge-everything:
+                summary: Purge all cached content
+                value:
+                  purge_everything: true
+      responses:
+        "200":
+          description: >
+            Purge successful. Response body is proxied from Cloudflare's
+            upstream API.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Cloudflare upstream response (passthrough).
+          headers:
+            Ratelimit:
+              schema:
+                type: string
+              description: >
+                Token bucket state: `limit=<bucketSize>, remaining=<tokens>,
+                reset=<secondsUntilRefill>`.
+            Ratelimit-Policy:
+              schema:
+                type: string
+              description: "Rate limit policy: `<bucketSize>;w=1;policy=\"token-bucket\"`."
+        "400":
+          description: Invalid request (bad zone ID, invalid JSON, bad purge body).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid API key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: >
+            Policy authorization denied. The key's policy does not permit
+            this action/resource/condition combination.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - type: object
+                    properties:
+                      denied:
+                        type: array
+                        items:
+                          type: string
+                        description: List of items that failed policy evaluation.
+        "429":
+          description: Rate limited.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+          headers:
+            Retry-After:
+              schema:
+                type: string
+              description: Seconds until tokens are available.
+            Ratelimit:
+              schema:
+                type: string
+
+  # ─── Admin: Keys ──────────────────────────────────────────────────────────
+
+  /admin/keys:
+    post:
+      operationId: createKey
+      summary: Create API key
+      description: >
+        Create a new gateway API key with an attached IAM policy document.
+        Returns the key metadata and the secret (shown only once).
+      tags: [Keys]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKeyRequest"
+            examples:
+              minimal:
+                summary: Full purge access on one zone
+                value:
+                  name: ci-deploy
+                  zone_id: aaaa1111bbbb2222cccc3333dddd4444
+                  policy:
+                    version: "2025-01-01"
+                    statements:
+                      - effect: allow
+                        actions: ["purge:*"]
+                        resources: ["zone:aaaa1111bbbb2222cccc3333dddd4444"]
+              scoped:
+                summary: URL purge restricted to specific hosts
+                value:
+                  name: cdn-purger
+                  zone_id: aaaa1111bbbb2222cccc3333dddd4444
+                  policy:
+                    version: "2025-01-01"
+                    statements:
+                      - effect: allow
+                        actions: ["purge:url"]
+                        resources: ["zone:aaaa1111bbbb2222cccc3333dddd4444"]
+                        conditions:
+                          - field: host
+                            operator: ends_with
+                            value: ".example.com"
+                  expires_in_days: 90
+      responses:
+        "200":
+          description: Key created successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: object
+                    required: [key, secret]
+                    properties:
+                      key:
+                        $ref: "#/components/schemas/ApiKey"
+                      secret:
+                        type: string
+                        description: >
+                          The raw API key. Shown only once — store it securely.
+                        examples: ["gw_a1b2c3d4e5f6g7h8i9j0"]
+        "400":
+          description: Validation error (missing fields, invalid policy, rate limits exceed account defaults).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    get:
+      operationId: listKeys
+      summary: List API keys
+      tags: [Keys]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ZoneIdQuery"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, revoked]
+          description: Filter by key status.
+      responses:
+        "200":
+          description: List of API keys for the zone.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ApiKey"
+        "400":
+          description: Missing zone_id query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/keys/{id}:
+    get:
+      operationId: getKey
+      summary: Get API key details
+      description: >
+        Returns the key metadata, the resolved (parsed) policy document,
+        and the cache timestamp.
+      tags: [Keys]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/KeyIdPath"
+        - $ref: "#/components/parameters/ZoneIdQuery"
+      responses:
+        "200":
+          description: Key details.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    $ref: "#/components/schemas/CachedKey"
+        "400":
+          description: Missing zone_id query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Key not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    delete:
+      operationId: revokeKey
+      summary: Revoke API key
+      tags: [Keys]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/KeyIdPath"
+        - $ref: "#/components/parameters/ZoneIdQuery"
+      responses:
+        "200":
+          description: Key revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: object
+                    required: [revoked]
+                    properties:
+                      revoked:
+                        type: boolean
+                        const: true
+        "400":
+          description: Missing zone_id query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Key not found or already revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  # ─── Admin: Analytics ─────────────────────────────────────────────────────
+
+  /admin/analytics/events:
+    get:
+      operationId: getAnalyticsEvents
+      summary: Query purge event logs
+      tags: [Analytics]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ZoneIdQuery"
+        - name: key_id
+          in: query
+          schema:
+            type: string
+          description: Filter events by API key ID.
+        - name: since
+          in: query
+          schema:
+            type: integer
+          description: Start time (unix ms).
+        - name: until
+          in: query
+          schema:
+            type: integer
+          description: End time (unix ms).
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+          description: Max events to return.
+      responses:
+        "200":
+          description: List of purge events.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PurgeEvent"
+        "400":
+          description: Missing zone_id query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Analytics not configured (ANALYTICS_DB binding absent).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/analytics/summary:
+    get:
+      operationId: getAnalyticsSummary
+      summary: Aggregated analytics
+      tags: [Analytics]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ZoneIdQuery"
+        - name: key_id
+          in: query
+          schema:
+            type: string
+          description: Filter by API key ID.
+        - name: since
+          in: query
+          schema:
+            type: integer
+          description: Start time (unix ms).
+        - name: until
+          in: query
+          schema:
+            type: integer
+          description: End time (unix ms).
+      responses:
+        "200":
+          description: Aggregated analytics for the zone.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    $ref: "#/components/schemas/AnalyticsSummary"
+        "400":
+          description: Missing zone_id query parameter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Analytics not configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+tags:
+  - name: System
+    description: Health and status endpoints.
+  - name: Purge
+    description: Cache purge operations proxied to Cloudflare.
+  - name: Keys
+    description: API key management with IAM policy documents.
+  - name: Analytics
+    description: D1-backed purge event analytics.

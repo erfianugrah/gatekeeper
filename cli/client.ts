@@ -16,7 +16,7 @@ export function resolveConfig(args: {
 	const baseUrl = (
 		args.endpoint ||
 		process.env["PURGE_GATEWAY_URL"] ||
-		"https://purge.erfi.io"
+		"https://purge.example.com"
 	).replace(/\/+$/, "");
 
 	const adminKey =

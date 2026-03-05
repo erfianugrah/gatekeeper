@@ -294,11 +294,9 @@ CREATE TABLE api_keys (
 );
 ```
 
-The `key_scopes` table is kept during migration but no longer written to. Old scopes are auto-converted to policy documents on read.
+### Key prefix
 
-### Key prefix change
-
-Currently `pgw_*` (purge gateway). Since this is now a general-purpose gateway, the prefix should be `gw_*`. Both prefixes are accepted during migration. New keys are issued with `gw_*`.
+`gw_*` (gateway). The old `pgw_*` prefix is no longer supported — all code referencing it has been removed.
 
 ### Authorization flow
 
@@ -417,18 +415,9 @@ Request arrives
 }
 ```
 
-### Backward compatibility
+### V1 scope system (removed)
 
-The v1 scope format maps to v2 policies:
-
-| v1 scope | v2 policy statement |
-|----------|-------------------|
-| `{"scope_type": "host", "scope_value": "example.com"}` | `{"actions": ["purge:*"], "resources": ["zone:*"], "conditions": [{"field": "host", "operator": "eq", "value": "example.com"}]}` |
-| `{"scope_type": "tag", "scope_value": "blog"}` | `{"actions": ["purge:*"], "resources": ["zone:*"], "conditions": [{"field": "tag", "operator": "eq", "value": "blog"}]}` |
-| `{"scope_type": "prefix", "scope_value": "https://example.com/api/"}` | `{"actions": ["purge:*"], "resources": ["zone:*"], "conditions": [{"field": "prefix", "operator": "starts_with", "value": "https://example.com/api/"}]}` |
-| No scopes (unrestricted) | `{"actions": ["purge:*"], "resources": ["zone:*"]}` (no conditions) |
-
-Migration: on key read, if `policy` column is null, read from `key_scopes` table, convert, and backfill `policy` column. Once all keys are migrated, drop `key_scopes`.
+The v1 scope system (`key_scopes` table, `KeyScope` type, `ScopeType` enum, `migrateV1Scopes()`, v1 RPC methods) has been completely removed. The project is not in production use yet, so no backward compatibility is needed. All keys now require a `policy: PolicyDocument` at creation time. The `key_scopes` table no longer exists.
 
 ### Regex safety
 
@@ -501,11 +490,135 @@ For bulk types (`hosts[]`, `tags[]`, `prefixes[]`), each value in the array is e
 
 ---
 
-## 4. Dashboard (Astro + shadcn + Workers Static Assets)
+## 4. OpenAPI specification
+
+### Goal
+
+Provide a machine-readable API contract (OpenAPI 3.1) that documents every gateway endpoint, its auth requirements, request/response schemas, and error envelopes. This spec is the source of truth for the dashboard, CLI, and any external consumers.
+
+### Endpoints to document
+
+| Method | Path | Auth | Summary |
+|--------|------|------|---------|
+| `GET` | `/health` | None | Health check |
+| `POST` | `/v1/zones/{zoneId}/purge_cache` | API key (`Authorization: Bearer gw_...`) | Purge cache (proxied to Cloudflare) |
+| `POST` | `/admin/keys` | Access JWT or `X-Admin-Key` | Create API key with policy |
+| `GET` | `/admin/keys` | Access JWT or `X-Admin-Key` | List API keys for a zone |
+| `GET` | `/admin/keys/{id}` | Access JWT or `X-Admin-Key` | Get API key details |
+| `DELETE` | `/admin/keys/{id}` | Access JWT or `X-Admin-Key` | Revoke API key |
+| `GET` | `/admin/analytics/events` | Access JWT or `X-Admin-Key` | Query purge event logs |
+| `GET` | `/admin/analytics/summary` | Access JWT or `X-Admin-Key` | Aggregated analytics |
+
+### Shared schemas
+
+- **`PolicyDocument`** — `version`, `statements[]`
+- **`Statement`** — `effect`, `actions[]`, `resources[]`, `conditions[]?`
+- **`Condition`** — `field`, `operator`, `value` (plus compound: `any`, `all`, `not`)
+- **`ApiKey`** — `id`, `name`, `zone_id`, `policy`, `created_at`, `expires_at`, `revoked`, `created_by`, rate limit fields
+- **`CreateKeyRequest`** — `name`, `zone_id`, `policy`, `expires_in_days?`, `rate_limit?`
+- **`PurgeBody`** — `files?`, `hosts?`, `tags?`, `prefixes?`, `purge_everything?`
+- **`ErrorEnvelope`** — `{ success: false, errors: [{ code, message }] }`
+- **`SuccessEnvelope<T>`** — `{ success: true, result: T }`
+
+### Security schemes
+
+- `ApiKeyAuth` — `http` bearer scheme (`gw_` prefixed keys), used on purge routes
+- `AdminKeyAuth` — `apiKey` in `X-Admin-Key` header, used on admin routes
+- `CloudflareAccess` — `apiKey` in `Cf-Access-Jwt-Assertion` header (or `CF_Authorization` cookie), used on admin routes
+
+### Serving
+
+- Static file at `/openapi.yaml` (served via Workers Static Assets or a dedicated route)
+- Optionally: `GET /admin/openapi` returning the spec as JSON for programmatic access
+
+### Decisions
+
+- **OpenAPI 3.1** (not 3.0) — supports JSON Schema 2020-12 natively, `null` types, `const`
+- **Single file** (`openapi.yaml`) — the API surface is small enough; no need for multi-file `$ref` splitting
+- **Hand-written, not generated** — keeps the spec readable and intentional. Hono doesn't have a built-in OpenAPI generator worth using for this project size.
+- **Spec-first for the dashboard** — the Astro dashboard should consume the spec for type generation or at minimum reference it for API shapes
+
+---
+
+## 5. Dashboard (Astro + shadcn + Workers Static Assets)
 
 ### Goal
 
 Serve an analytics/admin dashboard from the same Worker. Query D1 for charts, log tables, key management.
+
+### Design direction
+
+Inspired by the layout and component patterns of **gloryhole** (HTMX surveillance-terminal dashboard) and **caddy-compose/waf-dashboard** (Astro + React + shadcn), but with the **Lovelace** color scheme from iTerm2 instead of the green neon aesthetic.
+
+#### Lovelace palette
+
+Deep charcoal base with warm pastel-neon accents — softer than pure neon, more readable for extended use.
+
+| Token | Hex | Usage |
+|-------|-----|-------|
+| `--background` | `#1d1f28` | Page background |
+| `--surface` | `#282a36` | Card/panel backgrounds |
+| `--surface-elevated` | `#414457` | Elevated surfaces, hover states |
+| `--border` | `#414457` | Borders, dividers |
+| `--foreground` | `#fcfcfc` | Primary text |
+| `--muted` | `#bdbdc1` | Secondary text, labels |
+| `--primary` | `#c574dd` | Primary accent (Lovelace magenta-purple) — buttons, active nav, cursor |
+| `--primary-dim` | `#af43d1` | Brighter purple for emphasis |
+| `--success` | `#5adecd` | Green — allowed, cached, healthy |
+| `--success-bright` | `#17e2c7` | Bright teal for highlights |
+| `--danger` | `#f37e96` | Soft red-pink — blocked, errors |
+| `--danger-bright` | `#ff4870` | Hot pink for critical alerts |
+| `--warning` | `#f1a171` | Warm peach — warnings, rate-limited |
+| `--warning-bright` | `#ff8037` | Bright orange for emphasis |
+| `--info` | `#8796f4` | Periwinkle blue — informational, links |
+| `--info-bright` | `#546eff` | Bright blue for active filters |
+| `--cyan` | `#79e6f3` | Cyan — secondary data accent |
+| `--cyan-bright` | `#3edced` | Bright cyan for sparklines |
+| `--selection` | `#c1ddff` | Selection highlight |
+
+Chart slots: `#c574dd`, `#5adecd`, `#f37e96`, `#f1a171`, `#8796f4`
+
+#### Typography
+
+| Role | Font |
+|------|------|
+| Body text | **Space Grotesk** (geometric sans-serif) |
+| Data, code, stat values, table cells | **JetBrains Mono** (monospace) |
+
+Same approach as gloryhole — monospace for anything data-oriented, sans-serif for prose/labels.
+
+#### Layout
+
+Fixed sidebar + header shell, same pattern as both reference projects:
+
+```
++--[SIDEBAR w-60]---+--[HEADER h-14]--------------------+
+| Shield logo       | Page title     Status dot (pulse)  |
+| + "PURGE CTL"     +------------------------------------+
+| ─────────────     |                                    |
+| Overview          | MAIN CONTENT (scrollable, p-6)     |
+| Keys              |                                    |
+| Analytics         |                                    |
+| Purge             |                                    |
+| Settings          |                                    |
+| ─────────────     |                                    |
+| version footer    | Scroll-to-top FAB (bottom-right)   |
++-------------------+------------------------------------+
+```
+
+- Sidebar: `navy-950` equivalent (`#1d1f28`), active nav item highlighted with `primary/10` bg + `primary` text
+- Header: semi-transparent with backdrop blur, pulsing status dot
+- Mobile: hamburger toggle, sidebar as overlay
+- Content: responsive max-width container
+
+#### Visual effects
+
+- **Subtle glow** on primary accent elements (purple glow instead of green)
+- **No scanlines/CRT effect** — keep it clean
+- **Fade-in-up** entrance animations on stat cards
+- **Count-up** animation for stat numbers
+- **Custom scrollbar** — thin, purple thumb on hover
+- **Button micro-interactions** — `active:scale-[0.97]` press effect
 
 ### Technical approach
 
@@ -525,38 +638,53 @@ Serve an analytics/admin dashboard from the same Worker. Query D1 for charts, lo
 
 `/v1/*`, `/admin/*`, `/health` hit the Hono Worker. Everything else serves the SPA.
 
-**Astro static output mode** — no SSR, no adapter. Astro pre-renders to HTML/JS/CSS. The dashboard is a client-side SPA with React islands fetching from `/admin/*`.
+**Astro 5 static output mode** — no SSR, no adapter. Astro pre-renders to HTML/JS/CSS. The dashboard is a client-side SPA with React islands fetching from `/admin/*`.
 
-**shadcn/ui** via `@astrojs/react` — tables, cards, charts, forms, dialogs.
+**Stack:** Astro 5 + React 19 + Tailwind CSS 4 + shadcn/ui + Recharts. Same stack as caddy-compose/waf-dashboard (proven to work well for this pattern).
+
+**Separate workspace** — `dashboard/` has its own `package.json`. Build pipeline: `cd dashboard && npm run build` → output to `dashboard/dist/` → `wrangler deploy` picks it up via assets config.
 
 ### Pages
 
 | Route | Content |
 |-------|---------|
-| `/dashboard` | Summary cards: total requests, by-status chart, by-type chart, collapsed %. Time range selector. |
-| `/dashboard/keys` | Key list table (filterable by zone/status). Create key form with policy builder. Revoke with confirmation. |
-| `/dashboard/keys/:id` | Key detail: policy document (rendered), rate limits, created_by, per-key analytics. |
-| `/dashboard/analytics` | Event log table with filters (zone, key, status, action, time range). Pagination. CSV export. |
-| `/dashboard/purge` | Manual purge form: select type, enter values, submit. Shows rate limit status. |
+| `/dashboard` | Summary stat cards (total requests, by-status, collapsed %, avg latency). Traffic timeline chart (Recharts area). Purge type distribution (donut). Top zones bar chart. Recent events feed. Time range selector. |
+| `/dashboard/keys` | Key list table (filterable by zone/status, sortable). Create key dialog with policy builder. Revoke with confirmation dialog. |
+| `/dashboard/keys/:id` | Key detail: policy document (syntax-highlighted JSON), rate limit config, created_by, per-key analytics charts. |
+| `/dashboard/analytics` | Event log table with filter bar (zone, key, status, action, time range). Expandable rows with detail panels. Pagination. CSV export. |
+| `/dashboard/purge` | Manual purge form: select type (URL/host/tag/prefix/everything), enter values, zone picker, submit. Live rate limit status display. |
 
 ### Key creation flow in dashboard
 
-The "create key" form in the dashboard needs a **policy builder UI**:
+The "create key" form needs a **policy builder UI** (similar to caddy-compose's condition builder):
 
 1. Add statements (action checkboxes, resource input, condition builder)
-2. Condition builder: pick field → pick operator → enter value. Add more conditions.
-3. Preview the generated policy JSON
+2. Condition builder: pick field → pick operator → enter value. Add/remove conditions.
+3. Preview the generated policy JSON (syntax-highlighted, read-only)
 4. Submit → `POST /admin/keys` with the policy document
-5. The key is created with `created_by` set to the logged-in user's email (from Access JWT)
+5. Key created with `created_by` from Access JWT email
+6. Show the secret key **once** in a copy-to-clipboard dialog
 
-### Open questions
+### Key components to build
 
-- Dashboard bundle in same `package.json` or separate workspace?
-- Chart library: recharts vs chart.js?
+| Component | Purpose |
+|-----------|---------|
+| `DashboardLayout` | Astro layout: sidebar, header, slot for content |
+| `Sidebar` | Nav links with icons, active state, mobile toggle |
+| `StatCard` | Metric card with label, value (count-up), icon, click-to-filter |
+| `TimeRangePicker` | Quick presets + custom range, auto-refresh toggle |
+| `FilterBar` | Cloudflare-style field/operator/value filter chips |
+| `EventsTable` | Sortable, filterable, expandable rows, pagination |
+| `PolicyBuilder` | Statement editor: actions, resources, condition builder |
+| `ConditionBuilder` | AND/OR condition tree with field/operator/value inputs |
+| `PolicyPreview` | Read-only JSON view of the constructed policy |
+| `PurgeForm` | Type selector, value inputs, zone picker, submit |
+| `TrafficChart` | Recharts area chart for request timeline |
+| `TypeDistribution` | Recharts donut for purge type breakdown |
 
 ---
 
-## 5. Wrangler config
+## 6. Wrangler config
 
 ### Current state
 
@@ -580,56 +708,60 @@ Keep it simple. Env vars for numeric config and feature flags. Wrangler secrets 
 ## Implementation order
 
 ```
-Phase 1: IAM policy engine + cache key support
-   └── Core of v2. No external dependencies. Pure logic + DB migration.
-
-Phase 2: Cloudflare Access identity
-   └── Independent of policy engine. Can parallel with Phase 1.
-
-Phase 3: Dashboard
-   └── Depends on: identity (login), policy engine (key creation form)
-   └── UI scaffolding can start in parallel.
-
+Phase 1: IAM policy engine + cache key support           ✅ COMPLETE
+Phase 2: Cloudflare Access identity                       ✅ COMPLETE
+Phase 2.5: Modularization + v1 nuke                       ✅ COMPLETE
+Phase 3: OpenAPI spec + Dashboard
 Phase 4: Polish + future services
-   └── Config review, D1 retention cron, README, performance testing.
-   └── R2 service handler (when ready).
 ```
 
-### Phase 1: IAM policy engine + cache key support
+### Phase 1: IAM policy engine + cache key support — COMPLETE
 
-**New files:**
-- `src/policy-engine.ts` — condition evaluator (operators, compound logic, field resolution)
+All implemented. 169 tests passing across 8 test files.
+
+**Delivered:**
+- `src/policy-engine.ts` — condition evaluator (all operators, compound logic, regex safety validation)
 - `src/policy-types.ts` — `PolicyDocument`, `Statement`, `Condition`, `RequestContext` types
+- `src/iam.ts` — `authorize()` takes `RequestContext[]`, evaluates key's policy. `createKey()` requires `PolicyDocument`.
+- `src/routes/purge.ts` — `classifyPurge` returns `RequestContext[]` including URL-parsed fields and cache key headers
+- `cli/commands/keys.ts` — `--policy` flag (JSON string), v2-only key display
+- `cli/ui.ts` — policy rendering, `formatPolicy`/`parsePolicy`
+- `test/policy-engine.test.ts` — 45 tests (all operators, compound conditions, edge cases)
+- `test/iam.test.ts` — 30 tests (DO-level IAM with v2 policies)
 
-**Modified files:**
-- `src/types.ts` — action/resource types, key schema with `policy` and `created_by`
-- `src/iam.ts` — `authorize()` takes `RequestContext[]`, evaluates policy. Key creation accepts policy document. Migration from `key_scopes` to `policy` column.
-- `src/index.ts` — `classifyPurge` returns `RequestContext[]`. Purge route passes contexts to `authorize()`.
-- `cli/commands/keys.ts` — new `--policy` flag (JSON) or `--action`/`--resource`/`--condition` flags for simple policies
-- `cli/ui.ts` — policy rendering
+### Phase 2: Cloudflare Access identity — COMPLETE
 
-**Tests:**
-- `test/policy-engine.test.ts` — all operators, compound conditions, edge cases
-- Update `test/iam.test.ts` — policy-based authorization, migration from v1 scopes
-- Update `test/integration.test.ts` — end-to-end with policy-based keys, cache key headers
+**Delivered:**
+- `src/auth-access.ts` — JWT parsing, JWKS fetch + 1h in-memory cache, RS256 verification via `crypto.subtle`, ~80 lines no deps
+- Admin auth middleware in `src/routes/admin.ts` — Access JWT → `X-Admin-Key` fallback → 401
+- `src/env.d.ts` — `CF_ACCESS_TEAM_NAME?`, `CF_ACCESS_AUD?` optional secrets
+- `test/auth-access.test.ts` — 14 tests (mock RSA keys, expiry, bad signatures, JWKS caching, cookie extraction)
 
-**Key prefix migration:** Accept both `pgw_*` and `gw_*`. New keys issued as `gw_*`.
+### Phase 2.5: Modularization + v1 nuke — COMPLETE
 
-### Phase 2: Cloudflare Access identity
+**Source split** (from 990-line `src/index.ts`):
+- `src/durable-object.ts` (~290 lines) — `PurgeRateLimiter` DO class
+- `src/routes/purge.ts` (~230 lines) — purge route handler, isolate-level collapsing
+- `src/routes/admin.ts` (~300 lines) — admin sub-app with auth middleware, key CRUD, analytics
+- `src/index.ts` (~20 lines) — thin entrypoint
 
-**New files:**
-- `src/auth-access.ts` — JWT parsing, JWKS fetch + in-memory cache, signature verification, claims extraction
+**Test split** (from 850-line `test/integration.test.ts`):
+- `test/helpers.ts` — shared constants, HTTP helpers, upstream mocks, policy factories
+- `test/admin.test.ts` — 12 tests
+- `test/purge.test.ts` — 29 tests
+- `test/analytics.test.ts` — 9 tests
 
-**Modified files:**
-- `src/index.ts` — admin middleware: Access JWT → `X-Admin-Key` fallback → 401
-- `src/iam.ts` — key creation stores `created_by` from Access JWT email
-- `src/env.d.ts` — `CF_ACCESS_TEAM_NAME`, `CF_ACCESS_AUD` secrets
+**V1 nuke:** Removed all v1 scope types, RPC methods, migration code, `key_scopes` table. `gw_` prefix only.
 
-**Tests:**
-- `test/auth-access.test.ts` — JWT validation with mock keys, expiry, bad signatures, JWKS caching
+### Phase 3: OpenAPI spec + Dashboard
 
-### Phase 3: Dashboard
+**OpenAPI spec:**
+- `openapi.yaml` — OpenAPI 3.1 schema describing all gateway endpoints
+- Serves as the contract for the dashboard, CLI, and external consumers
+- Can be served at `/openapi.yaml` or `/admin/openapi` for discoverability
+- Consider generating route validation from the spec (or at least keeping spec and Hono routes in sync)
 
+**Dashboard:**
 - Astro project in `dashboard/`
 - shadcn/ui + React islands
 - Policy builder UI for key creation
@@ -640,7 +772,6 @@ Phase 4: Polish + future services
 
 ### Phase 4: Polish + extensibility
 
-- Config mechanism review
 - D1 retention cron job
 - README rewrite (it's a gateway now, not just a purge proxy)
 - Performance testing (DO under load with regex conditions)
@@ -656,27 +787,54 @@ Phase 4: Polish + future services
 | Policy evaluation overhead | Latency on every request | Cache compiled conditions per key. Short-circuit: no conditions = instant allow. |
 | Dashboard bundle size | Slow first load | Code split per route, lazy-load charts, precompress with brotli |
 | Access JWT validation latency | +10-50ms per admin request | Cache JWKS in-memory (1h TTL), `crypto.subtle.verify` is fast |
-| v1 scope migration breaks keys | Auth failures for existing services | Dual-read: try policy column first, fall back to key_scopes. Never delete old table until confirmed. |
 | Policy schema too rigid for future services | Refactoring later | Version field in policy doc. Engine dispatches on version. |
 | Static assets + Worker in same deploy | Build complexity | Separate build scripts, CI runs dashboard build then wrangler deploy |
 
 ---
 
-## Files to change/add
+## Current file layout
 
-### New files
-- `src/policy-engine.ts` — condition evaluator (operators, compound logic)
-- `src/policy-types.ts` — policy document, statement, condition, request context types
-- `src/auth-access.ts` — Access JWT validation
-- `dashboard/` — entire Astro project
+```
+src/
+├── index.ts              — Thin entrypoint: mounts routes, re-exports DO
+├── durable-object.ts     — PurgeRateLimiter DO class, parseConfig, buildRateLimitResult
+├── routes/
+│   ├── purge.ts          — POST /v1/zones/:zoneId/purge_cache, isolate collapsing, classifyPurge
+│   └── admin.ts          — Admin sub-app: auth middleware, key CRUD, analytics routes
+├── types.ts              — Shared types: HonoEnv, PurgeBody, ApiKey, CreateKeyRequest, PurgeResult
+├── policy-types.ts       — PolicyDocument, Statement, Condition, RequestContext
+├── policy-engine.ts      — evaluatePolicy(), validatePolicy()
+├── auth-access.ts        — Cloudflare Access JWT validation (no deps)
+├── iam.ts                — IamManager: createKey(policy), authorize(contexts), authorizeFromBody()
+├── token-bucket.ts       — TokenBucket class
+├── analytics.ts          — D1 analytics
+└── env.d.ts              — Env type extensions
 
-### Modified files
-- `wrangler.jsonc` — add `assets` config, declare new secrets
-- `src/types.ts` — action/resource enums, updated key interface
-- `src/iam.ts` — policy-based authorize(), key creation with policy + created_by, v1 migration
-- `src/index.ts` — admin auth middleware (JWT + admin key), classifyPurge returns RequestContext[]
-- `src/analytics.ts` — log created_by, action, resource in events
-- `cli/commands/keys.ts` — policy flags, display policy in key detail
-- `cli/ui.ts` — policy rendering, action/resource formatting
-- `package.json` — dashboard workspace (no new runtime deps)
-- `README.md` — full rewrite for gateway + IAM framing
+cli/
+├── index.ts              — CLI entry point (citty)
+├── client.ts             — HTTP client
+├── ui.ts                 — formatPolicy/parsePolicy, colored output
+├── cli.test.ts           — parsePolicy tests
+└── commands/
+    ├── health.ts
+    ├── keys.ts           — --policy required, v2-only display
+    ├── purge.ts
+    └── analytics.ts
+
+test/
+├── helpers.ts            — Shared constants, HTTP helpers, upstream mocks, policy factories
+├── admin.test.ts         — Admin auth, key lifecycle, validation (12 tests)
+├── purge.test.ts         — Purge auth, body validation, happy path, rate limiting, policy auth (29 tests)
+├── analytics.test.ts     — Analytics validation, event logging, filtering (9 tests)
+├── iam.test.ts           — DO-level IAM tests with v2 policies (30 tests)
+├── auth-access.test.ts   — Access JWT validation (14 tests)
+├── policy-engine.test.ts — Policy engine unit tests (45 tests)
+└── token-bucket.test.ts  — Token bucket tests (16 tests)
+```
+
+## Files still to add
+
+- `openapi.yaml` — OpenAPI 3.1 spec for all gateway endpoints
+- `dashboard/` — Astro project (Phase 3)
+- `wrangler.jsonc` — `assets` config for dashboard static files
+- `README.md` — full rewrite for gateway + IAM framing (Phase 4)

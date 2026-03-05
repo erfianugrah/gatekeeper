@@ -1,4 +1,17 @@
 import type { PolicyDocument } from './policy-types';
+import type { AccessIdentity } from './auth-access';
+
+// --- Hono env ───────────────────────────────────────────────────────────────
+
+type HonoEnv = {
+	Bindings: Env;
+	Variables: {
+		/** Set when authenticated via Cloudflare Access JWT */
+		accessIdentity?: AccessIdentity;
+	};
+};
+
+export type { HonoEnv };
 
 // --- Purge request types ---
 
@@ -48,8 +61,8 @@ export interface ApiKey {
 	created_at: number;
 	expires_at: number | null;
 	revoked: number;
-	/** JSON-serialized PolicyDocument. NULL for v1 keys (use key_scopes table). */
-	policy: string | null;
+	/** JSON-serialized PolicyDocument. */
+	policy: string;
 	/** Email of the user who created this key (from Access JWT). NULL for admin-key created keys. */
 	created_by: string | null;
 	/** Per-key bulk rate limit (req/sec). NULL = use account default. */
@@ -62,42 +75,12 @@ export interface ApiKey {
 	single_bucket: number | null;
 }
 
-/** v1 scope — kept for backward compatibility during migration. */
-export interface KeyScope {
-	key_id: string;
-	scope_type: ScopeType;
-	scope_value: string;
-}
-
-export type ScopeType =
-	| "url_prefix"
-	| "host"
-	| "tag"
-	| "prefix"
-	| "purge_everything"
-	| "*";
-
-/** v1 key creation request (backward compatible). */
+/** Key creation request with policy document. */
 export interface CreateKeyRequest {
 	name: string;
 	zone_id: string;
 	expires_in_days?: number;
-	scopes: { scope_type: ScopeType; scope_value: string }[];
-	/** Optional per-key rate limit overrides. Enforced server-side to be <= account defaults. */
-	rate_limit?: {
-		bulk_rate?: number;
-		bulk_bucket?: number;
-		single_rate?: number;
-		single_bucket?: number;
-	};
-}
-
-/** v2 key creation request with policy document. */
-export interface CreateKeyRequestV2 {
-	name: string;
-	zone_id: string;
-	expires_in_days?: number;
-	/** v2 policy document — replaces scopes. */
+	/** Policy document. */
 	policy: PolicyDocument;
 	/** Email of the user creating this key (from Access JWT). */
 	created_by?: string;
@@ -121,8 +104,7 @@ export interface AuthResult {
 
 export interface CachedKey {
 	key: ApiKey;
-	scopes: KeyScope[];
-	/** Parsed policy document, resolved from key.policy or migrated from scopes. */
+	/** Parsed policy document from key.policy. */
 	resolvedPolicy: PolicyDocument;
 	cachedAt: number;
 }
