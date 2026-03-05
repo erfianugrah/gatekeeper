@@ -1,3 +1,5 @@
+import type { PolicyDocument } from './policy-types';
+
 // --- Purge request types ---
 
 export type PurgeType = "single" | "bulk";
@@ -46,6 +48,10 @@ export interface ApiKey {
 	created_at: number;
 	expires_at: number | null;
 	revoked: number;
+	/** JSON-serialized PolicyDocument. NULL for v1 keys (use key_scopes table). */
+	policy: string | null;
+	/** Email of the user who created this key (from Access JWT). NULL for admin-key created keys. */
+	created_by: string | null;
 	/** Per-key bulk rate limit (req/sec). NULL = use account default. */
 	bulk_rate: number | null;
 	/** Per-key bulk bucket size. NULL = use account default. */
@@ -56,6 +62,7 @@ export interface ApiKey {
 	single_bucket: number | null;
 }
 
+/** v1 scope — kept for backward compatibility during migration. */
 export interface KeyScope {
 	key_id: string;
 	scope_type: ScopeType;
@@ -70,12 +77,31 @@ export type ScopeType =
 	| "purge_everything"
 	| "*";
 
+/** v1 key creation request (backward compatible). */
 export interface CreateKeyRequest {
 	name: string;
 	zone_id: string;
 	expires_in_days?: number;
 	scopes: { scope_type: ScopeType; scope_value: string }[];
 	/** Optional per-key rate limit overrides. Enforced server-side to be <= account defaults. */
+	rate_limit?: {
+		bulk_rate?: number;
+		bulk_bucket?: number;
+		single_rate?: number;
+		single_bucket?: number;
+	};
+}
+
+/** v2 key creation request with policy document. */
+export interface CreateKeyRequestV2 {
+	name: string;
+	zone_id: string;
+	expires_in_days?: number;
+	/** v2 policy document — replaces scopes. */
+	policy: PolicyDocument;
+	/** Email of the user creating this key (from Access JWT). */
+	created_by?: string;
+	/** Optional per-key rate limit overrides. */
 	rate_limit?: {
 		bulk_rate?: number;
 		bulk_bucket?: number;
@@ -96,6 +122,8 @@ export interface AuthResult {
 export interface CachedKey {
 	key: ApiKey;
 	scopes: KeyScope[];
+	/** Parsed policy document, resolved from key.policy or migrated from scopes. */
+	resolvedPolicy: PolicyDocument;
 	cachedAt: number;
 }
 

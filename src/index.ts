@@ -10,11 +10,14 @@ import type {
 	ConsumeResult,
 	RateLimitConfig,
 	CreateKeyRequest,
+	CreateKeyRequestV2,
 	AuthResult,
 	ApiKey,
 	KeyScope,
 	PurgeResult,
 } from "./types";
+import type { PolicyDocument, RequestContext } from "./policy-types";
+import { validatePolicy } from "./policy-engine";
 
 // ─── App types ──────────────────────────────────────────────────────────────
 
@@ -308,8 +311,16 @@ export class PurgeRateLimiter extends DurableObject<Env> {
 		return this.iam.authorize(keyId, zoneId, body);
 	}
 
+	async authorizeV2(keyId: string, zoneId: string, contexts: RequestContext[]): Promise<AuthResult> {
+		return this.iam.authorizeV2(keyId, zoneId, contexts);
+	}
+
 	async createKey(req: CreateKeyRequest): Promise<{ key: ApiKey; scopes: KeyScope[] }> {
 		return this.iam.createKey(req);
+	}
+
+	async createKeyV2(req: CreateKeyRequestV2): Promise<{ key: ApiKey }> {
+		return this.iam.createKeyV2(req);
 	}
 
 	async listKeys(zoneId?: string, filter?: "active" | "revoked"): Promise<ApiKey[]> {
@@ -583,6 +594,9 @@ admin.use("*", async (c, next) => {
 });
 
 // ─── Admin: create key ──────────────────────────────────────────────────────
+// Accepts both v1 (scopes) and v2 (policy) request bodies.
+// v1: { name, zone_id, scopes: [{scope_type, scope_value}], ... }
+// v2: { name, zone_id, policy: {version, statements}, ... }
 
 admin.post("/keys", async (c) => {
 	const log: Record<string, unknown> = {
@@ -590,9 +604,9 @@ admin.post("/keys", async (c) => {
 		ts: new Date().toISOString(),
 	};
 
-	let body: CreateKeyRequest;
+	let raw: Record<string, unknown>;
 	try {
-		body = await c.req.json<CreateKeyRequest>();
+		raw = await c.req.json<Record<string, unknown>>();
 	} catch {
 		log.status = 400;
 		log.error = "invalid_json";
@@ -603,12 +617,118 @@ admin.post("/keys", async (c) => {
 		);
 	}
 
-	if (!body.name || !body.zone_id || !body.scopes || !Array.isArray(body.scopes)) {
+	// Common required fields
+	if (!raw.name || typeof raw.name !== "string") {
 		log.status = 400;
-		log.error = "missing_fields";
+		log.error = "missing_name";
 		console.log(JSON.stringify(log));
 		return c.json(
-			{ success: false, errors: [{ code: 400, message: "Required fields: name, zone_id, scopes[]" }] },
+			{ success: false, errors: [{ code: 400, message: "Required field: name (string)" }] },
+			400,
+		);
+	}
+	if (!raw.zone_id || typeof raw.zone_id !== "string") {
+		log.status = 400;
+		log.error = "missing_zone_id";
+		console.log(JSON.stringify(log));
+		return c.json(
+			{ success: false, errors: [{ code: 400, message: "Required field: zone_id (string)" }] },
+			400,
+		);
+	}
+
+	const hasPolicy = raw.policy && typeof raw.policy === "object";
+	const hasScopes = Array.isArray(raw.scopes);
+
+	if (hasPolicy && hasScopes) {
+		log.status = 400;
+		log.error = "both_policy_and_scopes";
+		console.log(JSON.stringify(log));
+		return c.json(
+			{ success: false, errors: [{ code: 400, message: "Provide either 'policy' (v2) or 'scopes' (v1), not both" }] },
+			400,
+		);
+	}
+
+	if (!hasPolicy && !hasScopes) {
+		log.status = 400;
+		log.error = "missing_auth_config";
+		console.log(JSON.stringify(log));
+		return c.json(
+			{ success: false, errors: [{ code: 400, message: "Required: either 'policy' (v2) or 'scopes[]' (v1)" }] },
+			400,
+		);
+	}
+
+	// Validate rate limits (shared between v1 and v2)
+	const rateLimit = raw.rate_limit as CreateKeyRequest["rate_limit"] | undefined;
+	if (rateLimit) {
+		const rateLimitError = validateRateLimits(rateLimit, c.env);
+		if (rateLimitError) {
+			log.status = 400;
+			log.error = "rate_limit_exceeds_account";
+			console.log(JSON.stringify(log));
+			return c.json(
+				{ success: false, errors: [{ code: 400, message: rateLimitError }] },
+				400,
+			);
+		}
+	}
+
+	const stub = getStub(c.env);
+
+	// ── v2 path: policy document ──
+	if (hasPolicy) {
+		const policyErrors = validatePolicy(raw.policy);
+		if (policyErrors.length > 0) {
+			log.status = 400;
+			log.error = "invalid_policy";
+			log.policyErrors = policyErrors;
+			console.log(JSON.stringify(log));
+			return c.json(
+				{
+					success: false,
+					errors: policyErrors.map((e) => ({
+						code: 400,
+						message: `${e.path}: ${e.message}`,
+					})),
+				},
+				400,
+			);
+		}
+
+		const req: CreateKeyRequestV2 = {
+			name: raw.name as string,
+			zone_id: raw.zone_id as string,
+			policy: raw.policy as PolicyDocument,
+			created_by: typeof raw.created_by === "string" ? raw.created_by : undefined,
+			expires_in_days: typeof raw.expires_in_days === "number" ? raw.expires_in_days : undefined,
+			rate_limit: rateLimit,
+		};
+
+		log.zoneId = req.zone_id;
+		log.keyName = req.name;
+		log.version = "v2";
+		log.statementCount = req.policy.statements.length;
+
+		const result = await stub.createKeyV2(req);
+
+		log.status = 200;
+		log.keyId = result.key.id.slice(0, 12) + "...";
+		console.log(JSON.stringify(log));
+
+		return c.json({ success: true, result });
+	}
+
+	// ── v1 path: scopes (backward compatible) ──
+	const body = raw as unknown as CreateKeyRequest;
+
+	if (!body.scopes || !Array.isArray(body.scopes)) {
+		log.status = 400;
+		log.error = "missing_scopes";
+		console.log(JSON.stringify(log));
+		return c.json(
+			{ success: false, errors: [{ code: 400, message: "Required fields: scopes[]" }] },
 			400,
 		);
 	}
@@ -633,41 +753,11 @@ admin.post("/keys", async (c) => {
 		}
 	}
 
-	// Validate per-key rate limits don't exceed account defaults
-	if (body.rate_limit) {
-		const config = parseConfig(c.env);
-		const errors: string[] = [];
-		if (body.rate_limit.bulk_rate != null && body.rate_limit.bulk_rate > config.bulk.rate) {
-			errors.push(`bulk_rate ${body.rate_limit.bulk_rate} exceeds account default ${config.bulk.rate}`);
-		}
-		if (body.rate_limit.bulk_bucket != null && body.rate_limit.bulk_bucket > config.bulk.bucketSize) {
-			errors.push(`bulk_bucket ${body.rate_limit.bulk_bucket} exceeds account default ${config.bulk.bucketSize}`);
-		}
-		if (body.rate_limit.single_rate != null && body.rate_limit.single_rate > config.single.rate) {
-			errors.push(`single_rate ${body.rate_limit.single_rate} exceeds account default ${config.single.rate}`);
-		}
-		if (body.rate_limit.single_bucket != null && body.rate_limit.single_bucket > config.single.bucketSize) {
-			errors.push(`single_bucket ${body.rate_limit.single_bucket} exceeds account default ${config.single.bucketSize}`);
-		}
-		if (errors.length > 0) {
-			log.status = 400;
-			log.error = "rate_limit_exceeds_account";
-			console.log(JSON.stringify(log));
-			return c.json(
-				{
-					success: false,
-					errors: [{ code: 400, message: `Per-key rate limits must not exceed account defaults: ${errors.join("; ")}` }],
-				},
-				400,
-			);
-		}
-	}
-
 	log.zoneId = body.zone_id;
 	log.keyName = body.name;
+	log.version = "v1";
 	log.scopeCount = body.scopes.length;
 
-	const stub = getStub(c.env);
 	const result = await stub.createKey(body);
 
 	log.status = 200;
@@ -918,6 +1008,28 @@ async function timingSafeEqual(a: string, b: string): Promise<boolean> {
 		crypto.subtle.sign("HMAC", hmacKey, encoder.encode(b)),
 	]);
 	return crypto.subtle.timingSafeEqual(macA, macB);
+}
+
+/** Validate per-key rate limits against account defaults. Returns error string or null. */
+function validateRateLimits(rl: NonNullable<CreateKeyRequest["rate_limit"]>, env: Env): string | null {
+	const config = parseConfig(env);
+	const errors: string[] = [];
+	if (rl.bulk_rate != null && rl.bulk_rate > config.bulk.rate) {
+		errors.push(`bulk_rate ${rl.bulk_rate} exceeds account default ${config.bulk.rate}`);
+	}
+	if (rl.bulk_bucket != null && rl.bulk_bucket > config.bulk.bucketSize) {
+		errors.push(`bulk_bucket ${rl.bulk_bucket} exceeds account default ${config.bulk.bucketSize}`);
+	}
+	if (rl.single_rate != null && rl.single_rate > config.single.rate) {
+		errors.push(`single_rate ${rl.single_rate} exceeds account default ${config.single.rate}`);
+	}
+	if (rl.single_bucket != null && rl.single_bucket > config.single.bucketSize) {
+		errors.push(`single_bucket ${rl.single_bucket} exceeds account default ${config.single.bucketSize}`);
+	}
+	if (errors.length > 0) {
+		return `Per-key rate limits must not exceed account defaults: ${errors.join("; ")}`;
+	}
+	return null;
 }
 
 function parseConfig(env: Env): RateLimitConfig {

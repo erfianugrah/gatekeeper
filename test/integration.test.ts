@@ -132,7 +132,7 @@ describe("Admin endpoints", () => {
 		const createData = await createRes.json<any>();
 		expect(createData.success).toBe(true);
 		const keyId = createData.result.key.id;
-		expect(keyId).toMatch(/^pgw_/);
+		expect(keyId).toMatch(/^gw_/);
 
 		// List
 		const listRes = await SELF.fetch(
@@ -909,5 +909,437 @@ describe("404 handling", () => {
 	it("unknown routes return 404", async () => {
 		const res = await SELF.fetch("http://localhost/unknown/path");
 		expect(res.status).toBe(404);
+	});
+});
+
+// --- v2 policy-based key creation and authorization ---
+
+describe("v2 key creation with policy", () => {
+	it("creates a key with a v2 policy document", async () => {
+		const res = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "v2-key",
+				zone_id: ZONE_ID,
+				policy: {
+					version: "2025-01-01",
+					statements: [
+						{
+							effect: "allow",
+							actions: ["purge:host"],
+							resources: [`zone:${ZONE_ID}`],
+							conditions: [
+								{ field: "host", operator: "eq", value: "cdn.example.com" },
+							],
+						},
+					],
+				},
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.result.key.id).toMatch(/^gw_/);
+		expect(data.result.key.policy).toBeTruthy();
+		// v2 keys don't return scopes
+		expect(data.result.scopes).toBeUndefined();
+	});
+
+	it("rejects invalid policy: missing version", async () => {
+		const res = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "bad-policy",
+				zone_id: ZONE_ID,
+				policy: {
+					statements: [{ effect: "allow", actions: ["*"], resources: ["*"] }],
+				},
+			}),
+		});
+		expect(res.status).toBe(400);
+		const data = await res.json<any>();
+		expect(data.success).toBe(false);
+		expect(data.errors.some((e: any) => e.message.includes("version"))).toBe(true);
+	});
+
+	it("rejects invalid policy: empty statements", async () => {
+		const res = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "empty-stmts",
+				zone_id: ZONE_ID,
+				policy: { version: "2025-01-01", statements: [] },
+			}),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	it("rejects invalid policy: dangerous regex", async () => {
+		const res = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "bad-regex",
+				zone_id: ZONE_ID,
+				policy: {
+					version: "2025-01-01",
+					statements: [{
+						effect: "allow",
+						actions: ["purge:*"],
+						resources: ["zone:*"],
+						conditions: [{ field: "tag", operator: "matches", value: "(a+)+$" }],
+					}],
+				},
+			}),
+		});
+		expect(res.status).toBe(400);
+		const data = await res.json<any>();
+		expect(data.errors.some((e: any) => e.message.includes("catastrophic"))).toBe(true);
+	});
+
+	it("rejects body with both policy and scopes", async () => {
+		const res = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "both",
+				zone_id: ZONE_ID,
+				policy: { version: "2025-01-01", statements: [{ effect: "allow", actions: ["*"], resources: ["*"] }] },
+				scopes: [{ scope_type: "host", scope_value: "x.com" }],
+			}),
+		});
+		expect(res.status).toBe(400);
+		const data = await res.json<any>();
+		expect(data.errors[0].message).toContain("not both");
+	});
+
+	it("rejects body with neither policy nor scopes", async () => {
+		const res = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "neither",
+				zone_id: ZONE_ID,
+			}),
+		});
+		expect(res.status).toBe(400);
+	});
+});
+
+describe("v2 policy-based purge authorization", () => {
+	beforeEach(() => {
+		__testClearInflightCache();
+	});
+
+	it("v2 key with host condition allows matching host purge", async () => {
+		// Create a v2 key scoped to cdn.example.com hosts
+		const createRes = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "v2-host-key",
+				zone_id: ZONE_ID,
+				policy: {
+					version: "2025-01-01",
+					statements: [{
+						effect: "allow",
+						actions: ["purge:host"],
+						resources: [`zone:${ZONE_ID}`],
+						conditions: [{ field: "host", operator: "eq", value: "cdn.example.com" }],
+					}],
+				},
+			}),
+		});
+		const createData = await createRes.json<any>();
+		const keyId = createData.result.key.id;
+
+		// Purge matching host -> allowed
+		mockUpstreamSuccess();
+		const purgeRes = await SELF.fetch(
+			`http://localhost/v1/zones/${ZONE_ID}/purge_cache`,
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${keyId}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ hosts: ["cdn.example.com"] }),
+			},
+		);
+		expect(purgeRes.status).toBe(200);
+	});
+
+	it("v2 key with host condition denies non-matching host", async () => {
+		const createRes = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "v2-host-deny",
+				zone_id: ZONE_ID,
+				policy: {
+					version: "2025-01-01",
+					statements: [{
+						effect: "allow",
+						actions: ["purge:host"],
+						resources: [`zone:${ZONE_ID}`],
+						conditions: [{ field: "host", operator: "eq", value: "cdn.example.com" }],
+					}],
+				},
+			}),
+		});
+		const createData = await createRes.json<any>();
+		const keyId = createData.result.key.id;
+
+		// Purge non-matching host -> denied
+		const purgeRes = await SELF.fetch(
+			`http://localhost/v1/zones/${ZONE_ID}/purge_cache`,
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${keyId}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ hosts: ["evil.com"] }),
+			},
+		);
+		expect(purgeRes.status).toBe(403);
+		const data = await purgeRes.json<any>();
+		expect(data.denied).toContain("host:evil.com");
+	});
+
+	it("v2 key with wildcard action allows any purge type", async () => {
+		const createRes = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "v2-wildcard",
+				zone_id: ZONE_ID,
+				policy: {
+					version: "2025-01-01",
+					statements: [{
+						effect: "allow",
+						actions: ["purge:*"],
+						resources: [`zone:${ZONE_ID}`],
+					}],
+				},
+			}),
+		});
+		const createData = await createRes.json<any>();
+		const keyId = createData.result.key.id;
+
+		// Should allow hosts purge
+		mockUpstreamSuccess();
+		const res1 = await SELF.fetch(
+			`http://localhost/v1/zones/${ZONE_ID}/purge_cache`,
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${keyId}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ hosts: ["anything.com"] }),
+			},
+		);
+		expect(res1.status).toBe(200);
+
+		// Should allow tags purge
+		mockUpstreamSuccess();
+		const res2 = await SELF.fetch(
+			`http://localhost/v1/zones/${ZONE_ID}/purge_cache`,
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${keyId}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ tags: ["any-tag"] }),
+			},
+		);
+		expect(res2.status).toBe(200);
+	});
+
+	it("v2 key with ends_with condition for host suffix matching", async () => {
+		const createRes = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "v2-suffix",
+				zone_id: ZONE_ID,
+				policy: {
+					version: "2025-01-01",
+					statements: [{
+						effect: "allow",
+						actions: ["purge:host"],
+						resources: [`zone:${ZONE_ID}`],
+						conditions: [{ field: "host", operator: "ends_with", value: ".example.com" }],
+					}],
+				},
+			}),
+		});
+		const createData = await createRes.json<any>();
+		const keyId = createData.result.key.id;
+
+		// cdn.example.com -> allowed
+		mockUpstreamSuccess();
+		const res1 = await SELF.fetch(
+			`http://localhost/v1/zones/${ZONE_ID}/purge_cache`,
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${keyId}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ hosts: ["cdn.example.com"] }),
+			},
+		);
+		expect(res1.status).toBe(200);
+
+		// evil.com -> denied
+		const res2 = await SELF.fetch(
+			`http://localhost/v1/zones/${ZONE_ID}/purge_cache`,
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${keyId}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ hosts: ["evil.com"] }),
+			},
+		);
+		expect(res2.status).toBe(403);
+	});
+
+	it("v2 key with URL file purge and header condition", async () => {
+		const createRes = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "v2-url-header",
+				zone_id: ZONE_ID,
+				policy: {
+					version: "2025-01-01",
+					statements: [{
+						effect: "allow",
+						actions: ["purge:url"],
+						resources: [`zone:${ZONE_ID}`],
+						conditions: [
+							{ field: "host", operator: "eq", value: "cdn.example.com" },
+							{ field: "header.CF-Device-Type", operator: "eq", value: "mobile" },
+						],
+					}],
+				},
+			}),
+		});
+		const createData = await createRes.json<any>();
+		const keyId = createData.result.key.id;
+
+		// Matching URL + header -> allowed
+		mockUpstreamSuccess();
+		const res1 = await SELF.fetch(
+			`http://localhost/v1/zones/${ZONE_ID}/purge_cache`,
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${keyId}`, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					files: [{
+						url: "https://cdn.example.com/img/logo.png",
+						headers: { "CF-Device-Type": "mobile" },
+					}],
+				}),
+			},
+		);
+		expect(res1.status).toBe(200);
+
+		// Wrong header value -> denied
+		const res2 = await SELF.fetch(
+			`http://localhost/v1/zones/${ZONE_ID}/purge_cache`,
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${keyId}`, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					files: [{
+						url: "https://cdn.example.com/img/logo.png",
+						headers: { "CF-Device-Type": "desktop" },
+					}],
+				}),
+			},
+		);
+		expect(res2.status).toBe(403);
+
+		// Missing header -> denied
+		const res3 = await SELF.fetch(
+			`http://localhost/v1/zones/${ZONE_ID}/purge_cache`,
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${keyId}`, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					files: ["https://cdn.example.com/img/logo.png"],
+				}),
+			},
+		);
+		expect(res3.status).toBe(403);
+	});
+
+	it("v2 key denies action not in policy", async () => {
+		// Key only allows purge:tag, not purge:host
+		const createRes = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "v2-tag-only",
+				zone_id: ZONE_ID,
+				policy: {
+					version: "2025-01-01",
+					statements: [{
+						effect: "allow",
+						actions: ["purge:tag"],
+						resources: [`zone:${ZONE_ID}`],
+					}],
+				},
+			}),
+		});
+		const createData = await createRes.json<any>();
+		const keyId = createData.result.key.id;
+
+		// Tag purge -> allowed
+		mockUpstreamSuccess();
+		const res1 = await SELF.fetch(
+			`http://localhost/v1/zones/${ZONE_ID}/purge_cache`,
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${keyId}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ tags: ["release-v1"] }),
+			},
+		);
+		expect(res1.status).toBe(200);
+
+		// Host purge -> denied (wrong action)
+		const res2 = await SELF.fetch(
+			`http://localhost/v1/zones/${ZONE_ID}/purge_cache`,
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${keyId}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ hosts: ["example.com"] }),
+			},
+		);
+		expect(res2.status).toBe(403);
+	});
+
+	it("v2 key denies wrong zone", async () => {
+		const OTHER_ZONE = "bbbb2222cccc3333dddd4444eeee5555";
+		const createRes = await SELF.fetch("http://localhost/admin/keys", {
+			method: "POST",
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: "v2-zone-lock",
+				zone_id: ZONE_ID,
+				policy: {
+					version: "2025-01-01",
+					statements: [{
+						effect: "allow",
+						actions: ["purge:*"],
+						resources: [`zone:${ZONE_ID}`],
+					}],
+				},
+			}),
+		});
+		const createData = await createRes.json<any>();
+		const keyId = createData.result.key.id;
+
+		// Wrong zone -> 403 (zone_id check is on the key itself, not policy)
+		const res = await SELF.fetch(
+			`http://localhost/v1/zones/${OTHER_ZONE}/purge_cache`,
+			{
+				method: "POST",
+				headers: { Authorization: `Bearer ${keyId}`, "Content-Type": "application/json" },
+				body: JSON.stringify({ hosts: ["example.com"] }),
+			},
+		);
+		expect(res.status).toBe(403);
 	});
 });

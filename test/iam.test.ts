@@ -19,7 +19,7 @@ describe("IAM — key CRUD", () => {
 		};
 
 		const { key, scopes } = await stub.createKey(req);
-		expect(key.id).toMatch(/^pgw_[a-f0-9]{32}$/);
+		expect(key.id).toMatch(/^gw_[a-f0-9]{32}$/);
 		expect(key.name).toBe("test-key");
 		expect(key.zone_id).toBe(ZONE_ID);
 		expect(key.revoked).toBe(0);

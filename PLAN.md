@@ -1,18 +1,515 @@
-# V2 Plan
+# V2 Plan — API Gateway + IAM
 
-Four workstreams: dashboard, auth, scope expressions, and cache key purging.
+The project is evolving from a Cloudflare cache purge proxy into a **general-purpose API gateway with its own IAM system**. Purge is the first service it fronts. The IAM layer — identity, keys, policies, authorization — is designed to be service-agnostic so it can later front R2, KV, or any Cloudflare (or AWS) service.
+
+## Architecture overview
+
+```
+                          ┌─────────────────────────────────────┐
+                          │          Cloudflare Access           │
+                          │  (identity layer — who are you?)     │
+                          │  Self-hosted app on purge.erfi.io    │
+                          │  Gates: /admin/*, /dashboard/*       │
+                          └──────────────┬──────────────────────┘
+                                         │ Cf-Access-Jwt-Assertion
+                                         ▼
+┌──────────┐  Authorization: Bearer gw_xxx  ┌──────────────────────────────────┐
+│  Client   │ ─────────────────────────────▶│         API Gateway Worker        │
+│ (CI/CD,   │                               │                                  │
+│  service) │                               │  ┌────────────┐  ┌────────────┐  │
+└──────────┘                                │  │  Identity   │  │    IAM     │  │
+                                            │  │  (Access    │  │  (policy   │  │
+┌──────────┐  Cf-Access-Jwt-Assertion       │  │   JWT)      │  │  engine)   │  │
+│  Human    │ ─────────────────────────────▶│  └──────┬─────┘  └──────┬─────┘  │
+│ (browser, │                               │         │               │        │
+│  dashboard│                               │         ▼               ▼        │
+└──────────┘                                │  ┌──────────────────────────┐    │
+                                            │  │     Service handlers     │    │
+                                            │  │  ┌─────────┐ ┌────────┐ │    │
+                                            │  │  │  Purge   │ │  R2    │ │    │
+                                            │  │  │  (v1)    │ │ (future│ │    │
+                                            │  │  └─────────┘ └────────┘ │    │
+                                            │  └──────────────────────────┘    │
+                                            └──────────────────────────────────┘
+```
+
+**Two separate concerns:**
+
+1. **Identity** (Cloudflare Access) — authenticates humans via SSO. Injects JWT with email/sub. The gateway validates the JWT. This is the "who are you?" layer.
+
+2. **Authorization** (our IAM) — evaluates whether a principal (API key or authenticated user) is allowed to perform an action on a resource, given conditions. This is the "what can you do?" layer. It uses AWS IAM-style policy documents.
+
+These are deliberately decoupled. Access handles identity. Our IAM handles authorization. A machine client with an API key skips Access entirely — it authenticates via the key and is authorized via the key's attached policy. A human authenticates via Access and gets implicit admin authorization (for now; RBAC can layer on later).
 
 ---
 
-## 1. Dashboard (Astro + shadcn + Workers Static Assets)
+## 1. Identity: Cloudflare Access
 
 ### Goal
 
-Serve an analytics/admin dashboard from the same Worker using the static assets binding. Query D1 for charts, log tables, key management.
+Authenticate humans (dashboard users, admin tool operators) via Cloudflare Access. Extract identity (email, user ID) for audit trails and key attribution.
 
-### Research findings
+### How it works
 
-**Workers Static Assets** — Add `assets.directory` and `assets.binding` to `wrangler.jsonc`. The Worker code runs via `run_worker_first` for API routes; everything else falls through to static files. Pattern-based routing is supported:
+Access is configured as a **self-hosted application** on `purge.erfi.io`. It gates `/admin/*` and `/dashboard/*`. When a browser hits these paths, Access redirects to the configured IdP (Google, GitHub, SAML, OTP, etc.). After login, Access injects:
+
+- `Cf-Access-Jwt-Assertion` header — signed JWT on every proxied request
+- `CF_Authorization` cookie — same JWT, for browser-initiated requests
+
+The Worker validates whichever is present:
+
+```typescript
+// ~60 lines, no dependencies — crypto.subtle handles RSA-PKCS1-v1_5 natively
+const token = request.headers.get('Cf-Access-Jwt-Assertion')
+  ?? getCookie(request, 'CF_Authorization');
+
+const resp = await fetch(`https://${env.CF_ACCESS_TEAM_NAME}.cloudflareaccess.com/cdn-cgi/access/certs`);
+const { keys } = await resp.json();
+
+const jwt = parseJWT(token);
+const jwk = keys.find(k => k.kid === jwt.header.kid);
+const key = await crypto.subtle.importKey('jwk', jwk,
+  { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+
+const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key,
+  base64urlDecode(jwt.signature), new TextEncoder().encode(jwt.data));
+// + check exp, iss, aud
+```
+
+JWT claims: `sub`, `email`, `iss`, `aud`, `exp`, `iat`, `type` (`app` for users, `service-token` for service tokens).
+
+### Access application setup
+
+1. Cloudflare One → Access → Applications → Add → Self-hosted
+2. Domain: `purge.erfi.io`
+3. Paths: `/admin/*`, `/dashboard/*` (leave `/v1/*` and `/health` unprotected)
+4. Policy: Allow → emails/groups you control
+5. Copy the **Application Audience (AUD) tag**
+
+### Auth tiers
+
+| Tier | Principal | Mechanism | Routes |
+|------|-----------|-----------|--------|
+| **API key** (`gw_*`) | Services, CI/CD | `Authorization: Bearer gw_...` | `/v1/*` (purge), future service routes |
+| **Access JWT** | Humans (dashboard) | `Cf-Access-Jwt-Assertion` / `CF_Authorization` cookie | `/admin/*`, `/dashboard/*` |
+| **Admin key** (legacy) | CLI, backward compat | `X-Admin-Key` header | `/admin/*` (fallback when Access not configured) |
+
+### Wrangler secrets
+
+```
+CF_ACCESS_TEAM_NAME=<your-team-name>
+CF_ACCESS_AUD=<application-audience-tag>
+```
+
+### Decisions
+
+- **No `jose`.** `crypto.subtle` does RSA verification natively. ~60 lines vs ~50KB dependency.
+- **No `workers-oauth-provider`.** We don't need to be an OAuth provider. We're a resource server that validates Access JWTs for identity, and uses our own IAM for authorization. The `workers-oauth-provider` library is for when third-party clients need to do OAuth with your server (MCP servers, API-as-a-service). If we need that later, it's additive — doesn't affect the IAM design.
+- **Self-hosted Access app, not SaaS.** SaaS apps are for when Access acts as an OIDC IdP to external services. Self-hosted is for protecting your own origin.
+- **JWKS cache.** In-memory, 1-hour TTL. Access key rotation is infrequent.
+
+---
+
+## 2. IAM: Policies, keys, and authorization
+
+This is the core of v2. The current flat scope model (`host:example.com`, `tag:blog`) becomes a proper policy-based IAM system inspired by AWS IAM.
+
+### Concepts
+
+| Concept | AWS IAM equivalent | Our system |
+|---------|-------------------|------------|
+| **Principal** | IAM user / role | API key holder (key ID) or Access-authenticated user (email) |
+| **Action** | `s3:GetObject` | `purge:url`, `purge:host`, `purge:tag`, `admin:keys:create`, `r2:GetObject` |
+| **Resource** | `arn:aws:s3:::bucket/*` | `zone:<zone-id>`, `bucket:<name>` (future) |
+| **Condition** | `StringLike`, `IpAddress` | Expression engine: `eq`, `contains`, `starts_with`, `matches`, etc. |
+| **Effect** | Allow / Deny | Allow only (deny-by-default). Explicit deny can be added later. |
+| **Policy** | IAM policy document | JSON document with statements, attached to API keys |
+
+### Policy document schema
+
+```json
+{
+  "version": "2025-01-01",
+  "statements": [
+    {
+      "effect": "allow",
+      "actions": ["purge:url", "purge:host", "purge:tag"],
+      "resources": ["zone:aaaa1111bbbb2222cccc3333dddd4444"],
+      "conditions": [
+        { "field": "host", "operator": "ends_with", "value": ".example.com" }
+      ]
+    }
+  ]
+}
+```
+
+A key can have one policy document. The policy has one or more statements. A request is allowed if **any** statement allows it (OR across statements). Within a statement, **all** of the following must be true (AND):
+
+1. The requested **action** matches one of the statement's actions
+2. The targeted **resource** matches one of the statement's resources
+3. **All** conditions evaluate to true against the request context
+
+### Actions
+
+Namespaced by service. Wildcard suffix supported (`purge:*` matches all purge actions).
+
+**Purge service (v1):**
+
+| Action | Description |
+|--------|-------------|
+| `purge:url` | Purge by URL(s) via `files[]` |
+| `purge:host` | Purge by hostname(s) via `hosts[]` |
+| `purge:tag` | Purge by cache tag(s) via `tags[]` |
+| `purge:prefix` | Purge by URL prefix(es) via `prefixes[]` |
+| `purge:everything` | Purge everything in a zone |
+| `purge:*` | All purge actions |
+
+**Admin service:**
+
+| Action | Description |
+|--------|-------------|
+| `admin:keys:create` | Create API keys |
+| `admin:keys:list` | List API keys |
+| `admin:keys:revoke` | Revoke API keys |
+| `admin:keys:read` | Read key details |
+| `admin:analytics:read` | Read analytics data |
+| `admin:*` | All admin actions |
+
+**Future (R2 example):**
+
+| Action | Description |
+|--------|-------------|
+| `r2:GetObject` | Read objects |
+| `r2:PutObject` | Write objects |
+| `r2:DeleteObject` | Delete objects |
+| `r2:ListBucket` | List bucket contents |
+| `r2:*` | All R2 actions |
+
+### Resources
+
+Typed identifiers with optional wildcards.
+
+| Pattern | Matches |
+|---------|---------|
+| `zone:aaaa1111...` | Specific zone |
+| `zone:*` | All zones |
+| `bucket:my-assets` | Specific R2 bucket |
+| `bucket:staging-*` | Buckets matching prefix |
+| `*` | Everything (dangerous — use sparingly) |
+
+Matching rules:
+- Exact: `zone:abc` matches `zone:abc`
+- Wildcard suffix: `zone:*` matches any zone, `bucket:prod-*` matches `bucket:prod-images`
+- Universal: `*` matches any resource
+
+### Conditions (expression engine)
+
+Conditions are the fine-grained part. They evaluate against the **request context** — a flat key-value map extracted from the incoming request. The keys in this map are service-specific.
+
+#### Operators
+
+| Operator | Types | Description |
+|----------|-------|-------------|
+| `eq` | string, bool | Exact equality (case-sensitive) |
+| `ne` | string, bool | Not equal |
+| `contains` | string | Substring match |
+| `not_contains` | string | Substring exclusion |
+| `starts_with` | string | Prefix match |
+| `ends_with` | string | Suffix match |
+| `matches` | string | Regex match (JS RegExp, length-limited) |
+| `not_matches` | string | Regex exclusion |
+| `in` | string | Value is in a set: `{"value": ["a", "b", "c"]}` |
+| `not_in` | string | Value is not in a set |
+| `wildcard` | string | Glob-style (`*` = any chars, case-insensitive) |
+| `exists` | any | Field is present (non-null) in request context |
+| `not_exists` | any | Field is absent |
+
+#### Compound conditions
+
+Within a single statement, conditions are AND'd (all must match). For OR logic within conditions, use multiple statements. For complex logic, compound wrappers:
+
+```json
+{
+  "conditions": [
+    {
+      "any": [
+        { "field": "host", "operator": "eq", "value": "a.example.com" },
+        { "field": "host", "operator": "eq", "value": "b.example.com" }
+      ]
+    },
+    { "field": "url.path", "operator": "starts_with", "value": "/api/" }
+  ]
+}
+```
+
+- Top-level conditions array: AND (all must match)
+- `any: [...]`: OR (any must match)
+- `all: [...]`: AND (explicit, for nesting)
+- `not: {...}`: Negation of a single condition
+
+Most policies won't need compound conditions. Multiple statements with different conditions handle most OR cases naturally.
+
+#### Request context fields (per service)
+
+**Purge service:**
+
+| Field | Source | Description |
+|-------|--------|-------------|
+| `host` | `hosts[]` item | Hostname in a bulk host purge |
+| `tag` | `tags[]` item | Cache tag in a bulk tag purge |
+| `prefix` | `prefixes[]` item | URL prefix in a bulk prefix purge |
+| `url` | `files[]` item (string or `.url`) | Full URL |
+| `url.path` | Parsed from URL | Path component |
+| `url.query` | Parsed from URL | Full query string |
+| `url.query.<param>` | Parsed from URL | Specific query parameter |
+| `header.<name>` | `files[].headers.<name>` | Custom cache key header (e.g., `header.CF-Device-Type`) |
+| `purge_everything` | `purge_everything` field | Boolean — is this purge-everything? |
+
+**Future R2 service (example):**
+
+| Field | Source | Description |
+|-------|--------|-------------|
+| `key` | Object key | Full object key |
+| `key.prefix` | Parsed from key | Key prefix (up to last `/`) |
+| `key.extension` | Parsed from key | File extension |
+| `content-type` | Request header | MIME type |
+
+The expression engine is **service-agnostic** — it evaluates conditions against a `Record<string, string | boolean | string[]>`. Each service handler is responsible for building the request context from the incoming request.
+
+### API key schema
+
+Replace the current two-table design (`api_keys` + `key_scopes`) with a single table where the policy is a JSON column:
+
+```sql
+CREATE TABLE api_keys (
+  id TEXT PRIMARY KEY,                    -- random ID (e.g., key_xxxxxxxxxxxx)
+  key_hash TEXT NOT NULL UNIQUE,          -- HMAC-SHA256 hash of the key
+  name TEXT NOT NULL,                     -- human-readable label
+  policy TEXT NOT NULL,                   -- JSON policy document
+  created_by TEXT,                        -- email from Access JWT (null if created via admin key)
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT,                        -- optional expiration
+  revoked_at TEXT,                        -- null if active
+  rate_limit INTEGER                      -- per-key rate limit override (req/sec), null = use default
+);
+```
+
+The `key_scopes` table is kept during migration but no longer written to. Old scopes are auto-converted to policy documents on read.
+
+### Key prefix change
+
+Currently `pgw_*` (purge gateway). Since this is now a general-purpose gateway, the prefix should be `gw_*`. Both prefixes are accepted during migration. New keys are issued with `gw_*`.
+
+### Authorization flow
+
+```
+Request arrives
+  │
+  ├── /v1/zones/:zoneId/purge_cache
+  │     │
+  │     ├── Extract key from Authorization header
+  │     ├── Look up key → get policy document
+  │     ├── Determine action from request body (purge:url, purge:host, etc.)
+  │     ├── Determine resource: zone:<zoneId>
+  │     ├── Build request context (host, tag, url, headers, etc.)
+  │     ├── Evaluate policy: any statement allows (action + resource + conditions)?
+  │     │     ├── Yes → proceed to rate limiting → upstream
+  │     │     └── No  → 403 Forbidden
+  │     └── Log: key_id, action, resource, allowed/denied, created_by
+  │
+  ├── /admin/*
+  │     │
+  │     ├── Check Access JWT first
+  │     │     ├── Valid → extract email, full admin access (for now)
+  │     │     └── No JWT → check X-Admin-Key → full admin access
+  │     └── Neither → 401
+  │
+  └── /dashboard/*
+        └── Access JWT required (Access handles redirect to login)
+```
+
+### Policy examples
+
+**Minimal — purge everything on one zone:**
+```json
+{
+  "version": "2025-01-01",
+  "statements": [
+    {
+      "effect": "allow",
+      "actions": ["purge:*"],
+      "resources": ["zone:aaaa1111bbbb2222cccc3333dddd4444"]
+    }
+  ]
+}
+```
+
+**Scoped — only purge specific hosts by URL or tag:**
+```json
+{
+  "version": "2025-01-01",
+  "statements": [
+    {
+      "effect": "allow",
+      "actions": ["purge:url", "purge:tag"],
+      "resources": ["zone:aaaa1111bbbb2222cccc3333dddd4444"],
+      "conditions": [
+        {
+          "any": [
+            { "field": "host", "operator": "eq", "value": "cdn.example.com" },
+            { "field": "host", "operator": "eq", "value": "static.example.com" }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Multi-zone with host restriction:**
+```json
+{
+  "version": "2025-01-01",
+  "statements": [
+    {
+      "effect": "allow",
+      "actions": ["purge:url", "purge:host"],
+      "resources": ["zone:*"],
+      "conditions": [
+        { "field": "host", "operator": "ends_with", "value": ".example.com" }
+      ]
+    }
+  ]
+}
+```
+
+**CI/CD key — purge tags matching release pattern:**
+```json
+{
+  "version": "2025-01-01",
+  "statements": [
+    {
+      "effect": "allow",
+      "actions": ["purge:tag"],
+      "resources": ["zone:aaaa1111bbbb2222cccc3333dddd4444"],
+      "conditions": [
+        { "field": "tag", "operator": "matches", "value": "^release-v[0-9]+\\.[0-9]+$" }
+      ]
+    }
+  ]
+}
+```
+
+**Future R2 — read-only access to a bucket prefix:**
+```json
+{
+  "version": "2025-01-01",
+  "statements": [
+    {
+      "effect": "allow",
+      "actions": ["r2:GetObject", "r2:ListBucket"],
+      "resources": ["bucket:my-assets"],
+      "conditions": [
+        { "field": "key", "operator": "starts_with", "value": "public/" }
+      ]
+    }
+  ]
+}
+```
+
+### Backward compatibility
+
+The v1 scope format maps to v2 policies:
+
+| v1 scope | v2 policy statement |
+|----------|-------------------|
+| `{"scope_type": "host", "scope_value": "example.com"}` | `{"actions": ["purge:*"], "resources": ["zone:*"], "conditions": [{"field": "host", "operator": "eq", "value": "example.com"}]}` |
+| `{"scope_type": "tag", "scope_value": "blog"}` | `{"actions": ["purge:*"], "resources": ["zone:*"], "conditions": [{"field": "tag", "operator": "eq", "value": "blog"}]}` |
+| `{"scope_type": "prefix", "scope_value": "https://example.com/api/"}` | `{"actions": ["purge:*"], "resources": ["zone:*"], "conditions": [{"field": "prefix", "operator": "starts_with", "value": "https://example.com/api/"}]}` |
+| No scopes (unrestricted) | `{"actions": ["purge:*"], "resources": ["zone:*"]}` (no conditions) |
+
+Migration: on key read, if `policy` column is null, read from `key_scopes` table, convert, and backfill `policy` column. Once all keys are migrated, drop `key_scopes`.
+
+### Regex safety
+
+- Max pattern length: 256 characters
+- Reject patterns with known catastrophic backtracking constructs (nested quantifiers: `(a+)+`, `(a*)*`)
+- Compile with `new RegExp()` — catch syntax errors at key creation time, not at request time
+- Cache compiled regexes per key in the DO (alongside the key cache, same 60s TTL)
+- No lookbehind/lookahead (reject at validation)
+
+---
+
+## 3. Cache key purging (headers + query params in `files`)
+
+### Goal
+
+Support the full `files` object format for purging resources with custom cache keys. The policy condition engine needs to evaluate against headers and parsed URL components, not just the raw URL string.
+
+### Background
+
+Cloudflare purge-by-URL with custom cache keys requires passing headers in the `files` object:
+
+```json
+{
+  "files": [
+    {
+      "url": "https://example.com/",
+      "headers": {
+        "CF-Device-Type": "mobile",
+        "CF-IPCountry": "ES"
+      }
+    }
+  ]
+}
+```
+
+Common cache key headers: `CF-Device-Type`, `CF-IPCountry`, `accept-language`, `Origin`.
+
+### Request context extraction
+
+For each item in the purge request, the purge service handler builds a request context:
+
+```typescript
+interface PurgeRequestContext {
+  // Action determined from body shape
+  action: 'purge:url' | 'purge:host' | 'purge:tag' | 'purge:prefix' | 'purge:everything';
+
+  // Resource is always the zone
+  resource: string; // 'zone:<zone-id>'
+
+  // Fields for condition evaluation
+  fields: Record<string, string | boolean>;
+  // Populated fields depend on purge type:
+  // - purge:url → host, url, url.path, url.query, url.query.<param>, header.<name>
+  // - purge:host → host
+  // - purge:tag → tag
+  // - purge:prefix → prefix
+  // - purge:everything → purge_everything: true
+}
+```
+
+For `files[]` with multiple entries, each entry is evaluated independently. If **any** entry fails the policy check, the entire request is denied (a key shouldn't be able to sneak in unauthorized URLs alongside authorized ones).
+
+For bulk types (`hosts[]`, `tags[]`, `prefixes[]`), each value in the array is evaluated as a separate context.
+
+### Changes from v1
+
+1. `classifyPurge` returns structured contexts, not just the purge type
+2. `IamManager.authorize()` takes an array of request contexts, evaluates the key's policy against each
+3. URL parsing is lazy — only done if the policy has `url.path`, `url.query.*`, or `header.*` conditions
+
+---
+
+## 4. Dashboard (Astro + shadcn + Workers Static Assets)
+
+### Goal
+
+Serve an analytics/admin dashboard from the same Worker. Query D1 for charts, log tables, key management.
+
+### Technical approach
+
+**Workers Static Assets** with `run_worker_first` for API routes:
 
 ```jsonc
 {
@@ -26,414 +523,128 @@ Serve an analytics/admin dashboard from the same Worker using the static assets 
 }
 ```
 
-This means `/v1/*` (purge), `/admin/*` (API), and `/health` hit the Hono app. Everything else serves the SPA. No second Worker needed.
+`/v1/*`, `/admin/*`, `/health` hit the Hono Worker. Everything else serves the SPA.
 
-**Astro on Cloudflare** — Use `@astrojs/cloudflare` adapter. Generates `dist/_worker.js/index.js` (SSR entry) and `dist/` (client assets). For our case we want a static SPA (no SSR from Astro — our Hono Worker IS the server). Two options:
+**Astro static output mode** — no SSR, no adapter. Astro pre-renders to HTML/JS/CSS. The dashboard is a client-side SPA with React islands fetching from `/admin/*`.
 
-1. **Static output mode** (`output: 'static'` in `astro.config.mjs`) — Astro pre-renders everything to HTML/JS/CSS. We point `assets.directory` at `./dashboard/dist`. No Astro adapter needed. Dashboard fetches data from `/admin/analytics/*` endpoints via client-side JS. Simplest approach.
+**shadcn/ui** via `@astrojs/react` — tables, cards, charts, forms, dialogs.
 
-2. **Hybrid mode** (`output: 'hybrid'`) — Astro SSR handles some routes, static for others. Requires wiring the Astro handler into our Worker fetch. More complex, less benefit for a dashboard.
-
-**Recommendation: static output mode.** The dashboard is a client-side SPA that calls our existing `/admin/*` API. No server rendering needed.
-
-**shadcn/ui** — shadcn works with React, and Astro supports React islands (`@astrojs/react`). The dashboard pages would be React components using shadcn for:
-- Tables (key list, event log)
-- Cards (summary stats)
-- Charts (recharts or chart.js wrapped in shadcn cards)
-- Forms (key creation, purge actions)
-- Dialogs (confirmation for revoke, purge everything)
-- Badges, alerts, toasts for status
-
-The Astro shell provides routing (`/dashboard`, `/dashboard/keys`, `/dashboard/analytics`). Each page loads a React island with shadcn components that fetch from the admin API.
-
-### Dashboard pages
+### Pages
 
 | Route | Content |
 |-------|---------|
-| `/dashboard` | Summary cards: total requests, cost, by-status pie chart, by-type bar chart, collapsed %. Time range selector. |
-| `/dashboard/keys` | Key list table (sortable, filterable by zone/status). Create key form. Revoke button with confirmation. |
-| `/dashboard/keys/:id` | Key detail: scopes, rate limits, creation/expiry dates, per-key analytics. |
-| `/dashboard/analytics` | Event log table with filters (zone, key, status, purge type, time range). Pagination. CSV export. |
-| `/dashboard/purge` | Manual purge form: select type (URLs/hosts/tags/prefixes/everything), enter values, submit. Shows rate limit status. |
+| `/dashboard` | Summary cards: total requests, by-status chart, by-type chart, collapsed %. Time range selector. |
+| `/dashboard/keys` | Key list table (filterable by zone/status). Create key form with policy builder. Revoke with confirmation. |
+| `/dashboard/keys/:id` | Key detail: policy document (rendered), rate limits, created_by, per-key analytics. |
+| `/dashboard/analytics` | Event log table with filters (zone, key, status, action, time range). Pagination. CSV export. |
+| `/dashboard/purge` | Manual purge form: select type, enter values, submit. Shows rate limit status. |
 
-### Implementation plan
+### Key creation flow in dashboard
 
-1. Add `dashboard/` directory with Astro project (`npm create astro`)
-2. Configure `output: 'static'`, add `@astrojs/react`
-3. Install shadcn/ui, tailwind, configure for Astro
-4. Build pages as React islands fetching from `/admin/*`
-5. Add `assets` config to `wrangler.jsonc` with `run_worker_first` for API routes
-6. Build step: `cd dashboard && npm run build` before `wrangler deploy`
-7. Add auth to dashboard (see section 2)
+The "create key" form in the dashboard needs a **policy builder UI**:
 
-### Open questions
-
-- Do we want the dashboard behind Cloudflare Access, our own admin key auth, or both?
-- Should the dashboard bundle live in the same `package.json` or be a separate workspace?
-- Chart library: recharts (React-native) vs chart.js (universal)?
-
----
-
-## 2. Auth: Cloudflare Access for SaaS (OAuth/OIDC)
-
-### Goal
-
-Replace or supplement the `X-Admin-Key` header with Cloudflare Access JWT validation. This enables SSO (Google, GitHub, SAML, etc.) for the dashboard and programmatic access via service tokens.
-
-### Research findings
-
-**Cloudflare Access for SaaS (OIDC)** — Access can act as an OIDC identity provider. You register the gateway as a "SaaS application" in Zero Trust, get a `client_id` and `client_secret`, and Access provides standard OIDC endpoints:
-
-- Authorization: `https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/authorization`
-- Token: `https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/token`
-- JWKS: `https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/jwks`
-- UserInfo: `https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>/userinfo`
-
-**Simpler approach: Access in front of the Worker** — Enable Cloudflare Access on the custom domain (`purge.erfi.io`). Access injects `Cf-Access-Jwt-Assertion` header on every request. The Worker validates the JWT using `jose` (or manual JWKS fetch + `crypto.subtle.verify`). This is the recommended pattern from Cloudflare docs.
-
-**JWT validation in Workers** — Cloudflare's own docs show this pattern:
-
-```typescript
-import { jwtVerify, createRemoteJWKSet } from 'jose';
-
-const token = request.headers.get('cf-access-jwt-assertion');
-const JWKS = createRemoteJWKSet(
-  new URL(`https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`)
-);
-const { payload } = await jwtVerify(token, JWKS, {
-  audience: env.POLICY_AUD,
-  issuer: `https://<team>.cloudflareaccess.com`,
-});
-```
-
-**Two auth tiers:**
-
-| Tier | Who | How | Protects |
-|------|-----|-----|----------|
-| **Purge keys** (`pgw_*`) | Services, CI/CD | `Authorization: Bearer pgw_...` | `POST /v1/zones/:zoneId/purge_cache` |
-| **Access JWT** | Humans via dashboard, admin tools | `Cf-Access-Jwt-Assertion` header (set by Access) or `CF_Authorization` cookie | `/admin/*`, `/dashboard/*` |
-| **Admin key** (legacy) | Backward compat | `X-Admin-Key` header | `/admin/*` (falls back if no JWT) |
-
-The purge route stays key-based (machine-to-machine). The admin/dashboard routes gain Access JWT validation. The `X-Admin-Key` remains as a fallback for CLI usage and backward compatibility.
-
-### Implementation plan
-
-1. Add `jose` as a dependency
-2. New middleware: `src/auth-access.ts` — validates `Cf-Access-Jwt-Assertion` or `CF_Authorization` cookie
-3. Admin middleware checks: Access JWT first, then falls back to `X-Admin-Key`
-4. Dashboard pages include Access login redirect for unauthenticated users
-5. New env vars: `CF_ACCESS_TEAM_NAME`, `CF_ACCESS_AUD` (both in wrangler secrets)
-6. CLI continues using `X-Admin-Key` (no change to CLI auth flow)
-
-### New wrangler secrets
-
-```
-CF_ACCESS_TEAM_NAME=<your-team-name>
-CF_ACCESS_AUD=<application-audience-tag>
-```
+1. Add statements (action checkboxes, resource input, condition builder)
+2. Condition builder: pick field → pick operator → enter value. Add more conditions.
+3. Preview the generated policy JSON
+4. Submit → `POST /admin/keys` with the policy document
+5. The key is created with `created_by` set to the logged-in user's email (from Access JWT)
 
 ### Open questions
 
-- Do we want RBAC? e.g., "viewer" can see analytics but not create/revoke keys. Access groups could map to roles.
-- Should the purge route also accept Access JWTs (for the dashboard purge form)?
-- Service tokens vs API keys for CI/CD — keep both or migrate?
+- Dashboard bundle in same `package.json` or separate workspace?
+- Chart library: recharts vs chart.js?
 
 ---
 
-## 3. Scope expression engine
-
-### Goal
-
-Replace the current flat scope model (`host:example.com`, `tag:blog`) with an expression-based system inspired by Cloudflare's ruleset engine. Support operators like `eq`, `contains`, `starts_with`, `matches` (regex), and `in`. Support logical combinators (`and`, `or`, `not`).
-
-### Current model
-
-```json
-{
-  "scopes": [
-    {"scope_type": "host", "scope_value": "example.com"},
-    {"scope_type": "tag", "scope_value": "blog"}
-  ]
-}
-```
-
-Each scope is a simple exact-match or prefix-match. No way to say "host ends with `.example.com`" or "tag matches regex `^v[0-9]+$`". Multiple scopes are OR'd together. No AND/NOT logic.
-
-### Proposed model
-
-Inspired by Cloudflare's ruleset engine but using JSON syntax (not wirefilter):
-
-```json
-{
-  "scopes": [
-    {
-      "field": "host",
-      "operator": "ends_with",
-      "value": ".example.com"
-    },
-    {
-      "field": "tag",
-      "operator": "matches",
-      "value": "^release-v[0-9]+$"
-    },
-    {
-      "field": "url",
-      "operator": "contains",
-      "value": "/api/"
-    },
-    {
-      "field": "header.CF-Device-Type",
-      "operator": "eq",
-      "value": "mobile"
-    }
-  ]
-}
-```
-
-### Fields
-
-Derived from the purge API request body and the `files` object format:
-
-| Field | Source | Description |
-|-------|--------|-------------|
-| `host` | `hosts[]` | Hostname in a bulk host purge |
-| `tag` | `tags[]` | Cache tag in a bulk tag purge |
-| `prefix` | `prefixes[]` | URL prefix in a bulk prefix purge |
-| `url` | `files[]` (string or `.url`) | Full URL in a single-file purge |
-| `url.path` | Parsed from URL | Path component only |
-| `url.query` | Parsed from URL | Full query string |
-| `url.query.<param>` | Parsed from URL | Specific query parameter value |
-| `header.<name>` | `files[].headers.<name>` | Custom header in file object (e.g., `CF-Device-Type`, `CF-IPCountry`, `Origin`) |
-| `purge_everything` | `purge_everything` | Boolean — is this a purge-everything request? |
-
-### Operators
-
-| Operator | Types | Description |
-|----------|-------|-------------|
-| `eq` | string, bool | Exact equality (case-sensitive) |
-| `ne` | string, bool | Not equal |
-| `contains` | string | Substring match |
-| `not_contains` | string | Substring exclusion |
-| `starts_with` | string | Prefix match |
-| `ends_with` | string | Suffix match |
-| `matches` | string | Regex match (RE2/JS regex subset) |
-| `not_matches` | string | Regex exclusion |
-| `in` | string | Value is in a set: `{"operator": "in", "value": ["a", "b", "c"]}` |
-| `not_in` | string | Value is not in a set |
-| `wildcard` | string | Glob-style matching (`*` = any chars, case-insensitive) |
-
-### Logical combinators
-
-Scopes at the top level are OR'd (any scope match = allowed). For AND/NOT logic, introduce compound expressions:
-
-```json
-{
-  "scopes": [
-    {
-      "all": [
-        {"field": "host", "operator": "eq", "value": "example.com"},
-        {"field": "url.path", "operator": "starts_with", "value": "/blog/"}
-      ]
-    },
-    {
-      "not": {"field": "tag", "operator": "eq", "value": "internal"}
-    }
-  ]
-}
-```
-
-- Top-level array: OR (any match grants access)
-- `all: [...]`: AND (all must match)
-- `not: {...}`: Negation
-- `any: [...]`: Explicit OR within a compound (same as top-level, for nesting)
-
-### Backward compatibility
-
-The old format (`{"scope_type": "host", "scope_value": "example.com"}`) is equivalent to `{"field": "host", "operator": "eq", "value": "example.com"}` (with `starts_with` for `prefix` and `url_prefix` types). Support both formats during a migration period. The DB schema stores the new format; a migration converts old scopes on read.
-
-### DB schema change
-
-Current `key_scopes` table has `(key_id, scope_type, scope_value)`. New schema:
-
-```sql
-CREATE TABLE key_scopes_v2 (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  key_id TEXT NOT NULL REFERENCES api_keys(id),
-  expression TEXT NOT NULL  -- JSON blob: {"field":"host","operator":"eq","value":"example.com"}
-);
-CREATE INDEX idx_key_scopes_v2_key ON key_scopes_v2(key_id);
-```
-
-Each row is one scope expression (or compound expression). Scopes for a key are OR'd.
-
-### Implementation plan
-
-1. Define `ScopeExpression` type hierarchy in `src/types.ts`
-2. Write `src/scope-engine.ts` — `evaluateScope(expression, purgeBody): boolean`
-3. Regex support: use JS `RegExp` with a complexity/length limit (max 256 chars, no lookbehind)
-4. URL parsing: lazy `new URL()` for `url.path`, `url.query`, `url.query.<param>` fields
-5. Header field access: `header.<name>` reads from `files[].headers`
-6. Update `IamManager.authorize()` to use the new engine
-7. Migration: convert old `key_scopes` rows to expressions on read
-8. Update CLI `--scope` syntax: `--scope "host eq example.com"` or `--scope "url.path starts_with /blog/"`
-9. Update admin API: accept both old and new formats in `POST /admin/keys`
-
-### Regex safety
-
-- Max pattern length: 256 chars
-- Execution timeout: use `RegExp` with a sanity check (test against empty string first to catch catastrophic backtracking? Or just document the risk.)
-- No lookbehind/lookahead (strip or reject)
-- Compiled and cached per key in the DO (alongside the key cache)
-
----
-
-## 4. Cache key purging (HTTP headers + query params in `files`)
-
-### Goal
-
-Support the full `files` object format for purging resources with custom cache keys. Currently, scope checking only looks at the `url` field. It needs to also consider the `headers` object for cache key components.
-
-### Research findings
-
-**Cloudflare purge-by-URL with custom cache keys** — When a resource is cached with a custom cache key (via Cache Rules), purging it requires passing the same headers in the `files` object:
-
-```json
-{
-  "files": [
-    {
-      "url": "https://example.com/",
-      "headers": {
-        "CF-Device-Type": "mobile",
-        "CF-IPCountry": "ES",
-        "accept-language": "en-US"
-      }
-    }
-  ]
-}
-```
-
-The `headers` object in the purge request must match the headers that were part of the custom cache key. Common cache key headers:
-- `CF-Device-Type` — `mobile`, `desktop`, `tablet`
-- `CF-IPCountry` — two-letter country code
-- `accept-language` — language preference
-- `Origin` — for CORS-variant caching
-- `X-Forwarded-Host`, `X-Host`, `X-Forwarded-Scheme`, `X-Original-URL`, `X-Rewrite-URL`, `Forwarded`
-
-**Query string in URLs** — URLs in `files` can include query parameters: `https://example.com/page?v=2&lang=en`. When custom cache keys include specific query params, the purge URL must include them too. The scope engine needs to be able to match on individual query parameters.
-
-### What changes
-
-1. **Scope engine** (covered in section 3): The `header.<name>` field reads from `files[].headers.<name>`. The `url.query.<param>` field reads parsed query params from the URL.
-
-2. **Scope checking**: For each file entry, extract:
-   - URL string (from `files[i]` if string, or `files[i].url` if object)
-   - Headers map (from `files[i].headers` if object, or empty)
-   - Parsed URL components (scheme, host, path, query string, individual query params)
-
-3. **Authorization flow**: For each file entry, ALL scope expressions must be evaluated against that entry's full context (URL + headers + parsed components). If any file entry fails scope check, the request is denied.
-
-### Implementation plan
-
-This is mostly handled by the scope expression engine (section 3). Additional work:
-
-1. Parse `files[]` entries into a structured `PurgeFileContext`:
-   ```typescript
-   interface PurgeFileContext {
-     url: string;
-     parsedUrl: URL;
-     headers: Record<string, string>;
-   }
-   ```
-2. The scope engine evaluates expressions against this context
-3. For bulk purge types (hosts/tags/prefixes), the context is simpler (just the value itself)
-4. Update `classifyPurge` to extract file contexts
-5. Tests for header-based scope matching, query param scope matching
-
----
-
-## 5. Wrangler config mechanism
+## 5. Wrangler config
 
 ### Current state
 
-Rate limit config is via `wrangler.jsonc` env vars (strings, cast to numbers in code). This works but is flat — no way to configure per-zone overrides, dashboard settings, or feature flags.
+Rate limit config via `wrangler.jsonc` env vars (strings, cast to numbers in code). Works fine for simple numeric config.
 
-### Proposed approach
+### Approach
 
-Keep env vars for simple numeric config (rate limits). Add a JSON config object for complex settings:
+Keep it simple. Env vars for numeric config and feature flags. Wrangler secrets for credentials. No KV/D1 config store.
 
 ```jsonc
-// wrangler.jsonc vars
 {
   "BULK_RATE": "50",
   "BULK_BUCKET_SIZE": "500",
-  // ... existing vars stay as-is
-
-  // New: JSON config blob for complex settings
-  "GATEWAY_CONFIG": "{\"dashboard\":{\"enabled\":true},\"access\":{\"required\":false}}"
-}
-```
-
-Or better: use a KV namespace or D1 table for runtime config that doesn't require redeployment. But that adds complexity. For now, env vars + a JSON blob is fine.
-
-Alternative: use `wrangler.jsonc` vars for feature flags:
-
-```jsonc
-{
   "DASHBOARD_ENABLED": "true",
-  "ACCESS_REQUIRED": "false",
-  "SCOPE_ENGINE_V2": "true"
+  "ACCESS_REQUIRED": "false"
 }
 ```
-
-**Recommendation:** Keep it simple. Env vars for toggles, wrangler secrets for credentials. No KV/D1 config store yet — that's premature until we have a real need for runtime config changes.
 
 ---
 
 ## Implementation order
 
-These workstreams have dependencies:
-
 ```
-1. Scope expression engine (section 3 + 4)
-   └── No dependencies, pure logic. Do first.
+Phase 1: IAM policy engine + cache key support
+   └── Core of v2. No external dependencies. Pure logic + DB migration.
 
-2. Auth: Cloudflare Access (section 2)
-   └── Independent of scopes. Can parallel with #1.
+Phase 2: Cloudflare Access identity
+   └── Independent of policy engine. Can parallel with Phase 1.
 
-3. Dashboard (section 1)
-   └── Depends on: auth (needs login), scope engine (key creation form needs to know new format)
-   └── Can start UI scaffolding in parallel, wire up data after #1 and #2.
+Phase 3: Dashboard
+   └── Depends on: identity (login), policy engine (key creation form)
+   └── UI scaffolding can start in parallel.
+
+Phase 4: Polish + future services
+   └── Config review, D1 retention cron, README, performance testing.
+   └── R2 service handler (when ready).
 ```
 
-### Phase 1: Scope engine + cache key support
-- New `ScopeExpression` types
-- `scope-engine.ts` with all operators
-- `PurgeFileContext` extraction
-- Backward-compatible `IamManager.authorize()`
-- CLI `--scope` syntax update
-- Migration for existing scopes
-- Tests
+### Phase 1: IAM policy engine + cache key support
 
-### Phase 2: Cloudflare Access auth
-- `jose` dependency
-- JWT validation middleware
-- Admin route auth: JWT || admin key
-- New secrets: `CF_ACCESS_TEAM_NAME`, `CF_ACCESS_AUD`
-- Tests
+**New files:**
+- `src/policy-engine.ts` — condition evaluator (operators, compound logic, field resolution)
+- `src/policy-types.ts` — `PolicyDocument`, `Statement`, `Condition`, `RequestContext` types
+
+**Modified files:**
+- `src/types.ts` — action/resource types, key schema with `policy` and `created_by`
+- `src/iam.ts` — `authorize()` takes `RequestContext[]`, evaluates policy. Key creation accepts policy document. Migration from `key_scopes` to `policy` column.
+- `src/index.ts` — `classifyPurge` returns `RequestContext[]`. Purge route passes contexts to `authorize()`.
+- `cli/commands/keys.ts` — new `--policy` flag (JSON) or `--action`/`--resource`/`--condition` flags for simple policies
+- `cli/ui.ts` — policy rendering
+
+**Tests:**
+- `test/policy-engine.test.ts` — all operators, compound conditions, edge cases
+- Update `test/iam.test.ts` — policy-based authorization, migration from v1 scopes
+- Update `test/integration.test.ts` — end-to-end with policy-based keys, cache key headers
+
+**Key prefix migration:** Accept both `pgw_*` and `gw_*`. New keys issued as `gw_*`.
+
+### Phase 2: Cloudflare Access identity
+
+**New files:**
+- `src/auth-access.ts` — JWT parsing, JWKS fetch + in-memory cache, signature verification, claims extraction
+
+**Modified files:**
+- `src/index.ts` — admin middleware: Access JWT → `X-Admin-Key` fallback → 401
+- `src/iam.ts` — key creation stores `created_by` from Access JWT email
+- `src/env.d.ts` — `CF_ACCESS_TEAM_NAME`, `CF_ACCESS_AUD` secrets
+
+**Tests:**
+- `test/auth-access.test.ts` — JWT validation with mock keys, expiry, bad signatures, JWKS caching
 
 ### Phase 3: Dashboard
+
 - Astro project in `dashboard/`
 - shadcn/ui + React islands
+- Policy builder UI for key creation
 - Summary, keys, analytics, purge pages
 - Static assets config in wrangler
-- Build pipeline
-- Auth integration (redirect to Access login)
+- Build pipeline: `cd dashboard && npm run build` → `wrangler deploy`
+- Auth: Access handles login redirect, Worker validates JWT for API calls
 
-### Phase 4: Polish
+### Phase 4: Polish + extensibility
+
 - Config mechanism review
-- D1 retention cron
-- README update
-- Performance testing (DO under load with regex scopes)
+- D1 retention cron job
+- README rewrite (it's a gateway now, not just a purge proxy)
+- Performance testing (DO under load with regex conditions)
+- Design doc for next service (R2 proxy? KV proxy?)
 
 ---
 
@@ -441,27 +652,31 @@ These workstreams have dependencies:
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Regex ReDoS in scope expressions | DO CPU spike, 1102 errors | Limit pattern length (256 chars), reject known-bad patterns, consider RE2 via wasm |
+| Regex ReDoS in conditions | DO CPU spike, 1102 errors | Max 256 chars, reject nested quantifiers, validate at key creation |
+| Policy evaluation overhead | Latency on every request | Cache compiled conditions per key. Short-circuit: no conditions = instant allow. |
 | Dashboard bundle size | Slow first load | Code split per route, lazy-load charts, precompress with brotli |
-| Access JWT validation latency | +10-50ms per admin request | Cache JWKS (it rarely changes), use `jose` which handles this |
-| Scope migration breaks existing keys | Auth failures for existing services | Dual-read: try v2 format first, fall back to v1. Never delete old table until confirmed. |
-| Static assets + Worker in same deploy | Build complexity | Separate build scripts, CI runs `dashboard build` then `wrangler deploy` |
+| Access JWT validation latency | +10-50ms per admin request | Cache JWKS in-memory (1h TTL), `crypto.subtle.verify` is fast |
+| v1 scope migration breaks keys | Auth failures for existing services | Dual-read: try policy column first, fall back to key_scopes. Never delete old table until confirmed. |
+| Policy schema too rigid for future services | Refactoring later | Version field in policy doc. Engine dispatches on version. |
+| Static assets + Worker in same deploy | Build complexity | Separate build scripts, CI runs dashboard build then wrangler deploy |
 
 ---
 
 ## Files to change/add
 
 ### New files
-- `src/scope-engine.ts` — expression evaluator
+- `src/policy-engine.ts` — condition evaluator (operators, compound logic)
+- `src/policy-types.ts` — policy document, statement, condition, request context types
 - `src/auth-access.ts` — Access JWT validation
-- `dashboard/` — entire Astro project (astro.config.mjs, src/pages/*, src/components/*)
+- `dashboard/` — entire Astro project
 
 ### Modified files
-- `wrangler.jsonc` — add `assets` config, new secrets
-- `src/types.ts` — `ScopeExpression`, `PurgeFileContext`, compound types
-- `src/iam.ts` — `authorize()` uses scope engine, `key_scopes_v2` table
-- `src/index.ts` — admin middleware accepts JWT, `classifyPurge` extracts file context
-- `cli/ui.ts` — new scope syntax parsing
-- `cli/commands/keys.ts` — new `--scope` format
-- `package.json` — add `jose`, dashboard workspace
-- `README.md` — document everything
+- `wrangler.jsonc` — add `assets` config, declare new secrets
+- `src/types.ts` — action/resource enums, updated key interface
+- `src/iam.ts` — policy-based authorize(), key creation with policy + created_by, v1 migration
+- `src/index.ts` — admin auth middleware (JWT + admin key), classifyPurge returns RequestContext[]
+- `src/analytics.ts` — log created_by, action, resource in events
+- `cli/commands/keys.ts` — policy flags, display policy in key detail
+- `cli/ui.ts` — policy rendering, action/resource formatting
+- `package.json` — dashboard workspace (no new runtime deps)
+- `README.md` — full rewrite for gateway + IAM framing

@@ -1,0 +1,550 @@
+import { describe, it, expect } from 'vitest';
+import { evaluatePolicy, validatePolicy, migrateV1Scopes } from '../src/policy-engine';
+import type { PolicyDocument, RequestContext, Statement, Condition } from '../src/policy-types';
+
+// --- Helpers ---
+
+function makePolicy(...statements: Statement[]): PolicyDocument {
+	return { version: '2025-01-01', statements };
+}
+
+function allowStmt(
+	actions: string[],
+	resources: string[],
+	conditions?: Condition[],
+): Statement {
+	return { effect: 'allow', actions, resources, ...(conditions ? { conditions } : {}) };
+}
+
+function makeCtx(action: string, resource: string, fields: Record<string, string | boolean> = {}): RequestContext {
+	return { action, resource, fields };
+}
+
+// --- Action matching ---
+
+describe('action matching', () => {
+	const policy = makePolicy(allowStmt(['purge:url', 'purge:host'], ['zone:*']));
+
+	it('exact action match -> allowed', () => {
+		expect(evaluatePolicy(policy, [makeCtx('purge:url', 'zone:abc')])).toBe(true);
+	});
+
+	it('action not in list -> denied', () => {
+		expect(evaluatePolicy(policy, [makeCtx('purge:tag', 'zone:abc')])).toBe(false);
+	});
+
+	it('wildcard action purge:* matches all purge actions', () => {
+		const p = makePolicy(allowStmt(['purge:*'], ['zone:*']));
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:abc')])).toBe(true);
+		expect(evaluatePolicy(p, [makeCtx('purge:everything', 'zone:abc')])).toBe(true);
+	});
+
+	it('universal wildcard * matches any action', () => {
+		const p = makePolicy(allowStmt(['*'], ['*']));
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:abc')])).toBe(true);
+		expect(evaluatePolicy(p, [makeCtx('r2:GetObject', 'bucket:foo')])).toBe(true);
+	});
+
+	it('partial wildcard does not match unrelated namespace', () => {
+		const p = makePolicy(allowStmt(['purge:*'], ['zone:*']));
+		expect(evaluatePolicy(p, [makeCtx('r2:GetObject', 'zone:abc')])).toBe(false);
+	});
+});
+
+// --- Resource matching ---
+
+describe('resource matching', () => {
+	it('exact resource match', () => {
+		const p = makePolicy(allowStmt(['purge:*'], ['zone:abc123']));
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:abc123')])).toBe(true);
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:other')])).toBe(false);
+	});
+
+	it('zone:* matches any zone', () => {
+		const p = makePolicy(allowStmt(['purge:*'], ['zone:*']));
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:abc')])).toBe(true);
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:xyz')])).toBe(true);
+	});
+
+	it('prefix wildcard: bucket:prod-* matches bucket:prod-images', () => {
+		const p = makePolicy(allowStmt(['r2:*'], ['bucket:prod-*']));
+		expect(evaluatePolicy(p, [makeCtx('r2:GetObject', 'bucket:prod-images')])).toBe(true);
+		expect(evaluatePolicy(p, [makeCtx('r2:GetObject', 'bucket:staging-images')])).toBe(false);
+	});
+});
+
+// --- Leaf conditions ---
+
+describe('leaf conditions', () => {
+	describe('eq / ne', () => {
+		it('eq string match', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'host', operator: 'eq', value: 'example.com' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'example.com' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'other.com' })])).toBe(false);
+		});
+
+		it('eq boolean match', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'purge_everything', operator: 'eq', value: true },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:everything', 'zone:a', { purge_everything: true })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:everything', 'zone:a', { purge_everything: false })])).toBe(false);
+		});
+
+		it('ne string', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'host', operator: 'ne', value: 'internal.com' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'public.com' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'internal.com' })])).toBe(false);
+		});
+	});
+
+	describe('contains / not_contains', () => {
+		it('contains substring', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'url', operator: 'contains', value: '/api/' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { url: 'https://example.com/api/v1' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { url: 'https://example.com/blog/' })])).toBe(false);
+		});
+
+		it('not_contains excludes substring', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'url', operator: 'not_contains', value: '/internal/' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { url: 'https://example.com/api/' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { url: 'https://example.com/internal/data' })])).toBe(false);
+		});
+	});
+
+	describe('starts_with / ends_with', () => {
+		it('starts_with prefix', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'url', operator: 'starts_with', value: 'https://cdn.example.com/' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { url: 'https://cdn.example.com/img/1.png' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { url: 'https://other.com/' })])).toBe(false);
+		});
+
+		it('ends_with suffix', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'host', operator: 'ends_with', value: '.example.com' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'cdn.example.com' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'example.com' })])).toBe(false);
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'evil.com' })])).toBe(false);
+		});
+	});
+
+	describe('matches / not_matches (regex)', () => {
+		it('matches regex pattern', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'tag', operator: 'matches', value: '^release-v[0-9]+\\.[0-9]+$' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { tag: 'release-v1.0' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { tag: 'release-v12.34' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { tag: 'dev-build' })])).toBe(false);
+		});
+
+		it('not_matches regex exclusion', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'tag', operator: 'not_matches', value: '^internal-' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { tag: 'public-v1' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { tag: 'internal-secret' })])).toBe(false);
+		});
+
+		it('invalid regex fails gracefully', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'tag', operator: 'matches', value: '[invalid' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { tag: 'anything' })])).toBe(false);
+		});
+	});
+
+	describe('in / not_in', () => {
+		it('in set match', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'host', operator: 'in', value: ['a.com', 'b.com', 'c.com'] },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'b.com' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'd.com' })])).toBe(false);
+		});
+
+		it('not_in set exclusion', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'host', operator: 'not_in', value: ['blocked.com'] },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'allowed.com' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'blocked.com' })])).toBe(false);
+		});
+	});
+
+	describe('wildcard', () => {
+		it('glob * matches any substring', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'host', operator: 'wildcard', value: '*.example.com' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'cdn.example.com' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'sub.cdn.example.com' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'evil.com' })])).toBe(false);
+		});
+
+		it('wildcard is case-insensitive', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'host', operator: 'wildcard', value: '*.Example.COM' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'cdn.example.com' })])).toBe(true);
+		});
+	});
+
+	describe('exists / not_exists', () => {
+		it('exists true when field present', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'header.CF-Device-Type', operator: 'exists', value: '' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { 'header.CF-Device-Type': 'mobile' })])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(false);
+		});
+
+		it('not_exists true when field absent', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'header.Origin', operator: 'not_exists', value: '' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(true);
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { 'header.Origin': 'https://foo.com' })])).toBe(false);
+		});
+	});
+
+	describe('missing field handling', () => {
+		it('non-exist field fails for string operators', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+				{ field: 'nonexistent', operator: 'eq', value: 'anything' },
+			]));
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(false);
+		});
+	});
+});
+
+// --- Compound conditions ---
+
+describe('compound conditions', () => {
+	it('any: OR logic — any child match = pass', () => {
+		const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+			{
+				any: [
+					{ field: 'host', operator: 'eq', value: 'a.com' },
+					{ field: 'host', operator: 'eq', value: 'b.com' },
+				],
+			},
+		]));
+		expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'a.com' })])).toBe(true);
+		expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'b.com' })])).toBe(true);
+		expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:a', { host: 'c.com' })])).toBe(false);
+	});
+
+	it('all: AND logic — all children must match', () => {
+		const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+			{
+				all: [
+					{ field: 'host', operator: 'eq', value: 'example.com' },
+					{ field: 'url.path', operator: 'starts_with', value: '/blog/' },
+				],
+			},
+		]));
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'example.com', 'url.path': '/blog/post-1' })])).toBe(true);
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'example.com', 'url.path': '/api/v1' })])).toBe(false);
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'other.com', 'url.path': '/blog/post-1' })])).toBe(false);
+	});
+
+	it('not: negation of a condition', () => {
+		const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+			{ not: { field: 'tag', operator: 'eq', value: 'internal' } },
+		]));
+		expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { tag: 'public' })])).toBe(true);
+		expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { tag: 'internal' })])).toBe(false);
+	});
+
+	it('nested compound: any inside all', () => {
+		const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [
+			{
+				all: [
+					{
+						any: [
+							{ field: 'host', operator: 'eq', value: 'a.com' },
+							{ field: 'host', operator: 'eq', value: 'b.com' },
+						],
+					},
+					{ field: 'url.path', operator: 'starts_with', value: '/public/' },
+				],
+			},
+		]));
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'a.com', 'url.path': '/public/img.png' })])).toBe(true);
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'b.com', 'url.path': '/public/img.png' })])).toBe(true);
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'c.com', 'url.path': '/public/img.png' })])).toBe(false);
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'a.com', 'url.path': '/private/secret' })])).toBe(false);
+	});
+});
+
+// --- Multiple statements (OR) ---
+
+describe('multiple statements', () => {
+	it('any statement match = allowed', () => {
+		const p = makePolicy(
+			allowStmt(['purge:host'], ['zone:abc'], [
+				{ field: 'host', operator: 'eq', value: 'cdn.example.com' },
+			]),
+			allowStmt(['purge:tag'], ['zone:abc'], [
+				{ field: 'tag', operator: 'starts_with', value: 'release-' },
+			]),
+		);
+		// Matches first statement
+		expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:abc', { host: 'cdn.example.com' })])).toBe(true);
+		// Matches second statement
+		expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:abc', { tag: 'release-v1' })])).toBe(true);
+		// Matches neither
+		expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:abc', { tag: 'dev-build' })])).toBe(false);
+	});
+});
+
+// --- Multiple contexts (ALL must pass) ---
+
+describe('multiple request contexts', () => {
+	it('all contexts must be allowed', () => {
+		const p = makePolicy(allowStmt(['purge:url'], ['zone:*'], [
+			{ field: 'host', operator: 'ends_with', value: '.example.com' },
+		]));
+		const allowed = makeCtx('purge:url', 'zone:a', { host: 'cdn.example.com' });
+		const denied = makeCtx('purge:url', 'zone:a', { host: 'evil.com' });
+
+		expect(evaluatePolicy(p, [allowed])).toBe(true);
+		expect(evaluatePolicy(p, [denied])).toBe(false);
+		expect(evaluatePolicy(p, [allowed, denied])).toBe(false);
+	});
+
+	it('empty contexts array -> allowed (nothing to deny)', () => {
+		const p = makePolicy(allowStmt(['purge:*'], ['zone:*']));
+		expect(evaluatePolicy(p, [])).toBe(true);
+	});
+});
+
+// --- No statements = deny all ---
+
+describe('empty policy', () => {
+	it('policy with no statements denies everything', () => {
+		const p: PolicyDocument = { version: '2025-01-01', statements: [] };
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a')])).toBe(false);
+	});
+});
+
+// --- No conditions = no restrictions ---
+
+describe('statement without conditions', () => {
+	it('no conditions means action+resource match is sufficient', () => {
+		const p = makePolicy(allowStmt(['purge:*'], ['zone:abc']));
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:abc', { host: 'anything.com', url: 'https://whatever/' })])).toBe(true);
+	});
+});
+
+// --- Policy validation ---
+
+describe('validatePolicy', () => {
+	it('valid policy returns no errors', () => {
+		const errors = validatePolicy({
+			version: '2025-01-01',
+			statements: [{
+				effect: 'allow',
+				actions: ['purge:url'],
+				resources: ['zone:abc'],
+				conditions: [{ field: 'host', operator: 'eq', value: 'example.com' }],
+			}],
+		});
+		expect(errors).toHaveLength(0);
+	});
+
+	it('missing version', () => {
+		const errors = validatePolicy({ statements: [{ effect: 'allow', actions: ['*'], resources: ['*'] }] });
+		expect(errors.some((e) => e.path === 'version')).toBe(true);
+	});
+
+	it('empty statements', () => {
+		const errors = validatePolicy({ version: '2025-01-01', statements: [] });
+		expect(errors.some((e) => e.path === 'statements')).toBe(true);
+	});
+
+	it('invalid operator', () => {
+		const errors = validatePolicy({
+			version: '2025-01-01',
+			statements: [{
+				effect: 'allow',
+				actions: ['*'],
+				resources: ['*'],
+				conditions: [{ field: 'host', operator: 'INVALID', value: 'x' }],
+			}],
+		});
+		expect(errors.some((e) => e.path.includes('operator'))).toBe(true);
+	});
+
+	it('regex too long', () => {
+		const errors = validatePolicy({
+			version: '2025-01-01',
+			statements: [{
+				effect: 'allow',
+				actions: ['*'],
+				resources: ['*'],
+				conditions: [{ field: 'tag', operator: 'matches', value: 'a'.repeat(300) }],
+			}],
+		});
+		expect(errors.some((e) => e.message.includes('max length'))).toBe(true);
+	});
+
+	it('dangerous regex rejected', () => {
+		const errors = validatePolicy({
+			version: '2025-01-01',
+			statements: [{
+				effect: 'allow',
+				actions: ['*'],
+				resources: ['*'],
+				conditions: [{ field: 'tag', operator: 'matches', value: '(a+)+$' }],
+			}],
+		});
+		expect(errors.some((e) => e.message.includes('catastrophic'))).toBe(true);
+	});
+
+	it('invalid regex syntax', () => {
+		const errors = validatePolicy({
+			version: '2025-01-01',
+			statements: [{
+				effect: 'allow',
+				actions: ['*'],
+				resources: ['*'],
+				conditions: [{ field: 'tag', operator: 'matches', value: '[unclosed' }],
+			}],
+		});
+		expect(errors.some((e) => e.message.includes('Invalid regex'))).toBe(true);
+	});
+
+	it('in operator requires string array', () => {
+		const errors = validatePolicy({
+			version: '2025-01-01',
+			statements: [{
+				effect: 'allow',
+				actions: ['*'],
+				resources: ['*'],
+				conditions: [{ field: 'host', operator: 'in', value: 'not-an-array' }],
+			}],
+		});
+		expect(errors.some((e) => e.message.includes('non-empty string array'))).toBe(true);
+	});
+
+	it('validates compound conditions', () => {
+		const errors = validatePolicy({
+			version: '2025-01-01',
+			statements: [{
+				effect: 'allow',
+				actions: ['*'],
+				resources: ['*'],
+				conditions: [{
+					any: [
+						{ field: 'host', operator: 'eq', value: 'a.com' },
+						{ field: '', operator: 'eq', value: 'b.com' }, // empty field
+					],
+				}],
+			}],
+		});
+		expect(errors.some((e) => e.path.includes('field'))).toBe(true);
+	});
+
+	it('null policy', () => {
+		const errors = validatePolicy(null);
+		expect(errors.length).toBeGreaterThan(0);
+	});
+
+	it('exists operator does not require value', () => {
+		const errors = validatePolicy({
+			version: '2025-01-01',
+			statements: [{
+				effect: 'allow',
+				actions: ['*'],
+				resources: ['*'],
+				conditions: [{ field: 'header.CF-Device-Type', operator: 'exists' }],
+			}],
+		});
+		expect(errors).toHaveLength(0);
+	});
+});
+
+// --- v1 scope migration ---
+
+describe('migrateV1Scopes', () => {
+	it('wildcard scope -> allow purge:* on zone', () => {
+		const policy = migrateV1Scopes([{ scope_type: '*', scope_value: '*' }], 'zone123');
+		expect(policy.statements).toHaveLength(1);
+		expect(policy.statements[0].actions).toEqual(['purge:*']);
+		expect(policy.statements[0].resources).toEqual(['zone:zone123']);
+		expect(policy.statements[0].conditions).toBeUndefined();
+	});
+
+	it('host scope -> eq condition', () => {
+		const policy = migrateV1Scopes([{ scope_type: 'host', scope_value: 'example.com' }], 'z1');
+		expect(policy.statements).toHaveLength(1);
+		expect(policy.statements[0].conditions).toEqual([
+			{ field: 'host', operator: 'eq', value: 'example.com' },
+		]);
+	});
+
+	it('url_prefix scope -> starts_with on url field, action purge:url', () => {
+		const policy = migrateV1Scopes([{ scope_type: 'url_prefix', scope_value: 'https://example.com/api/' }], 'z1');
+		expect(policy.statements).toHaveLength(1);
+		expect(policy.statements[0].actions).toEqual(['purge:url']);
+		expect(policy.statements[0].conditions).toEqual([
+			{ field: 'url', operator: 'starts_with', value: 'https://example.com/api/' },
+		]);
+	});
+
+	it('purge_everything scope -> action purge:everything, no conditions', () => {
+		const policy = migrateV1Scopes([{ scope_type: 'purge_everything', scope_value: 'true' }], 'z1');
+		expect(policy.statements).toHaveLength(1);
+		expect(policy.statements[0].actions).toEqual(['purge:everything']);
+		expect(policy.statements[0].conditions).toBeUndefined();
+	});
+
+	it('multiple scopes -> multiple statements', () => {
+		const policy = migrateV1Scopes([
+			{ scope_type: 'host', scope_value: 'a.com' },
+			{ scope_type: 'tag', scope_value: 'blog' },
+		], 'z1');
+		expect(policy.statements).toHaveLength(2);
+	});
+
+	it('empty scopes -> unrestricted on zone', () => {
+		const policy = migrateV1Scopes([], 'z1');
+		expect(policy.statements).toHaveLength(1);
+		expect(policy.statements[0].actions).toEqual(['purge:*']);
+		expect(policy.statements[0].conditions).toBeUndefined();
+	});
+
+	it('migrated policy evaluates correctly', () => {
+		const policy = migrateV1Scopes([
+			{ scope_type: 'host', scope_value: 'example.com' },
+		], 'zone123');
+
+		// Should allow purge:host on zone:zone123 when host=example.com
+		expect(evaluatePolicy(policy, [
+			makeCtx('purge:host', 'zone:zone123', { host: 'example.com' }),
+		])).toBe(true);
+
+		// Should deny when host doesn't match
+		expect(evaluatePolicy(policy, [
+			makeCtx('purge:host', 'zone:zone123', { host: 'other.com' }),
+		])).toBe(false);
+
+		// Should deny wrong zone
+		expect(evaluatePolicy(policy, [
+			makeCtx('purge:host', 'zone:wrongzone', { host: 'example.com' }),
+		])).toBe(false);
+	});
+});
