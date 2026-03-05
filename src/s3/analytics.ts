@@ -1,7 +1,11 @@
 /**
  * D1-backed analytics for S3 proxy requests.
  * All writes are fire-and-forget via waitUntil() so they don't add latency.
+ *
+ * Schema source of truth: schema.sql (project root).
  */
+
+import { S3_EVENTS_TABLE_SQL, S3_EVENTS_INDEX_CRED_SQL, S3_EVENTS_INDEX_BUCKET_SQL } from '../schema';
 
 export interface S3Event {
 	credential_id: string;
@@ -11,33 +15,14 @@ export interface S3Event {
 	status: number;
 	duration_ms: number;
 	created_at: number; // unix ms
+	/** Truncated upstream response for debugging (R2 XML errors, etc.). */
+	response_detail: string | null;
+	/** Identity of the caller — credential_id for S3 requests. */
+	created_by: string | null;
 }
 
-const CREATE_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS s3_events (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	credential_id TEXT NOT NULL,
-	operation TEXT NOT NULL,
-	bucket TEXT,
-	key TEXT,
-	status INTEGER NOT NULL,
-	duration_ms INTEGER NOT NULL,
-	created_at INTEGER NOT NULL
-);
-`;
-
-const CREATE_CRED_INDEX_SQL = `
-CREATE INDEX IF NOT EXISTS idx_s3_events_cred_created
-ON s3_events (credential_id, created_at DESC);
-`;
-
-const CREATE_BUCKET_INDEX_SQL = `
-CREATE INDEX IF NOT EXISTS idx_s3_events_bucket_created
-ON s3_events (bucket, created_at DESC);
-`;
-
 async function ensureTables(db: D1Database): Promise<void> {
-	await db.batch([db.prepare(CREATE_TABLE_SQL), db.prepare(CREATE_CRED_INDEX_SQL), db.prepare(CREATE_BUCKET_INDEX_SQL)]);
+	await db.batch([db.prepare(S3_EVENTS_TABLE_SQL), db.prepare(S3_EVENTS_INDEX_CRED_SQL), db.prepare(S3_EVENTS_INDEX_BUCKET_SQL)]);
 }
 
 /**
@@ -48,10 +33,20 @@ export async function logS3Event(db: D1Database, event: S3Event): Promise<void> 
 		await ensureTables(db);
 		await db
 			.prepare(
-				`INSERT INTO s3_events (credential_id, operation, bucket, key, status, duration_ms, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO s3_events (credential_id, operation, bucket, key, status, duration_ms, response_detail, created_by, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
-			.bind(event.credential_id, event.operation, event.bucket, event.key, event.status, event.duration_ms, event.created_at)
+			.bind(
+				event.credential_id,
+				event.operation,
+				event.bucket,
+				event.key,
+				event.status,
+				event.duration_ms,
+				event.response_detail,
+				event.created_by,
+				event.created_at,
+			)
 			.run();
 	} catch (e) {
 		// Fire-and-forget: log but don't crash the request

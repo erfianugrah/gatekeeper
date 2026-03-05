@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import { UpstreamTokensPage } from "../../components/UpstreamTokensPage";
+---
+
+<DashboardLayout title="gatekeeper — Upstream Tokens" active="upstream-tokens">
+  <UpstreamTokensPage client:load />
+</DashboardLayout>

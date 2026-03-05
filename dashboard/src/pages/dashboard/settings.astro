@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import { SettingsPage } from "../../components/SettingsPage";
+---
+
+<DashboardLayout title="gatekeeper — Settings" active="settings">
+  <SettingsPage client:load />
+</DashboardLayout>

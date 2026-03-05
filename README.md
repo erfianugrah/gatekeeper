@@ -10,50 +10,73 @@ API gateway on Cloudflare Workers with an AWS IAM-style authorization engine. Fr
 4. **Token bucket enforcement** — rejects purge requests client-side before they hit the upstream API. Two buckets: bulk (50/sec, burst 500) and single-file (3,000 URLs/sec, burst 6,000). Enterprise tier defaults.
 5. **Request collapsing** — identical concurrent purges get deduplicated at both isolate and Durable Object levels. Only the leader consumes a rate limit token.
 6. **Analytics** — every purge and S3 operation is logged to D1. Query events, get summaries, filter by key/credential/zone/bucket/time range.
-7. **Dashboard** — Astro SPA served from the same Worker via Static Assets. Overview, key management, S3 credential management, analytics, manual purge.
+7. **Dashboard** — Astro SPA served from the same Worker via Static Assets. Overview, key management, S3 credentials, upstream token/R2 management, settings, analytics, manual purge.
 
 ## Architecture
 
-```
-                         ┌─────────────────────────────────────┐
-                         │          Cloudflare Access           │
-                         │  (identity — who are you?)           │
-                         │  Gates: /admin/*, /dashboard/*       │
-                         └──────────────┬──────────────────────┘
-                                        │ Cf-Access-Jwt-Assertion
-                                        ▼
-┌──────────┐  Authorization: Bearer gw_xxx  ┌──────────────────────────────────┐
-│  Client   │ ─────────────────────────────▶│         API Gateway Worker        │
-│ (CI/CD,   │                               │                                  │
-│  service) │                               │  ┌────────────┐  ┌────────────┐  │
-└──────────┘                                │  │  Identity   │  │    IAM     │  │
-                                            │  │  (Access    │  │  (policy   │  │
-┌──────────┐  Cf-Access-Jwt-Assertion       │  │   JWT)      │  │  engine)   │  │
-│  Human    │ ─────────────────────────────▶│  └──────┬─────┘  └──────┬─────┘  │
-│ (browser) │                               │         │               │        │
-└──────────┘                                │         ▼               ▼        │
-                                            │  ┌──────────────────────────┐    │
-┌──────────┐  AWS Sig V4 (GK creds)        │  │     Service handlers     │    │
-│ S3 Client│ ─────────────────────────────▶│  │  ┌─────────┐ ┌────────┐ │    │
-│ (rclone, │                               │  │  │  Purge   │ │  S3   │ │    │
-│  boto3)  │                               │  │  └─────────┘ └────────┘ │    │
-└──────────┘                                │  └──────────────────────────┘    │
-                                            └──────────────────────────────────┘
-                                                          │
-                                   ┌──────────────────────┼───────────────┐
-                                   ▼                      ▼               ▼
-                         Durable Object            D1 (analytics)   Static Assets
-                         - token buckets (purge)                    - dashboard SPA
-                         - purge keys (SQLite)
-                         - S3 credentials (SQLite)
-                         - upstream tokens (SQLite)
-                         - upstream R2 endpoints (SQLite)
-                         - request collapsing
-                                   │
-                          ┌────────┴────────┐
-                          ▼                 ▼
-                api.cloudflare.com    R2 S3 API
-                  /purge_cache        (re-signed via aws4fetch)
+```mermaid
+flowchart TB
+    subgraph Clients
+        svc["Service / CI&#8239;/&#8239;CD<br/><code>Authorization: Bearer gw_…</code>"]
+        human["Browser<br/><code>CF_Authorization</code> cookie"]
+        s3c["S3 Client (rclone, boto3)<br/>AWS Sig V4 with GK credentials"]
+    end
+
+    subgraph CF["Cloudflare Edge"]
+        access["Cloudflare Access<br/><i>identity — who are you?</i><br/>gates /admin/* and /dashboard/*"]
+    end
+
+    subgraph Worker["API Gateway Worker"]
+        direction TB
+        mw["Security Headers Middleware"]
+
+        subgraph Auth["Authentication"]
+            jwt["Access JWT<br/>validator"]
+            adminkey["Admin Key<br/>HMAC check"]
+            sigv4["Sig V4<br/>verifier"]
+        end
+
+        iam["IAM Policy Engine<br/><i>authorization — what can you do?</i>"]
+
+        subgraph Handlers["Service Handlers"]
+            purge["Purge Handler<br/><code>/v1/zones/:id/purge_cache</code>"]
+            s3h["S3 Proxy Handler<br/><code>/s3/*</code>"]
+            admin["Admin API<br/><code>/admin/*</code>"]
+        end
+    end
+
+    subgraph DO["Durable Object (SQLite)"]
+        tb["Token Buckets<br/><i>in-memory, lazy refill</i>"]
+        keys["Purge Keys"]
+        creds["S3 Credentials"]
+        upt["Upstream Tokens"]
+        upr2["Upstream R2 Endpoints"]
+        cfg["Config Registry"]
+        collapse["Request Collapsing"]
+    end
+
+    d1[("D1<br/>Analytics")]
+    assets["Static Assets<br/>Dashboard SPA"]
+
+    subgraph Upstream["Upstream Services"]
+        cfapi["api.cloudflare.com<br/><code>/purge_cache</code>"]
+        r2api["R2 S3 API<br/><i>re-signed via aws4fetch</i>"]
+    end
+
+    svc --> mw
+    human --> access --> mw
+    s3c --> mw
+    mw --> Auth
+    Auth --> iam
+    iam --> Handlers
+    purge --> DO
+    s3h --> DO
+    admin --> DO
+    purge --> d1
+    s3h --> d1
+    DO --> cfapi
+    DO --> r2api
+    human --> assets
 ```
 
 **Identity vs Authorization:** Two separate concerns, deliberately decoupled. Cloudflare Access handles identity (who are you?) via JWT. The IAM engine handles authorization (what can you do?) via policy documents attached to API keys or S3 credentials. Machine clients authenticate via API key (purge) or AWS Sig V4 (S3) and skip Access entirely. Humans authenticate via Access and get implicit admin authorization.
@@ -86,11 +109,13 @@ cd dashboard && npm install && cd ..
 2. **D1 database** — create one and update the binding:
 
    ```bash
-   npx wrangler d1 create purge-analytics
+   npx wrangler d1 create gatekeeper-analytics
    # copy the database_id into wrangler.jsonc
    ```
 
-3. **Rate limit vars** — defaults match Enterprise tier. Adjust for your plan.
+   The D1 database stores purge and S3 analytics events. It's the only external binding besides the Durable Object.
+
+3. **Rate limits and other settings** — defaults target the Cloudflare Enterprise purge tier. You don't need to change anything in `wrangler.jsonc`. All tunable settings live in the config registry (see [Configuration](#configuration)) and can be changed at runtime without redeploying.
 
 ### Secrets
 
@@ -147,7 +172,7 @@ Token/secret values are write-only — they can't be retrieved after registratio
 npm run dev              # wrangler dev (local)
 npm run build            # build dashboard + CLI
 npm run deploy           # build dashboard, then wrangler deploy
-npm test                 # run all tests (367 across worker + CLI)
+npm test                 # run all tests (392 across worker + CLI)
 npm run test:worker      # worker tests only
 npm run test:cli         # CLI tests only
 npx wrangler types       # regenerate types after changing wrangler.jsonc
@@ -159,18 +184,58 @@ On first deploy, wrangler creates the DO namespace and runs the SQLite migration
 
 ## Configuration
 
-All in `wrangler.jsonc` vars. Strings, cast to numbers in code.
+All gateway settings live in the **config registry** — a SQLite table inside the Durable Object. No env vars, no redeployment needed. Changes take effect immediately (the DO rebuilds its token buckets on write).
 
-| Variable             | Default | What it does                                                                                     |
-| -------------------- | ------- | ------------------------------------------------------------------------------------------------ |
-| `BULK_RATE`          | `50`    | Bulk purge refill rate (tokens/sec)                                                              |
-| `BULK_BUCKET_SIZE`   | `500`   | Bulk purge burst capacity                                                                        |
-| `BULK_MAX_OPS`       | `100`   | Max items per bulk request                                                                       |
-| `SINGLE_RATE`        | `3000`  | Single-file refill rate (URLs/sec)                                                               |
-| `SINGLE_BUCKET_SIZE` | `6000`  | Single-file burst capacity                                                                       |
-| `SINGLE_MAX_OPS`     | `500`   | Max URLs per request                                                                             |
-| `KEY_CACHE_TTL_MS`   | `60000` | IAM key/credential cache lifetime in the DO (ms). Applies to both purge keys and S3 credentials. |
-| `RETENTION_DAYS`     | `30`    | D1 analytics retention — cron deletes older purge and S3 events daily at 03:00 UTC               |
+### Resolution order
+
+When the gateway needs a config value, it checks these sources in order:
+
+1. **Registry override** (DO SQLite) — highest priority. Set via `PUT /admin/config` or `gk config set`.
+2. **Hardcoded default** — baked into the source code. You get these if you've never touched the registry.
+
+### Config keys
+
+| Key                  | Default | What it does                                                                      |
+| -------------------- | ------- | --------------------------------------------------------------------------------- |
+| `bulk_rate`          | `50`    | Bulk purge token refill rate (tokens/sec). Enterprise tier.                       |
+| `bulk_bucket_size`   | `500`   | Bulk purge burst capacity (max tokens in the bucket at any time).                 |
+| `bulk_max_ops`       | `100`   | Max items in a single bulk purge request (hosts, tags, prefixes).                 |
+| `single_rate`        | `3000`  | Single-file purge token refill rate (URLs/sec). Enterprise tier.                  |
+| `single_bucket_size` | `6000`  | Single-file purge burst capacity.                                                 |
+| `single_max_ops`     | `500`   | Max URLs in a single purge-by-URL request.                                        |
+| `key_cache_ttl_ms`   | `60000` | How long the DO caches API key and S3 credential lookups (milliseconds).          |
+| `retention_days`     | `30`    | D1 analytics retention. A daily cron at 03:00 UTC deletes events older than this. |
+
+### Viewing and changing config
+
+**Dashboard:** go to `/dashboard/settings`. Every key shows its current value, the default, whether it's overridden, and who changed it last. Click "Edit" on any row, type the new value, hit Save. Click "Reset" to revert an override back to the hardcoded default.
+
+**CLI:**
+
+```bash
+gk config get                           # show all keys with source info
+gk config set --key bulk_rate --value 100
+gk config reset --key bulk_rate          # revert to default (50)
+```
+
+**API:**
+
+```bash
+# Get full config (resolved values + overrides + defaults)
+curl -H "X-Admin-Key: $ADMIN_KEY" https://gate.example.com/admin/config
+
+# Set one or more values
+curl -X PUT -H "X-Admin-Key: $ADMIN_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"bulk_rate": 100, "retention_days": 14}' \
+     https://gate.example.com/admin/config
+
+# Reset a single key to its default
+curl -X DELETE -H "X-Admin-Key: $ADMIN_KEY" \
+     https://gate.example.com/admin/config/bulk_rate
+```
+
+The `GET /admin/config` response includes three objects: `config` (fully resolved values), `overrides` (only the keys you've explicitly set, with timestamps and who set them), and `defaults` (the hardcoded fallbacks). The dashboard Settings page renders all three.
 
 ---
 
@@ -346,42 +411,34 @@ Most policies won't need compound conditions. Multiple statements with different
 
 ### Authorization flow
 
-```
-Request arrives
-  │
-  ├── /v1/zones/:zoneId/purge_cache
-  │     │
-  │     ├── Extract key from Authorization header
-  │     ├── Look up key → get policy document
-  │     ├── Determine action from request body (purge:url, purge:host, etc.)
-  │     ├── Determine resource: zone:<zoneId>
-  │     ├── Build request context (host, tag, url, headers, etc.)
-  │     ├── Evaluate policy: any statement allows (action + resource + conditions)?
-  │     │     ├── Yes → proceed to rate limiting → upstream
-  │     │     └── No  → 403 Forbidden
-  │     └── Log: key_id, action, resource, allowed/denied, created_by
-  │
-  ├── /s3/*
-  │     │
-  │     ├── Verify AWS Sig V4 (header auth or presigned URL)
-  │     ├── Look up credential by access_key_id → get policy + secret
-  │     ├── Verify signature against stored secret
-  │     ├── Detect S3 operation from HTTP method + path + query params
-  │     ├── Build request context (bucket, key, key.prefix, content_type, etc.)
-  │     ├── Evaluate policy: any statement allows (action + resource + conditions)?
-  │     │     ├── Yes → re-sign with admin R2 creds (aws4fetch) → forward to R2
-  │     │     └── No  → 403 AccessDenied
-  │     └── Log: credential_id, operation, bucket, key, status, duration
-  │
-  ├── /admin/*
-  │     │
-  │     ├── Check Access JWT first
-  │     │     ├── Valid → extract email, full admin access (for now)
-  │     │     └── No JWT → check X-Admin-Key → full admin access
-  │     └── Neither → 401
-  │
-  └── /dashboard/*
-        └── Access JWT required (Access handles redirect to login)
+```mermaid
+flowchart TD
+    req([Request arrives]) --> route{Route?}
+
+    route -->|"/v1/zones/:zoneId/purge_cache"| p1["Extract key from<br/><code>Authorization: Bearer gw_…</code>"]
+    p1 --> p2["Look up key in DO → get policy"]
+    p2 --> p3["Determine action from body<br/>(purge:url, purge:host, etc.)"]
+    p3 --> p4["Build request context<br/>(host, tag, url, headers, …)"]
+    p4 --> p5{"Policy allows?<br/>action + resource + conditions"}
+    p5 -->|Yes| p6["Rate limit check → upstream"]
+    p5 -->|No| p7["403 Forbidden<br/>+ denied array"]
+
+    route -->|"/s3/*"| s1["Verify AWS Sig V4<br/>(header or presigned URL)"]
+    s1 --> s2["Look up credential by access_key_id<br/>→ policy + secret"]
+    s2 --> s3["Verify signature"]
+    s3 --> s4["Detect S3 operation<br/>(method + path + query)"]
+    s4 --> s5["Build request context<br/>(bucket, key, key.prefix, content_type, …)"]
+    s5 --> s6{"Policy allows?"}
+    s6 -->|Yes| s7["Re-sign with upstream R2 creds<br/>(aws4fetch) → forward to R2"]
+    s6 -->|No| s8["403 AccessDenied<br/>(S3 XML error)"]
+
+    route -->|"/admin/*"| a1{"Access JWT<br/>present?"}
+    a1 -->|Valid| a2["Extract email → admin access"]
+    a1 -->|No| a3{"X-Admin-Key<br/>header?"}
+    a3 -->|Valid| a4["Admin access"]
+    a3 -->|No| a5["401 Unauthorized"]
+
+    route -->|"/dashboard/*"| d1["Cloudflare Access<br/>handles redirect to login"]
 ```
 
 ### Policy examples
@@ -716,7 +773,7 @@ All require either `X-Admin-Key: <admin_key>` or a valid Cloudflare Access JWT (
 }
 ```
 
-`name`, `zone_id`, and `policy` are required. The response includes the key ID (`gw_<hex>`) — this is the Bearer token. Show it once to the user.
+`name` and `policy` are required. `zone_id` is optional — omit it for a key that works on any zone. The response includes the key ID (`gw_<hex>`) — this is the Bearer token. Show it once to the user.
 
 Policy is validated at creation time: version must be `2025-01-01`, statements must have `effect: "allow"`, regex patterns are checked for catastrophic backtracking, per-key rate limits can't exceed account defaults.
 
@@ -776,6 +833,80 @@ Returns S3 proxy events from D1. Account-level (no zone_id required). `limit` de
 #### `GET /admin/s3/analytics/summary[?credential_id=...][&bucket=...][&operation=...][&since=...][&until=...]`
 
 Returns `total_requests`, `by_status`, `by_operation` (top 20), `by_bucket` (top 20), `avg_duration_ms`.
+
+#### `POST /admin/upstream-tokens` — register upstream CF API token
+
+```json
+{
+	"name": "prod-purge",
+	"token": "<your-cloudflare-api-token>",
+	"zone_ids": ["a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"]
+}
+```
+
+`name`, `token`, and `zone_ids` are required. `zone_ids` is an array — pass `["*"]` for a wildcard that covers all zones, or specific zone IDs. The token is stored in the DO and never returned after creation. The response includes a `token_preview` field (first 4 + last 4 chars) so you can identify which token is which.
+
+When a purge request arrives, the gateway looks up the best matching upstream token for the target zone: exact match first, then wildcard. If no upstream token matches, the request fails with 502.
+
+#### `GET /admin/upstream-tokens[?status=active|revoked]` — list upstream tokens
+
+Returns all registered upstream tokens. The actual token value is never included — only the preview, zone scope, and metadata.
+
+#### `GET /admin/upstream-tokens/:id` — get upstream token details
+
+#### `DELETE /admin/upstream-tokens/:id` — revoke upstream token
+
+Soft revoke. Takes effect immediately (up to 60s cache TTL). If you revoke all upstream tokens for a zone, purge requests to that zone will start returning 502.
+
+#### `POST /admin/upstream-r2` — register upstream R2 endpoint
+
+```json
+{
+	"name": "prod-r2",
+	"access_key_id": "<r2-access-key-id>",
+	"secret_access_key": "<r2-secret-access-key>",
+	"endpoint": "https://<account-id>.r2.cloudflarestorage.com",
+	"bucket_names": ["*"]
+}
+```
+
+`name`, `access_key_id`, `secret_access_key`, `endpoint`, and `bucket_names` are all required. `bucket_names` is an array — pass `["*"]` for all buckets, or specific names like `["vault", "videos"]`. Credentials are stored in the DO and never returned after creation (only a preview).
+
+When an S3 request arrives, the gateway resolves the R2 endpoint for the target bucket: exact match first, then wildcard. For `ListBuckets` (no specific bucket), the first wildcard endpoint is used. If no endpoint matches, the request fails with 502.
+
+#### `GET /admin/upstream-r2[?status=active|revoked]` — list R2 endpoints
+
+Returns all registered R2 endpoints with secrets redacted (preview only).
+
+#### `GET /admin/upstream-r2/:id` — get R2 endpoint details
+
+#### `DELETE /admin/upstream-r2/:id` — revoke R2 endpoint
+
+Soft revoke. Immediately stops forwarding S3 requests to this endpoint (up to 60s cache TTL).
+
+#### `GET /admin/config` — get gateway configuration
+
+Returns three objects:
+
+- `config` — the fully resolved config values (what the gateway is actually using right now)
+- `overrides` — only the keys you've explicitly changed, with `updated_at` and `updated_by`
+- `defaults` — the hardcoded fallback values
+
+See [Configuration](#configuration) for the list of keys and what they do.
+
+#### `PUT /admin/config` — set config values
+
+Body is a flat JSON object of key-value pairs. All values must be positive numbers. Unknown keys are rejected.
+
+```json
+{ "bulk_rate": 100, "retention_days": 14 }
+```
+
+Changes take effect immediately. The DO rebuilds its rate limit token buckets on every config write.
+
+#### `DELETE /admin/config/:key` — reset a config key
+
+Deletes the override for a single key, reverting it to the hardcoded default. Returns the newly resolved config.
 
 ### OpenAPI specification
 
@@ -843,6 +974,30 @@ JWT claims: `sub`, `email`, `iss`, `aud`, `exp`, `iat`, `type` (`app` for users,
 
 ---
 
+## Security headers
+
+Every response from the gateway includes these headers, whether it's a 200 from a happy-path request or a 401 from a bad API key:
+
+| Header                   | Value                                                          | Why                                                |
+| ------------------------ | -------------------------------------------------------------- | -------------------------------------------------- |
+| `X-Content-Type-Options` | `nosniff`                                                      | Stops browsers from guessing MIME types            |
+| `X-Frame-Options`        | `DENY`                                                         | Blocks embedding in iframes (clickjacking)         |
+| `Referrer-Policy`        | `strict-origin-when-cross-origin`                              | Limits referrer leakage on navigation              |
+| `Permissions-Policy`     | `camera=(), microphone=(), geolocation=(), document-domain=()` | Disables browser features the gateway doesn't need |
+
+These are set by a Hono middleware in the Worker and apply to all API, purge, S3, and health responses.
+
+The dashboard pages (static HTML/JS/CSS served via Workers Static Assets) get additional headers via a `_headers` file:
+
+| Header                    | Value                                                                                                                                                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Content-Security-Policy` | `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'` |
+| `X-DNS-Prefetch-Control`  | `off`                                                                                                                                                                                                             |
+
+The CSP allows the dashboard's own scripts and styles (including Astro's hydration inline scripts), permits `fetch()` calls to same-origin `/admin/*` endpoints (`connect-src 'self'`), and blocks everything else. `frame-ancestors 'none'` is the CSP equivalent of `X-Frame-Options: DENY`.
+
+---
+
 ## Rate limiting
 
 ### Token bucket
@@ -873,7 +1028,7 @@ Both have a 50ms grace window. Collapsed requests show as `collapsed: "isolate"`
 
 Astro 5 + React 19 + Tailwind CSS 4 + shadcn/ui + Recharts. Served at `/dashboard/` via Workers Static Assets with SPA fallback.
 
-Pages: overview (stats, charts), keys (CRUD, policy display), analytics (event log, summary), manual purge form.
+Pages: overview (stats, charts), keys (CRUD, policy display), S3 credentials, upstream tokens, upstream R2 endpoints, analytics (event log, summary), manual purge form, and settings (config registry editor).
 
 ### Design
 
@@ -919,18 +1074,25 @@ Chart slots: `#c574dd`, `#5adecd`, `#f37e96`, `#f1a171`, `#8796f4`
 Fixed sidebar + header shell:
 
 ```
-+--[SIDEBAR w-60]---+--[HEADER h-14]--------------------+
-| Shield logo       | Page title     Status dot (pulse)  |
-| + "GATEKEEPER"    +------------------------------------+
-| ─────────────     |                                    |
-| Overview          | MAIN CONTENT (scrollable, p-6)     |
-| Keys              |                                    |
-| Analytics         |                                    |
-| Purge             |                                    |
-| Settings          |                                    |
-| ─────────────     |                                    |
-| version footer    | Scroll-to-top FAB (bottom-right)   |
-+-------------------+------------------------------------+
++--[SIDEBAR w-60]--------+--[HEADER h-14]-------------------+
+| ⚡ GATEKEEPER           | Page title      ● HEALTHY        |
+| ────────────────        +----------------------------------+
+| Overview                |                                  |
+| ── Operations ────      | MAIN CONTENT (scrollable, p-6)   |
+| Purge                   |                                  |
+| ── Access ─────────     |                                  |
+| Purge Keys              |                                  |
+| S3 Credentials          |                                  |
+| ── Upstream ────────    |                                  |
+| Upstream Tokens         |                                  |
+| Upstream R2             |                                  |
+| ── Observability ───    |                                  |
+| Analytics               |                                  |
+| ── System ──────────    |                                  |
+| Settings                |                                  |
+| ────────────────        |                                  |
+| Gatekeeper              | Scroll-to-top FAB (bottom-right) |
++-------------------------+----------------------------------+
 ```
 
 #### Visual effects
@@ -966,13 +1128,16 @@ Fixed sidebar + header shell:
 
 ### Dashboard pages
 
-| Route                  | Content                                                                                                                                                                                                          |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/dashboard`           | Summary stat cards (total requests, by-status, collapsed %, avg latency). Traffic timeline chart (Recharts area). Purge type distribution (donut). Top zones bar chart. Recent events feed. Time range selector. |
-| `/dashboard/keys`      | Key list table (filterable by zone/status, sortable). Create key dialog with policy builder. Revoke with confirmation dialog.                                                                                    |
-| `/dashboard/keys/:id`  | Key detail: policy document (syntax-highlighted JSON), rate limit config, created_by, per-key analytics charts.                                                                                                  |
-| `/dashboard/analytics` | Event log table with filter bar (zone, key, status, action, time range). Expandable rows with detail panels. Pagination. CSV export.                                                                             |
-| `/dashboard/purge`     | Manual purge form: select type (URL/host/tag/prefix/everything), enter values, zone picker, submit. Live rate limit status display.                                                                              |
+| Route                        | Content                                                                                                                                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/dashboard`                 | Summary stat cards (total requests, by-status, collapsed %, avg latency). Traffic timeline chart (Recharts area). Purge type distribution (donut). Top zones bar chart. Recent events feed. Time range selector. |
+| `/dashboard/keys`            | Purge key list table (filterable by status). Create key dialog with visual policy builder. Revoke with confirmation. Shows policy preview inline.                                                                |
+| `/dashboard/s3-credentials`  | S3 credential list table. Create with S3 policy builder. Shows access key ID and secret once on creation. Revoke with confirmation.                                                                              |
+| `/dashboard/upstream-tokens` | Upstream CF API token list. Register new tokens with name, token value, and zone scope. Token preview (first 4 + last 4 chars). Revoke with confirmation.                                                        |
+| `/dashboard/upstream-r2`     | Upstream R2 endpoint list. Register with name, access key, secret, endpoint URL, and bucket scope. Access key preview. Revoke with confirmation.                                                                 |
+| `/dashboard/analytics`       | Event log table with filter bar (zone, key, status, action, time range). Expandable rows with detail panels. Pagination.                                                                                         |
+| `/dashboard/purge`           | Manual purge form: select type (URL/host/tag/prefix/everything), enter values, zone picker, submit. Live rate limit status display.                                                                              |
+| `/dashboard/settings`        | Config registry editor. Shows all 8 keys grouped by section. Each row: current value, default, source (Override/Default), last updated by whom. Inline edit, save, and reset-to-default.                         |
 
 ### Key creation flow in dashboard
 
@@ -1006,33 +1171,65 @@ The "create key" form has a **policy builder UI** (similar to caddy-compose's co
 
 ## CLI
 
-`gk` — built with [citty](https://github.com/unjs/citty). Colored output, spinners, `--json` flag.
+`gk` — built with [citty](https://github.com/unjs/citty). Colored output, spinners, `--json` flag on every command.
 
 ```bash
+# Health
 npm run cli -- health
+
+# Purge keys
 npm run cli -- keys create --name test --zone-id <id> --policy '{"version":"2025-01-01","statements":[...]}'
 npm run cli -- keys list --zone-id <id>
 npm run cli -- keys get --key-id gw_...  --zone-id <id>
 npm run cli -- keys revoke --key-id gw_... --zone-id <id>
+
+# Purge
 npm run cli -- purge hosts --host example.com --zone-id <id>
 npm run cli -- purge tags --tag blog --zone-id <id>
 npm run cli -- purge urls --url https://example.com/page --zone-id <id>
 npm run cli -- purge everything --zone-id <id> [-f]
+
+# Analytics
 npm run cli -- analytics events --zone-id <id>
 npm run cli -- analytics summary --zone-id <id>
+
+# S3 credentials
 npm run cli -- s3-credentials create --name my-cred --policy '{"version":"2025-01-01","statements":[...]}'
 npm run cli -- s3-credentials list [--active-only]
 npm run cli -- s3-credentials get --access-key-id GK...
 npm run cli -- s3-credentials revoke --access-key-id GK... [-f]
+
+# Upstream CF API tokens (for purge)
+npm run cli -- upstream-tokens create --name prod-purge --token <cf-api-token> --zone-ids "<zone-id>"
+npm run cli -- upstream-tokens create --name wildcard --token <cf-api-token> --zone-ids "*"
+npm run cli -- upstream-tokens list [--active-only]
+npm run cli -- upstream-tokens get --token-id upt_...
+npm run cli -- upstream-tokens revoke --token-id upt_... [-f]
+
+# Upstream R2 endpoints (for S3 proxy)
+npm run cli -- upstream-r2 create \
+  --name prod-r2 \
+  --access-key-id <r2-key> \
+  --secret-access-key <r2-secret> \
+  --r2-endpoint "https://<account>.r2.cloudflarestorage.com" \
+  --bucket-names "*"
+npm run cli -- upstream-r2 list [--active-only]
+npm run cli -- upstream-r2 get --endpoint-id upr2_...
+npm run cli -- upstream-r2 revoke --endpoint-id upr2_... [-f]
+
+# Config registry
+npm run cli -- config get                              # show full config with source info
+npm run cli -- config set --key bulk_rate --value 100   # override a value
+npm run cli -- config reset --key bulk_rate             # revert to hardcoded default
 ```
 
-Config via env vars (`GATEKEEPER_URL`, `GATEKEEPER_ADMIN_KEY`, `GATEKEEPER_API_KEY`, `GATEKEEPER_ZONE_ID`) or flags. Flags take precedence.
+Config via env vars (`GATEKEEPER_URL`, `GATEKEEPER_ADMIN_KEY`, `GATEKEEPER_API_KEY`, `GATEKEEPER_ZONE_ID`) or flags. Flags take precedence. Every command supports `--json` for machine-readable output.
 
 ---
 
 ## Tests
 
-367 tests across 13 test files:
+392 tests across 19 test files (376 worker + 16 CLI):
 
 ```bash
 npm test              # all (vitest workspace: worker + CLI)
@@ -1040,21 +1237,27 @@ npm run test:worker   # worker tests only (Cloudflare Workers runtime via @cloud
 npm run test:cli      # CLI tests only (Node.js)
 ```
 
-| File                          | Tests | What                                                                                     |
-| ----------------------------- | ----- | ---------------------------------------------------------------------------------------- |
-| `test/s3-e2e.test.ts`         | 102   | S3 proxy end-to-end: header auth, presigned URLs, batch delete, analytics, special chars |
-| `test/s3-operations.test.ts`  | 64    | S3 path parsing + operation detection (66 operations)                                    |
-| `test/policy-engine.test.ts`  | 45    | All operators, compound conditions, regex safety, edge cases                             |
-| `test/iam.test.ts`            | 30    | DO-level IAM with v2 policies, key CRUD, auth gates                                      |
-| `test/purge.test.ts`          | 29    | Full request flow, auth, body validation, all purge types, rate limiting                 |
-| `test/token-bucket.test.ts`   | 16    | Consume, refill, drain, clock skew, fractional tokens                                    |
-| `cli/cli.test.ts`             | 16    | Policy parsing, config resolution                                                        |
-| `test/auth-access.test.ts`    | 14    | Access JWT validation with mock RSA keys, expiry, JWKS caching                           |
-| `test/perf.test.ts`           | 13    | Performance benchmarks                                                                   |
-| `test/admin.test.ts`          | 12    | Admin auth, key lifecycle, validation                                                    |
-| `test/s3-sigv4.test.ts`       | 10    | Sig V4 parsing + auth rejection                                                          |
-| `test/s3-credentials.test.ts` | 9     | S3 credential CRUD                                                                       |
-| `test/analytics.test.ts`      | 9     | D1 event logging, filtering, summary                                                     |
+| File                            | Tests | What                                                                              |
+| ------------------------------- | ----- | --------------------------------------------------------------------------------- |
+| `test/s3-e2e-iam.test.ts`       | 35    | S3 IAM policy evaluation: bucket/key/prefix scoping, cross-bucket copy, multipart |
+| `test/s3-e2e-objects.test.ts`   | 28    | S3 object operations: get, put, delete, batch delete, special chars               |
+| `test/s3-e2e-auth.test.ts`      | 22    | S3 auth: header-based, presigned URLs, bad signatures, revoked creds              |
+| `test/s3-e2e-buckets.test.ts`   | 10    | S3 bucket operations: list, head, create, delete                                  |
+| `test/s3-e2e-lifecycle.test.ts` | 7     | S3 multipart upload lifecycle + analytics logging                                 |
+| `test/s3-operations.test.ts`    | 64    | S3 path parsing + operation detection (66 operations)                             |
+| `test/s3-sigv4.test.ts`         | 10    | Sig V4 parsing + auth rejection                                                   |
+| `test/s3-credentials.test.ts`   | 9     | S3 credential CRUD                                                                |
+| `test/policy-engine.test.ts`    | 45    | All operators, compound conditions, regex safety, edge cases                      |
+| `test/iam.test.ts`              | 30    | DO-level IAM with v2 policies, key CRUD, auth gates                               |
+| `test/purge.test.ts`            | 29    | Full request flow, auth, body validation, all purge types, rate limiting          |
+| `test/token-bucket.test.ts`     | 16    | Consume, refill, drain, clock skew, fractional tokens                             |
+| `test/auth-access.test.ts`      | 14    | Access JWT validation with mock RSA keys, expiry, JWKS caching                    |
+| `test/config.test.ts`           | 13    | Config registry: get/set/reset, resolution order, cache invalidation              |
+| `test/perf.test.ts`             | 13    | Performance benchmarks                                                            |
+| `test/admin.test.ts`            | 12    | Admin auth, key lifecycle, validation                                             |
+| `test/security-headers.test.ts` | 12    | Security headers on every route type, no functional interference                  |
+| `test/analytics.test.ts`        | 9     | D1 event logging, filtering, summary                                              |
+| `cli/cli.test.ts`               | 16    | Policy parsing, config resolution                                                 |
 
 Smoke tests: `./smoke-test.sh` (120 tests against a running `wrangler dev` instance).
 
@@ -1086,49 +1289,81 @@ One JSON object per request via `console.log`. Cloudflare observability picks it
 ## Project layout
 
 ```
-wrangler.jsonc                   Worker config: DO, D1, Static Assets, rate limits, cron
-openapi.yaml                     OpenAPI 3.1 spec (all endpoints)
-PLAN.md                          S3/R2 proxy design document
-smoke-test.sh                    120-case smoke test suite
+wrangler.jsonc                       Worker config: DO, D1, Static Assets, cron
+openapi.yaml                         OpenAPI 3.1 spec (all endpoints)
+PLAN.md                              S3/R2 proxy design document
+smoke-test.sh                        120-case smoke test suite
 src/
-  index.ts                       Entrypoint: Hono app + cron (mounts s3App, purge+S3 retention)
-  durable-object.ts              Gatekeeper DO (purge rate limiting, IAM keys, S3 credentials)
+  index.ts                           Entrypoint: Hono app, security headers middleware, cron
+  durable-object.ts                  Gatekeeper DO: all managers, RPC methods, bucket rebuild
+  config-registry.ts                 ConfigManager: SQLite table, 3-tier resolution, GatewayConfig
+  upstream-tokens.ts                 UpstreamTokenManager: CF API token registry + zone resolution
   routes/
-    purge.ts                     POST /v1/zones/:zoneId/purge_cache
-    admin.ts                     Admin sub-app (key CRUD, S3 credential CRUD, analytics)
-  types.ts                       Shared types (HonoEnv, purge types, IAM types)
-  policy-types.ts                PolicyDocument, Statement, Condition, RequestContext
-  policy-engine.ts               evaluatePolicy(), validatePolicy()
-  auth-access.ts                 Cloudflare Access JWT validation (~80 lines, no deps)
-  iam.ts                         IamManager: createKey, authorize, authorizeFromBody
-  token-bucket.ts                Token bucket (lazy refill, no I/O)
-  analytics.ts                   D1 analytics for purge (events, summary, retention)
-  env.d.ts                       Env type extensions (R2_* secrets)
+    purge.ts                         POST /v1/zones/:zoneId/purge_cache
+    admin.ts                         Admin sub-app (mounts all admin route modules)
+    admin-keys.ts                    Key CRUD (validates rate limits against GatewayConfig)
+    admin-config.ts                  GET/PUT /admin/config, DELETE /admin/config/:key
+    admin-upstream-tokens.ts         Upstream CF API token CRUD
+    admin-upstream-r2.ts             Upstream R2 endpoint CRUD
+    admin-analytics.ts               Purge analytics queries
+    admin-s3.ts                      S3 credential CRUD + S3 analytics queries
+  types.ts                           Shared types (HonoEnv, RateLimitConfig, ApiKey, etc.)
+  policy-types.ts                    PolicyDocument, Statement, Condition, RequestContext
+  policy-engine.ts                   evaluatePolicy(), validatePolicy()
+  auth-access.ts                     Cloudflare Access JWT validation (~80 lines, no deps)
+  iam.ts                             IamManager: createKey, authorize, authorizeFromBody
+  token-bucket.ts                    Token bucket (lazy refill, no I/O)
+  analytics.ts                       D1 analytics for purge (events, summary, retention)
+  crypto.ts                          queryAll helper, HMAC utils
+  do-stub.ts                         getStub() — named DO ID helper
+  env.d.ts                           Env type extensions (ADMIN_KEY, CF_ACCESS_*)
   s3/
-    types.ts                     S3Credential, S3Operation, SigV4Components (66 operations)
-    operations.ts                detectOperation (66 ops), parsePath, buildConditionFields
-    iam.ts                       S3CredentialManager (CRUD, 60s cache, auth)
-    sig-v4-verify.ts             verifySigV4 (header), verifySigV4Presigned (query)
-    sig-v4-sign.ts               forwardToR2 via aws4fetch (re-signing, param stripping)
-    routes.ts                    Hono sub-app: auth, batch delete, analytics logging
-    analytics.ts                 D1 analytics for S3 (logS3Event, queryS3Events, queryS3Summary)
+    upstream-r2.ts                   UpstreamR2Manager: R2 credential registry + bucket resolution
+    types.ts                         S3Credential, S3Operation, SigV4Components (66 operations)
+    operations.ts                    detectOperation (66 ops), parsePath, buildConditionFields
+    iam.ts                           S3CredentialManager (CRUD, 60s cache, auth)
+    sig-v4-verify.ts                 verifySigV4 (header), verifySigV4Presigned (query)
+    sig-v4-sign.ts                   forwardToR2 via aws4fetch (multi-client cache, param stripping)
+    routes.ts                        Hono sub-app: auth, batch delete, analytics logging
+    xml.ts                           S3 XML error responses, DeleteObjects XML parsing
+    analytics.ts                     D1 analytics for S3 (logS3Event, queryS3Events, queryS3Summary)
 cli/
-  index.ts                       Entry point (citty)
-  client.ts                      HTTP client
-  ui.ts                          Colors, spinners, tables
+  index.ts                           Entry point (citty, 8 subcommands)
+  client.ts                          HTTP client
+  ui.ts                              Colors, spinners, tables
   commands/
-    health.ts                    gk health
-    keys.ts                      gk keys {create,list,get,revoke}
-    purge.ts                     gk purge {hosts,tags,prefixes,urls,everything}
-    analytics.ts                 gk analytics {events,summary}
-    s3-credentials.ts            gk s3-credentials {create,list,get,revoke}
-test/                            13 test files (367 tests)
+    health.ts                        gk health
+    keys.ts                          gk keys {create,list,get,revoke}
+    purge.ts                         gk purge {hosts,tags,prefixes,urls,everything}
+    analytics.ts                     gk analytics {events,summary}
+    s3-credentials.ts                gk s3-credentials {create,list,get,revoke}
+    upstream-tokens.ts               gk upstream-tokens {create,list,get,revoke}
+    upstream-r2.ts                   gk upstream-r2 {create,list,get,revoke}
+    config.ts                        gk config {get,set,reset}
+test/                                19 test files (392 tests)
+  helpers.ts                         Test factories, upstream token registration, mock helpers
+  s3-helpers.ts                      R2 upstream registration, test constants
 dashboard/
-  src/                           Astro 5 + React 19 + Tailwind 4 + shadcn/ui + Recharts
+  public/
+    favicon.svg                      Lightning bolt on purple — matches sidebar logo
+    _headers                         Security headers for static assets (CSP, X-Frame-Options, etc.)
+  src/
+    layouts/DashboardLayout.astro    Sidebar nav (8 links in 5 sections), header, scroll-to-top
+    lib/api.ts                       API client (all admin endpoints)
+    lib/typography.ts                Shared typography constants
     components/
-      S3CredentialsPage.tsx      S3 credential CRUD UI
-      S3PolicyBuilder.tsx        Visual S3 policy editor
-  dist/                          Built output (served via Static Assets)
+      OverviewDashboard.tsx          Stats, charts, recent events
+      KeysPage.tsx                   Purge key CRUD + policy builder
+      S3CredentialsPage.tsx          S3 credential CRUD + S3 policy builder
+      UpstreamTokensPage.tsx         Upstream CF API token management
+      UpstreamR2Page.tsx             Upstream R2 endpoint management
+      SettingsPage.tsx               Config registry editor (inline edit, reset)
+      AnalyticsPage.tsx              Event log + summary
+      PurgePage.tsx                  Manual purge form
+      PolicyBuilder.tsx              Visual purge policy editor
+      S3PolicyBuilder.tsx            Visual S3 policy editor
+      ui/                            shadcn/ui primitives
+  dist/                              Built output (served via Static Assets)
 ```
 
 ---
@@ -1149,14 +1384,14 @@ dashboard/
 
 ## Risks and mitigations
 
-| Risk                                        | Impact                       | Mitigation                                                                                 |
-| ------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------ |
-| Regex ReDoS in conditions                   | DO CPU spike, 1102 errors    | Max 256 chars, reject nested quantifiers, validate at credential creation                  |
-| Policy evaluation overhead                  | Latency on every request     | Cache compiled conditions per key. Short-circuit: no conditions = instant allow.           |
-| S3 Sig V4 verification overhead             | +2-5ms per S3 request        | HMAC-SHA256 via `crypto.subtle` is fast. Credential cache (60s TTL) avoids DO round-trips. |
-| S3 credential cache staleness               | Revoked cred works up to 60s | Acceptable trade-off for performance. Cache TTL is configurable via `KEY_CACHE_TTL_MS`.    |
-| R2 admin token exposure                     | Full R2 access if leaked     | Token is a wrangler secret, never in code. Only used server-side for re-signing.           |
-| Dashboard bundle size                       | Slow first load              | Code split per route, lazy-load charts, precompress with brotli                            |
-| Access JWT validation latency               | +10-50ms per admin request   | Cache JWKS in-memory (1h TTL), `crypto.subtle.verify` is fast                              |
-| Policy schema too rigid for future services | Refactoring later            | Version field in policy doc. Engine dispatches on version.                                 |
-| Static assets + Worker in same deploy       | Build complexity             | Separate build scripts, CI runs dashboard build then wrangler deploy                       |
+| Risk                                        | Impact                       | Mitigation                                                                                                      |
+| ------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Regex ReDoS in conditions                   | DO CPU spike, 1102 errors    | Max 256 chars, reject nested quantifiers, validate at credential creation                                       |
+| Policy evaluation overhead                  | Latency on every request     | Cache compiled conditions per key. Short-circuit: no conditions = instant allow.                                |
+| S3 Sig V4 verification overhead             | +2-5ms per S3 request        | HMAC-SHA256 via `crypto.subtle` is fast. Credential cache (60s TTL) avoids DO round-trips.                      |
+| S3 credential cache staleness               | Revoked cred works up to 60s | Acceptable trade-off for performance. Cache TTL is configurable via `KEY_CACHE_TTL_MS`.                         |
+| R2 admin token exposure                     | Full R2 access if leaked     | Stored in DO SQLite (platform-encrypted at rest), never returned via API. Only used server-side for re-signing. |
+| Dashboard bundle size                       | Slow first load              | Code split per route, lazy-load charts, precompress with brotli                                                 |
+| Access JWT validation latency               | +10-50ms per admin request   | Cache JWKS in-memory (1h TTL), `crypto.subtle.verify` is fast                                                   |
+| Policy schema too rigid for future services | Refactoring later            | Version field in policy doc. Engine dispatches on version.                                                      |
+| Static assets + Worker in same deploy       | Build complexity             | Separate build scripts, CI runs dashboard build then wrangler deploy                                            |

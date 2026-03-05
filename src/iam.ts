@@ -34,6 +34,29 @@ export class IamManager {
 				created_by TEXT
 			);
 		`);
+
+		// Migration: old schema had zone_id NOT NULL — recreate if needed.
+		// Safe because CREATE TABLE IF NOT EXISTS won't alter existing columns.
+		const info = queryAll<{ notnull: number }>(this.sql, `SELECT "notnull" FROM pragma_table_info('api_keys') WHERE name = 'zone_id'`);
+		if (info.length > 0 && info[0].notnull === 1) {
+			this.sql.exec(`DROP TABLE api_keys`);
+			this.sql.exec(`
+				CREATE TABLE api_keys (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					zone_id TEXT,
+					created_at INTEGER NOT NULL,
+					expires_at INTEGER,
+					revoked INTEGER NOT NULL DEFAULT 0,
+					bulk_rate REAL,
+					bulk_bucket REAL,
+					single_rate REAL,
+					single_bucket REAL,
+					policy TEXT NOT NULL,
+					created_by TEXT
+				);
+			`);
+		}
 	}
 
 	// ─── Key creation ───────────────────────────────────────────────────

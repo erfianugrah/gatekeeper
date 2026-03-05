@@ -13,9 +13,26 @@ export { Gatekeeper } from './durable-object';
 // Re-export for tests
 export { __testClearInflightCache };
 
+// ─── Security headers ───────────────────────────────────────────────────────
+
+const SECURITY_HEADERS: Record<string, string> = {
+	'X-Content-Type-Options': 'nosniff',
+	'X-Frame-Options': 'DENY',
+	'Referrer-Policy': 'strict-origin-when-cross-origin',
+	'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), document-domain=()',
+};
+
 // ─── App ────────────────────────────────────────────────────────────────────
 
 const app = new Hono<HonoEnv>();
+
+/** Attach security headers to every Worker-generated response. */
+app.use('*', async (c, next) => {
+	await next();
+	for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+		c.header(name, value);
+	}
+});
 
 app.get('/health', (c) => c.json({ ok: true }));
 app.route('/', purgeRoute);

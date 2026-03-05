@@ -66,6 +66,8 @@ export interface PurgeEvent {
 	collapsed: string | null;
 	upstream_status: number | null;
 	duration_ms: number;
+	response_detail: string | null;
+	created_by: string | null;
 	created_at: number;
 }
 
@@ -251,6 +253,8 @@ export interface S3Event {
 	key: string | null;
 	status: number;
 	duration_ms: number;
+	response_detail: string | null;
+	created_by: string | null;
 	created_at: number;
 }
 
@@ -292,6 +296,140 @@ export async function getS3Summary(query: Omit<S3EventsQuery, 'limit'> = {}): Pr
 	if (query.until) params.set('until', String(query.until));
 	const qs = params.toString();
 	return apiFetch<S3AnalyticsSummary>(`/admin/s3/analytics/summary${qs ? `?${qs}` : ''}`);
+}
+
+// ─── Upstream Tokens ─────────────────────────────────────────────────
+
+export interface UpstreamToken {
+	id: string;
+	name: string;
+	/** Comma-separated zone IDs, or "*" for all zones. */
+	zone_ids: string;
+	token_preview: string;
+	created_at: number;
+	created_by: string | null;
+	revoked: number;
+}
+
+export interface CreateUpstreamTokenRequest {
+	name: string;
+	token: string;
+	zone_ids: string[];
+	created_by?: string;
+}
+
+export async function listUpstreamTokens(status?: 'active' | 'revoked'): Promise<UpstreamToken[]> {
+	const params = new URLSearchParams();
+	if (status) params.set('status', status);
+	const qs = params.toString();
+	return apiFetch<UpstreamToken[]>(`/admin/upstream-tokens${qs ? `?${qs}` : ''}`);
+}
+
+export async function getUpstreamToken(id: string): Promise<UpstreamToken> {
+	return apiFetch<UpstreamToken>(`/admin/upstream-tokens/${id}`);
+}
+
+export async function createUpstreamToken(req: CreateUpstreamTokenRequest): Promise<UpstreamToken> {
+	return apiFetch<UpstreamToken>('/admin/upstream-tokens', {
+		method: 'POST',
+		body: JSON.stringify(req),
+	});
+}
+
+export async function revokeUpstreamToken(id: string): Promise<{ revoked: boolean }> {
+	return apiFetch<{ revoked: boolean }>(`/admin/upstream-tokens/${id}`, {
+		method: 'DELETE',
+	});
+}
+
+// ─── Upstream R2 Endpoints ───────────────────────────────────────────
+
+export interface UpstreamR2 {
+	id: string;
+	name: string;
+	/** Comma-separated bucket names, or "*" for all buckets. */
+	bucket_names: string;
+	access_key_preview: string;
+	endpoint: string;
+	created_at: number;
+	created_by: string | null;
+	revoked: number;
+}
+
+export interface CreateUpstreamR2Request {
+	name: string;
+	access_key_id: string;
+	secret_access_key: string;
+	endpoint: string;
+	bucket_names: string[];
+	created_by?: string;
+}
+
+export async function listUpstreamR2(status?: 'active' | 'revoked'): Promise<UpstreamR2[]> {
+	const params = new URLSearchParams();
+	if (status) params.set('status', status);
+	const qs = params.toString();
+	return apiFetch<UpstreamR2[]>(`/admin/upstream-r2${qs ? `?${qs}` : ''}`);
+}
+
+export async function getUpstreamR2(id: string): Promise<UpstreamR2> {
+	return apiFetch<UpstreamR2>(`/admin/upstream-r2/${id}`);
+}
+
+export async function createUpstreamR2(req: CreateUpstreamR2Request): Promise<UpstreamR2> {
+	return apiFetch<UpstreamR2>('/admin/upstream-r2', {
+		method: 'POST',
+		body: JSON.stringify(req),
+	});
+}
+
+export async function revokeUpstreamR2(id: string): Promise<{ revoked: boolean }> {
+	return apiFetch<{ revoked: boolean }>(`/admin/upstream-r2/${id}`, {
+		method: 'DELETE',
+	});
+}
+
+// ─── Config Registry ─────────────────────────────────────────────────
+
+export interface GatewayConfig {
+	bulk_rate: number;
+	bulk_bucket_size: number;
+	bulk_max_ops: number;
+	single_rate: number;
+	single_bucket_size: number;
+	single_max_ops: number;
+	key_cache_ttl_ms: number;
+	retention_days: number;
+}
+
+export interface ConfigOverride {
+	key: string;
+	value: string;
+	updated_at: number;
+	updated_by: string | null;
+}
+
+export interface ConfigResponse {
+	config: GatewayConfig;
+	overrides: ConfigOverride[];
+	defaults: Record<string, number>;
+}
+
+export async function getConfig(): Promise<ConfigResponse> {
+	return apiFetch<ConfigResponse>('/admin/config');
+}
+
+export async function setConfig(updates: Record<string, number>): Promise<{ config: GatewayConfig }> {
+	return apiFetch<{ config: GatewayConfig }>('/admin/config', {
+		method: 'PUT',
+		body: JSON.stringify(updates),
+	});
+}
+
+export async function resetConfigKey(key: string): Promise<{ config: GatewayConfig }> {
+	return apiFetch<{ config: GatewayConfig }>(`/admin/config/${key}`, {
+		method: 'DELETE',
+	});
 }
 
 // ─── Health ──────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Plus, ShieldOff, Loader2 } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Plus, ShieldOff, Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,11 @@ import { listKeys, createKey, revokeKey } from '@/lib/api';
 import type { ApiKey, PolicyDocument } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { T } from '@/lib/typography';
+
+// ─── Sort types ─────────────────────────────────────────────────────
+
+type SortField = 'name' | 'id' | 'zone_id' | 'created_at' | 'expires_at' | 'created_by';
+type SortDir = 'asc' | 'desc';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -93,7 +98,7 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 					Create Key
 				</Button>
 			</DialogTrigger>
-			<DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+			<DialogContent className="max-w-2xl xl:max-w-4xl 2xl:max-w-5xl max-h-[85vh] overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>Create API Key</DialogTitle>
 					<DialogDescription>Create a new purge API key. The zone is determined at purge time, not key creation.</DialogDescription>
@@ -174,6 +179,10 @@ export function KeysPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [secret, setSecret] = useState<string | null>(null);
 	const [revokingId, setRevokingId] = useState<string | null>(null);
+	const [search, setSearch] = useState('');
+	const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'revoked'>('all');
+	const [sortField, setSortField] = useState<SortField>('created_at');
+	const [sortDir, setSortDir] = useState<SortDir>('desc');
 
 	const fetchKeys = useCallback(async () => {
 		setLoading(true);
@@ -211,12 +220,112 @@ export function KeysPage() {
 		fetchKeys();
 	};
 
+	const toggleSort = (field: SortField) => {
+		if (sortField === field) {
+			setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+		} else {
+			setSortField(field);
+			setSortDir(field === 'name' ? 'asc' : 'desc');
+		}
+	};
+
+	const SortIcon = ({ field }: { field: SortField }) => {
+		if (sortField !== field) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
+		return sortDir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+	};
+
+	const filteredKeys = useMemo(() => {
+		let result = keys;
+
+		// Status filter
+		if (statusFilter === 'active') result = result.filter((k) => !k.revoked);
+		else if (statusFilter === 'revoked') result = result.filter((k) => k.revoked);
+
+		// Text search
+		if (search.trim()) {
+			const q = search.toLowerCase();
+			result = result.filter(
+				(k) =>
+					k.name.toLowerCase().includes(q) ||
+					k.id.toLowerCase().includes(q) ||
+					(k.zone_id ?? '').toLowerCase().includes(q) ||
+					(k.created_by ?? '').toLowerCase().includes(q),
+			);
+		}
+
+		// Sort
+		result = [...result].sort((a, b) => {
+			let cmp = 0;
+			switch (sortField) {
+				case 'name':
+					cmp = a.name.localeCompare(b.name);
+					break;
+				case 'id':
+					cmp = a.id.localeCompare(b.id);
+					break;
+				case 'zone_id':
+					cmp = (a.zone_id ?? '').localeCompare(b.zone_id ?? '');
+					break;
+				case 'created_at':
+					cmp = a.created_at - b.created_at;
+					break;
+				case 'expires_at':
+					cmp = (a.expires_at ?? Infinity) - (b.expires_at ?? Infinity);
+					break;
+				case 'created_by':
+					cmp = (a.created_by ?? '').localeCompare(b.created_by ?? '');
+					break;
+			}
+			return sortDir === 'asc' ? cmp : -cmp;
+		});
+
+		return result;
+	}, [keys, statusFilter, search, sortField, sortDir]);
+
+	const activeCount = keys.filter((k) => !k.revoked).length;
+	const revokedCount = keys.filter((k) => k.revoked).length;
+
 	return (
 		<div className="space-y-6">
 			{/* ── Header ─────────────────────────────────────────────── */}
 			<div className="flex items-center gap-3">
 				<div className="ml-auto">
 					<CreateKeyDialog onCreated={handleKeyCreated} />
+				</div>
+			</div>
+
+			{/* ── Filters ────────────────────────────────────────────── */}
+			<div className="flex flex-wrap items-center gap-3">
+				{/* Status tabs */}
+				<div className="flex rounded-md border border-border">
+					{(['all', 'active', 'revoked'] as const).map((t) => {
+						const count = t === 'all' ? keys.length : t === 'active' ? activeCount : revokedCount;
+						const labels = { all: 'All', active: 'Active', revoked: 'Revoked' };
+						return (
+							<button
+								key={t}
+								onClick={() => setStatusFilter(t)}
+								className={cn(
+									'px-3 py-1 text-xs font-data transition-colors',
+									statusFilter === t ? 'bg-lv-purple/20 text-lv-purple' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+									t !== 'all' && 'border-l border-border',
+								)}
+							>
+								{labels[t]} ({count})
+							</button>
+						);
+					})}
+				</div>
+
+				{/* Search */}
+				<div className="relative flex-1 max-w-xs">
+					<Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+					<Input
+						placeholder="Search name, ID, zone, created by..."
+						value={search}
+						onChange={(e: any) => setSearch(e.target.value)}
+						className="pl-8 h-8 text-xs font-data"
+					/>
 				</div>
 			</div>
 
@@ -240,70 +349,103 @@ export function KeysPage() {
 			{!loading && keys.length > 0 && (
 				<Card>
 					<CardHeader>
-						<CardTitle className={T.sectionHeading}>API Keys ({keys.length})</CardTitle>
+						<CardTitle className={T.sectionHeading}>
+							API Keys ({filteredKeys.length}
+							{filteredKeys.length !== keys.length ? ` of ${keys.length}` : ''})
+						</CardTitle>
 					</CardHeader>
 					<CardContent className="p-0">
-						<Table>
-							<TableHeader>
-								<TableRow>
-									<TableHead className={T.sectionLabel}>Name</TableHead>
-									<TableHead className={T.sectionLabel}>ID</TableHead>
-									<TableHead className={T.sectionLabel}>Zone</TableHead>
-									<TableHead className={T.sectionLabel}>Status</TableHead>
-									<TableHead className={T.sectionLabel}>Created</TableHead>
-									<TableHead className={T.sectionLabel}>Expires</TableHead>
-									<TableHead className={T.sectionLabel}>Created By</TableHead>
-									<TableHead className={cn(T.sectionLabel, 'text-right')}>Actions</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{keys.map((k) => (
-									<TableRow key={k.id}>
-										<TableCell className={T.tableRowName}>{k.name}</TableCell>
-										<TableCell>
-											<code className={T.tableCellMono} title={k.id}>
-												{truncateId(k.id)}
-											</code>
-										</TableCell>
-										<TableCell>
-											{k.zone_id ? (
-												<code className={T.tableCellMono} title={k.zone_id}>
-													{truncateId(k.zone_id, 8)}
-												</code>
-											) : (
-												<span className={T.muted}>Any</span>
-											)}
-										</TableCell>
-										<TableCell>
-											{k.revoked ? (
-												<Badge className="bg-lv-red/20 text-lv-red border-lv-red/30">Revoked</Badge>
-											) : (
-												<Badge className="bg-lv-green/20 text-lv-green border-lv-green/30">Active</Badge>
-											)}
-										</TableCell>
-										<TableCell className={T.tableCell}>{formatDate(k.created_at)}</TableCell>
-										<TableCell className={T.tableCell}>
-											{k.expires_at ? formatDate(k.expires_at) : <span className={T.muted}>Never</span>}
-										</TableCell>
-										<TableCell className={T.tableCell}>{k.created_by ?? <span className={T.muted}>—</span>}</TableCell>
-										<TableCell className="text-right">
-											{!k.revoked && (
-												<Button
-													size="xs"
-													variant="ghost"
-													className="text-lv-red hover:text-lv-red-bright hover:bg-lv-red/10"
-													onClick={() => handleRevoke(k.id)}
-													disabled={revokingId === k.id}
-												>
-													{revokingId === k.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldOff className="h-3.5 w-3.5" />}
-													Revoke
-												</Button>
-											)}
-										</TableCell>
+						{filteredKeys.length === 0 ? (
+							<div className="flex h-32 items-center justify-center">
+								<p className={T.mutedSm}>No keys match the current filters.</p>
+							</div>
+						) : (
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead className={cn(T.sectionLabel, 'cursor-pointer select-none')} onClick={() => toggleSort('name')}>
+											<span className="flex items-center gap-1">
+												Name <SortIcon field="name" />
+											</span>
+										</TableHead>
+										<TableHead className={cn(T.sectionLabel, 'cursor-pointer select-none')} onClick={() => toggleSort('id')}>
+											<span className="flex items-center gap-1">
+												ID <SortIcon field="id" />
+											</span>
+										</TableHead>
+										<TableHead className={cn(T.sectionLabel, 'cursor-pointer select-none')} onClick={() => toggleSort('zone_id')}>
+											<span className="flex items-center gap-1">
+												Zone <SortIcon field="zone_id" />
+											</span>
+										</TableHead>
+										<TableHead className={T.sectionLabel}>Status</TableHead>
+										<TableHead className={cn(T.sectionLabel, 'cursor-pointer select-none')} onClick={() => toggleSort('created_at')}>
+											<span className="flex items-center gap-1">
+												Created <SortIcon field="created_at" />
+											</span>
+										</TableHead>
+										<TableHead className={cn(T.sectionLabel, 'cursor-pointer select-none')} onClick={() => toggleSort('expires_at')}>
+											<span className="flex items-center gap-1">
+												Expires <SortIcon field="expires_at" />
+											</span>
+										</TableHead>
+										<TableHead className={cn(T.sectionLabel, 'cursor-pointer select-none')} onClick={() => toggleSort('created_by')}>
+											<span className="flex items-center gap-1">
+												Created By <SortIcon field="created_by" />
+											</span>
+										</TableHead>
+										<TableHead className={cn(T.sectionLabel, 'text-right')}>Actions</TableHead>
 									</TableRow>
-								))}
-							</TableBody>
-						</Table>
+								</TableHeader>
+								<TableBody>
+									{filteredKeys.map((k) => (
+										<TableRow key={k.id}>
+											<TableCell className={T.tableRowName}>{k.name}</TableCell>
+											<TableCell>
+												<code className={T.tableCellMono} title={k.id}>
+													{truncateId(k.id)}
+												</code>
+											</TableCell>
+											<TableCell>
+												{k.zone_id ? (
+													<code className={T.tableCellMono} title={k.zone_id}>
+														{truncateId(k.zone_id, 8)}
+													</code>
+												) : (
+													<span className={T.muted}>Any</span>
+												)}
+											</TableCell>
+											<TableCell>
+												{k.revoked ? (
+													<Badge className="bg-lv-red/20 text-lv-red border-lv-red/30">Revoked</Badge>
+												) : (
+													<Badge className="bg-lv-green/20 text-lv-green border-lv-green/30">Active</Badge>
+												)}
+											</TableCell>
+											<TableCell className={T.tableCell}>{formatDate(k.created_at)}</TableCell>
+											<TableCell className={T.tableCell}>
+												{k.expires_at ? formatDate(k.expires_at) : <span className={T.muted}>Never</span>}
+											</TableCell>
+											<TableCell className={T.tableCell}>{k.created_by ?? <span className={T.muted}>—</span>}</TableCell>
+											<TableCell className="text-right">
+												{!k.revoked && (
+													<Button
+														size="xs"
+														variant="ghost"
+														className="text-lv-red hover:text-lv-red-bright hover:bg-lv-red/10"
+														onClick={() => handleRevoke(k.id)}
+														disabled={revokingId === k.id}
+													>
+														{revokingId === k.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldOff className="h-3.5 w-3.5" />}
+														Revoke
+													</Button>
+												)}
+											</TableCell>
+										</TableRow>
+									))}
+								</TableBody>
+							</Table>
+						)}
 					</CardContent>
 				</Card>
 			)}

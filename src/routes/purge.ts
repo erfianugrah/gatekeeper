@@ -145,6 +145,7 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 	log.rateLimitAllowed = result.status !== 429 || !!collapseLevel;
 	log.rateLimitRemaining = result.rateLimitInfo.remaining;
 	log.status = result.status;
+	log.identity = keyId;
 	log.durationMs = Date.now() - start;
 
 	if (result.status === 429) {
@@ -154,6 +155,24 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 	}
 
 	console.log(JSON.stringify(log));
+
+	// Extract upstream response detail for debugging — truncated CF API JSON
+	let responseDetail: string | null = null;
+	if (result.reachedUpstream && result.body) {
+		try {
+			const parsed = JSON.parse(result.body);
+			// Keep only the useful debugging fields from the CF API response
+			const detail: Record<string, unknown> = {};
+			if (parsed.success !== undefined) detail.success = parsed.success;
+			if (parsed.errors?.length) detail.errors = parsed.errors;
+			if (parsed.messages?.length) detail.messages = parsed.messages;
+			const serialized = JSON.stringify(detail);
+			responseDetail = serialized.length > 4096 ? serialized.slice(0, 4096) : serialized;
+		} catch {
+			// Non-JSON upstream response — store raw (truncated)
+			responseDetail = result.body.length > 4096 ? result.body.slice(0, 4096) : result.body;
+		}
+	}
 
 	// Log to D1 analytics asynchronously (fire-and-forget)
 	if (env.ANALYTICS_DB) {
@@ -166,6 +185,8 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 			collapsed: collapseLevel,
 			upstream_status: !collapseLevel && result.reachedUpstream ? result.status : null,
 			duration_ms: Date.now() - start,
+			response_detail: responseDetail,
+			created_by: keyId,
 			created_at: Date.now(),
 		};
 		c.executionCtx.waitUntil(logPurgeEvent(env.ANALYTICS_DB, event));

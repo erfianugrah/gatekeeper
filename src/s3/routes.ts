@@ -229,7 +229,20 @@ s3App.all('/*', async (c) => {
 		const r2Response = await forwardToR2(c.req.raw, s3Path, r2Creds, deleteObjectsBody);
 
 		log.status = r2Response.status;
+		log.identity = accessKeyId;
 		log.durationMs = Date.now() - start;
+
+		// Capture R2 error response detail for debugging (status >= 400)
+		let responseDetail: string | null = null;
+		if (r2Response.status >= 400) {
+			try {
+				const errorBody = await r2Response.clone().text();
+				responseDetail = errorBody.length > 4096 ? errorBody.slice(0, 4096) : errorBody;
+			} catch {
+				// Body not readable — skip
+			}
+		}
+
 		console.log(JSON.stringify(log));
 
 		// Fire-and-forget analytics write
@@ -242,6 +255,8 @@ s3App.all('/*', async (c) => {
 					key: op.key || null,
 					status: r2Response.status,
 					duration_ms: Date.now() - start,
+					response_detail: responseDetail,
+					created_by: accessKeyId,
 					created_at: Date.now(),
 				}),
 			);
@@ -264,6 +279,7 @@ s3App.all('/*', async (c) => {
 		log.status = 502;
 		log.error = 'upstream_error';
 		log.detail = e.message;
+		log.identity = accessKeyId;
 		log.durationMs = Date.now() - start;
 		console.log(JSON.stringify(log));
 
@@ -277,6 +293,8 @@ s3App.all('/*', async (c) => {
 					key: op.key || null,
 					status: 502,
 					duration_ms: Date.now() - start,
+					response_detail: e.message ?? null,
+					created_by: accessKeyId,
 					created_at: Date.now(),
 				}),
 			);

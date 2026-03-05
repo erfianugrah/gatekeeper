@@ -1,45 +1,19 @@
-import { useState, useCallback, useEffect } from "react";
-import {
-	Plus,
-	ShieldOff,
-	Loader2,
-	Copy,
-	Check,
-} from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/components/ui/table";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-	DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-	Tabs,
-	TabsContent,
-	TabsList,
-	TabsTrigger,
-} from "@/components/ui/tabs";
-import { S3PolicyBuilder } from "@/components/S3PolicyBuilder";
-import { listS3Credentials, createS3Credential, revokeS3Credential } from "@/lib/api";
-import type { S3Credential, PolicyDocument } from "@/lib/api";
-import { cn } from "@/lib/utils";
-import { T } from "@/lib/typography";
+import { useState, useCallback, useEffect } from 'react';
+import { Plus, ShieldOff, Loader2, Copy, Check } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { S3PolicyBuilder } from '@/components/S3PolicyBuilder';
+import { listS3Credentials, createS3Credential, revokeS3Credential } from '@/lib/api';
+import type { S3Credential, PolicyDocument } from '@/lib/api';
+import { cn } from '@/lib/utils';
+import { T } from '@/lib/typography';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -48,21 +22,21 @@ function truncateId(id: string, len = 16): string {
 }
 
 function formatDate(epoch: number): string {
-	return new Date(epoch).toLocaleDateString("en-US", {
-		year: "numeric",
-		month: "short",
-		day: "numeric",
+	return new Date(epoch).toLocaleDateString('en-US', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
 	});
 }
 
 function makeDefaultS3Policy(): PolicyDocument {
 	return {
-		version: "2025-01-01",
+		version: '2025-01-01',
 		statements: [
 			{
-				effect: "allow",
-				actions: ["s3:*"],
-				resources: ["*"],
+				effect: 'allow',
+				actions: ['s3:*'],
+				resources: ['*'],
 			},
 		],
 	};
@@ -76,8 +50,8 @@ interface CreateCredentialDialogProps {
 
 function CreateCredentialDialog({ onCreated }: CreateCredentialDialogProps) {
 	const [open, setOpen] = useState(false);
-	const [name, setName] = useState("");
-	const [expiresInDays, setExpiresInDays] = useState("");
+	const [name, setName] = useState('');
+	const [expiresInDays, setExpiresInDays] = useState('');
 	const [policy, setPolicy] = useState<PolicyDocument>(makeDefaultS3Policy);
 	const [creating, setCreating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -85,11 +59,11 @@ function CreateCredentialDialog({ onCreated }: CreateCredentialDialogProps) {
 	const handleCreate = async () => {
 		setError(null);
 		if (policy.statements.length === 0) {
-			setError("Policy must have at least one statement");
+			setError('Policy must have at least one statement');
 			return;
 		}
 		if (policy.statements.some((s) => s.actions.length === 0)) {
-			setError("Each statement must have at least one action");
+			setError('Each statement must have at least one action');
 			return;
 		}
 
@@ -102,11 +76,11 @@ function CreateCredentialDialog({ onCreated }: CreateCredentialDialogProps) {
 			});
 			onCreated(result.credential.access_key_id, result.credential.secret_access_key);
 			setOpen(false);
-			setName("");
-			setExpiresInDays("");
+			setName('');
+			setExpiresInDays('');
 			setPolicy(makeDefaultS3Policy());
 		} catch (e: any) {
-			setError(e.message ?? "Failed to create credential");
+			setError(e.message ?? 'Failed to create credential');
 		} finally {
 			setCreating(false);
 		}
@@ -126,22 +100,16 @@ function CreateCredentialDialog({ onCreated }: CreateCredentialDialogProps) {
 					Create Credential
 				</Button>
 			</DialogTrigger>
-			<DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+			<DialogContent className="max-w-2xl xl:max-w-4xl 2xl:max-w-5xl max-h-[85vh] overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>Create S3 Credential</DialogTitle>
-					<DialogDescription>
-						Create a new S3-compatible credential for accessing R2 buckets through the gateway.
-					</DialogDescription>
+					<DialogDescription>Create a new S3-compatible credential for accessing R2 buckets through the gateway.</DialogDescription>
 				</DialogHeader>
 
 				<div className="space-y-4">
 					<div className="space-y-2">
 						<Label className={T.formLabel}>Name</Label>
-						<Input
-							placeholder="e.g. rclone-backup, cdn-writer"
-							value={name}
-							onChange={(e) => setName(e.target.value)}
-						/>
+						<Input placeholder="e.g. rclone-backup, cdn-writer" value={name} onChange={(e) => setName(e.target.value)} />
 					</div>
 
 					<div className="space-y-2">
@@ -160,9 +128,7 @@ function CreateCredentialDialog({ onCreated }: CreateCredentialDialogProps) {
 						<S3PolicyBuilder value={policy} onChange={setPolicy} />
 					</div>
 
-					{error && (
-						<p className="text-sm text-lv-red">{error}</p>
-					)}
+					{error && <p className="text-sm text-lv-red">{error}</p>}
 				</div>
 
 				<DialogFooter>
@@ -198,20 +164,16 @@ function SecretBanner({ accessKeyId, secretAccessKey, onDismiss }: SecretBannerP
 
 	return (
 		<div className="rounded-lg border border-lv-green/30 bg-lv-green/10 px-4 py-3 space-y-3">
-			<p className="text-sm font-medium text-lv-green">
-				Credential created! Copy both keys now — the secret will not be shown again.
-			</p>
+			<p className="text-sm font-medium text-lv-green">Credential created! Copy both keys now — the secret will not be shown again.</p>
 
 			<div className="space-y-2">
 				<div className="space-y-1">
 					<span className={T.formLabel}>Access Key ID</span>
 					<div className="flex items-center gap-2">
-						<code className="flex-1 break-all rounded bg-lovelace-800 px-3 py-1.5 font-data text-xs text-foreground">
-							{accessKeyId}
-						</code>
-						<Button size="sm" variant="outline" onClick={() => handleCopy(accessKeyId, "akid")}>
-							{copiedField === "akid" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-							{copiedField === "akid" ? "Copied!" : "Copy"}
+						<code className="flex-1 break-all rounded bg-lovelace-800 px-3 py-1.5 font-data text-xs text-foreground">{accessKeyId}</code>
+						<Button size="sm" variant="outline" onClick={() => handleCopy(accessKeyId, 'akid')}>
+							{copiedField === 'akid' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+							{copiedField === 'akid' ? 'Copied!' : 'Copy'}
 						</Button>
 					</div>
 				</div>
@@ -222,9 +184,9 @@ function SecretBanner({ accessKeyId, secretAccessKey, onDismiss }: SecretBannerP
 						<code className="flex-1 break-all rounded bg-lovelace-800 px-3 py-1.5 font-data text-xs text-foreground">
 							{secretAccessKey}
 						</code>
-						<Button size="sm" variant="outline" onClick={() => handleCopy(secretAccessKey, "sak")}>
-							{copiedField === "sak" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-							{copiedField === "sak" ? "Copied!" : "Copy"}
+						<Button size="sm" variant="outline" onClick={() => handleCopy(secretAccessKey, 'sak')}>
+							{copiedField === 'sak' ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+							{copiedField === 'sak' ? 'Copied!' : 'Copy'}
 						</Button>
 					</div>
 				</div>
@@ -265,19 +227,17 @@ function PolicyPreview({ policyJson }: { policyJson: string }) {
 
 	if (!parsed) return <span className={T.muted}>Invalid policy</span>;
 
-	const summary = parsed.statements.map((s) => {
-		const actions = s.actions.length > 2 ? `${s.actions.slice(0, 2).join(", ")}...` : s.actions.join(", ");
-		return `${actions} on ${s.resources[0]}`;
-	}).join("; ");
+	const summary = parsed.statements
+		.map((s) => {
+			const actions = s.actions.length > 2 ? `${s.actions.slice(0, 2).join(', ')}...` : s.actions.join(', ');
+			return `${actions} on ${s.resources[0]}`;
+		})
+		.join('; ');
 
 	return (
 		<div>
-			<button
-				type="button"
-				onClick={() => setExpanded(!expanded)}
-				className="text-xs text-lv-cyan hover:underline font-data"
-			>
-				{expanded ? "Hide" : summary}
+			<button type="button" onClick={() => setExpanded(!expanded)} className="text-xs text-lv-cyan hover:underline font-data">
+				{expanded ? 'Hide' : summary}
 			</button>
 			{expanded && (
 				<pre className="mt-1 rounded border border-border bg-background/50 p-2 text-[10px] font-data text-muted-foreground overflow-x-auto max-h-32 overflow-y-auto">
@@ -296,17 +256,17 @@ export function S3CredentialsPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [newCred, setNewCred] = useState<{ accessKeyId: string; secretAccessKey: string } | null>(null);
 	const [revokingId, setRevokingId] = useState<string | null>(null);
-	const [statusFilter, setStatusFilter] = useState<"all" | "active" | "revoked">("all");
+	const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'revoked'>('all');
 
 	const fetchCredentials = useCallback(async () => {
 		setLoading(true);
 		setError(null);
 		try {
-			const filter = statusFilter === "all" ? undefined : statusFilter;
+			const filter = statusFilter === 'all' ? undefined : statusFilter;
 			const data = await listS3Credentials(filter);
 			setCredentials(data);
 		} catch (e: any) {
-			setError(e.message ?? "Failed to load credentials");
+			setError(e.message ?? 'Failed to load credentials');
 			setCredentials([]);
 		} finally {
 			setLoading(false);
@@ -324,7 +284,7 @@ export function S3CredentialsPage() {
 			await revokeS3Credential(accessKeyId);
 			await fetchCredentials();
 		} catch (e: any) {
-			setError(e.message ?? "Failed to revoke credential");
+			setError(e.message ?? 'Failed to revoke credential');
 		} finally {
 			setRevokingId(null);
 		}
@@ -344,34 +304,21 @@ export function S3CredentialsPage() {
 			<div className="flex items-center justify-between">
 				<div>
 					<h2 className={T.pageTitle}>S3 Credentials</h2>
-					<p className={T.pageDescription}>
-						Manage S3-compatible credentials for R2 bucket access through the gateway.
-					</p>
+					<p className={T.pageDescription}>Manage S3-compatible credentials for R2 bucket access through the gateway.</p>
 				</div>
 				<CreateCredentialDialog onCreated={handleCreated} />
 			</div>
 
 			{/* ── Secret banner ──────────────────────────────────── */}
 			{newCred && (
-				<SecretBanner
-					accessKeyId={newCred.accessKeyId}
-					secretAccessKey={newCred.secretAccessKey}
-					onDismiss={() => setNewCred(null)}
-				/>
+				<SecretBanner accessKeyId={newCred.accessKeyId} secretAccessKey={newCred.secretAccessKey} onDismiss={() => setNewCred(null)} />
 			)}
 
 			{/* ── Error ──────────────────────────────────────────── */}
-			{error && (
-				<div className="rounded-lg border border-lv-red/30 bg-lv-red/10 px-4 py-3 text-sm text-lv-red">
-					{error}
-				</div>
-			)}
+			{error && <div className="rounded-lg border border-lv-red/30 bg-lv-red/10 px-4 py-3 text-sm text-lv-red">{error}</div>}
 
 			{/* ── Filter tabs ────────────────────────────────────── */}
-			<Tabs
-				value={statusFilter}
-				onValueChange={(v) => setStatusFilter(v as "all" | "active" | "revoked")}
-			>
+			<Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as 'all' | 'active' | 'revoked')}>
 				<TabsList>
 					<TabsTrigger value="all">All ({credentials.length})</TabsTrigger>
 					<TabsTrigger value="active">Active ({activeCount})</TabsTrigger>
@@ -393,9 +340,7 @@ export function S3CredentialsPage() {
 			{!loading && credentials.length > 0 && (
 				<Card>
 					<CardHeader>
-						<CardTitle className={T.sectionHeading}>
-							Credentials ({credentials.length})
-						</CardTitle>
+						<CardTitle className={T.sectionHeading}>Credentials ({credentials.length})</CardTitle>
 					</CardHeader>
 					<CardContent className="p-0">
 						<Table>
@@ -408,7 +353,7 @@ export function S3CredentialsPage() {
 									<TableHead className={T.sectionLabel}>Expires</TableHead>
 									<TableHead className={T.sectionLabel}>Created By</TableHead>
 									<TableHead className={T.sectionLabel}>Policy</TableHead>
-									<TableHead className={cn(T.sectionLabel, "text-right")}>Actions</TableHead>
+									<TableHead className={cn(T.sectionLabel, 'text-right')}>Actions</TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -431,9 +376,7 @@ export function S3CredentialsPage() {
 										<TableCell className={T.tableCell}>
 											{c.expires_at ? formatDate(c.expires_at) : <span className={T.muted}>Never</span>}
 										</TableCell>
-										<TableCell className={T.tableCell}>
-											{c.created_by ?? <span className={T.muted}>--</span>}
-										</TableCell>
+										<TableCell className={T.tableCell}>{c.created_by ?? <span className={T.muted}>--</span>}</TableCell>
 										<TableCell className="max-w-xs">
 											<PolicyPreview policyJson={c.policy} />
 										</TableCell>

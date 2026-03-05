@@ -72,7 +72,7 @@ components:
         errors:
           type: array
           items:
-            $ref: "#/components/schemas/ApiError"
+            $ref: '#/components/schemas/ApiError'
 
     ApiError:
       type: object
@@ -91,12 +91,12 @@ components:
       properties:
         version:
           type: string
-          const: "2025-01-01"
+          const: '2025-01-01'
         statements:
           type: array
           minItems: 1
           items:
-            $ref: "#/components/schemas/Statement"
+            $ref: '#/components/schemas/Statement'
 
     Statement:
       type: object
@@ -115,8 +115,8 @@ components:
             Purge actions: `purge:url`, `purge:host`, `purge:tag`,
             `purge:prefix`, `purge:everything`, `purge:*`.
           examples:
-            - ["purge:url", "purge:host"]
-            - ["purge:*"]
+            - ['purge:url', 'purge:host']
+            - ['purge:*']
         resources:
           type: array
           minItems: 1
@@ -126,22 +126,22 @@ components:
             Resources this statement applies to. Format: `zone:<id>`.
             Wildcard: `zone:*` or `*`.
           examples:
-            - ["zone:aaaa1111bbbb2222cccc3333dddd4444"]
-            - ["zone:*"]
+            - ['zone:aaaa1111bbbb2222cccc3333dddd4444']
+            - ['zone:*']
         conditions:
           type: array
           items:
-            $ref: "#/components/schemas/Condition"
+            $ref: '#/components/schemas/Condition'
           description: >
             Optional conditions — all must match (AND).
             Omit or empty array for no conditions.
 
     Condition:
       oneOf:
-        - $ref: "#/components/schemas/LeafCondition"
-        - $ref: "#/components/schemas/AnyCondition"
-        - $ref: "#/components/schemas/AllCondition"
-        - $ref: "#/components/schemas/NotCondition"
+        - $ref: '#/components/schemas/LeafCondition'
+        - $ref: '#/components/schemas/AnyCondition'
+        - $ref: '#/components/schemas/AllCondition'
+        - $ref: '#/components/schemas/NotCondition'
 
     LeafCondition:
       type: object
@@ -164,7 +164,7 @@ components:
             - ends_with
             - matches
             - not_matches
-            - "in"
+            - 'in'
             - not_in
             - wildcard
             - exists
@@ -184,7 +184,7 @@ components:
         any:
           type: array
           items:
-            $ref: "#/components/schemas/Condition"
+            $ref: '#/components/schemas/Condition'
           description: OR — any child must match.
 
     AllCondition:
@@ -194,7 +194,7 @@ components:
         all:
           type: array
           items:
-            $ref: "#/components/schemas/Condition"
+            $ref: '#/components/schemas/Condition'
           description: AND — all children must match (explicit).
 
     NotCondition:
@@ -202,7 +202,7 @@ components:
       required: [not]
       properties:
         not:
-          $ref: "#/components/schemas/Condition"
+          $ref: '#/components/schemas/Condition'
           description: Negation of a single condition.
 
     # --- API key ---
@@ -213,17 +213,17 @@ components:
       properties:
         id:
           type: string
-          examples: ["gw_a1b2c3d4e5f6"]
+          examples: ['gw_a1b2c3d4e5f6']
         name:
           type: string
         zone_id:
           type: string
-          pattern: "^[a-f0-9]{32}$"
+          pattern: '^[a-f0-9]{32}$'
         created_at:
           type: integer
           description: Unix timestamp (ms).
         expires_at:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
           description: Unix timestamp (ms), or null if no expiration.
         revoked:
           type: integer
@@ -233,18 +233,18 @@ components:
           type: string
           description: JSON-serialized PolicyDocument.
         created_by:
-          type: ["string", "null"]
+          type: ['string', 'null']
           description: Email of the creator (from Access JWT), or null.
         bulk_rate:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
           description: Per-key bulk rate limit (req/sec). Null = account default.
         bulk_bucket:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         single_rate:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
           description: Per-key single-file rate limit (URLs/sec). Null = account default.
         single_bucket:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
 
     # --- Create key request ---
 
@@ -256,9 +256,9 @@ components:
           type: string
         zone_id:
           type: string
-          pattern: "^[a-f0-9]{32}$"
+          pattern: '^[a-f0-9]{32}$'
         policy:
-          $ref: "#/components/schemas/PolicyDocument"
+          $ref: '#/components/schemas/PolicyDocument'
         expires_in_days:
           type: integer
           minimum: 1
@@ -347,14 +347,24 @@ components:
         status:
           type: integer
         collapsed:
-          type: ["string", "null"]
+          type: ['string', 'null']
           description: >
             Request collapsing level: `"isolate"` (same isolate),
             `"do"` (Durable Object), or `null` if not collapsed.
         upstream_status:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
         duration_ms:
           type: integer
+        response_detail:
+          type: ['string', 'null']
+          description: >
+            Truncated upstream response for debugging. For purge requests,
+            contains the CF API JSON `{success, errors, messages}`. Null when
+            the request was collapsed or didn't reach upstream.
+        created_by:
+          type: ['string', 'null']
+          description: >
+            Identity of the caller — the API key ID used for the purge request.
         created_at:
           type: integer
           description: Unix timestamp (ms).
@@ -379,13 +389,13 @@ components:
           additionalProperties:
             type: integer
           examples:
-            - {"200": 45, "429": 3}
+            - { '200': 45, '429': 3 }
         by_purge_type:
           type: object
           additionalProperties:
             type: integer
           examples:
-            - {"single": 30, "bulk": 18}
+            - { 'single': 30, 'bulk': 18 }
         collapsed_count:
           type: integer
         avg_duration_ms:
@@ -400,7 +410,7 @@ components:
         access_key_id:
           type: string
           description: Access key ID (prefix `GK`).
-          examples: ["GK1A2B3C4D5E6F7890AB"]
+          examples: ['GK1A2B3C4D5E6F7890AB']
         secret_access_key:
           type: string
           description: >
@@ -411,7 +421,7 @@ components:
           type: integer
           description: Unix timestamp (ms).
         expires_at:
-          type: ["integer", "null"]
+          type: ['integer', 'null']
           description: Unix timestamp (ms), or null if no expiration.
         revoked:
           type: integer
@@ -421,7 +431,7 @@ components:
           type: string
           description: JSON-serialized PolicyDocument with S3 actions.
         created_by:
-          type: ["string", "null"]
+          type: ['string', 'null']
           description: Email of the creator (from Access JWT), or null.
 
     CreateS3CredentialRequest:
@@ -431,7 +441,7 @@ components:
         name:
           type: string
         policy:
-          $ref: "#/components/schemas/PolicyDocument"
+          $ref: '#/components/schemas/PolicyDocument'
           description: >
             Policy with S3 actions (e.g. `s3:GetObject`, `s3:PutObject`, `s3:*`)
             and S3 resources (e.g. `object:my-bucket/*`, `bucket:my-bucket`, `*`).
@@ -455,13 +465,22 @@ components:
           type: string
           description: S3 operation name (e.g. GetObject, PutObject, ListBuckets).
         bucket:
-          type: ["string", "null"]
+          type: ['string', 'null']
         key:
-          type: ["string", "null"]
+          type: ['string', 'null']
         status:
           type: integer
         duration_ms:
           type: integer
+        response_detail:
+          type: ['string', 'null']
+          description: >
+            Truncated upstream response for debugging. For S3 requests,
+            contains the R2 XML error body when status >= 400. Null on success.
+        created_by:
+          type: ['string', 'null']
+          description: >
+            Identity of the caller — the S3 credential access key ID.
         created_at:
           type: integer
           description: Unix timestamp (ms).
@@ -489,6 +508,177 @@ components:
         avg_duration_ms:
           type: integer
 
+    # --- Upstream Tokens ---
+
+    UpstreamToken:
+      type: object
+      required: [id, name, zone_ids, token_preview, created_at, revoked]
+      properties:
+        id:
+          type: string
+          description: Token ID (prefix `upt_`).
+          examples: ['upt_a1b2c3d4']
+        name:
+          type: string
+        zone_ids:
+          type: string
+          description: Comma-separated zone IDs, or `*` for all zones.
+        token_preview:
+          type: string
+          description: First 8 characters of the token for identification.
+        created_at:
+          type: integer
+          description: Unix timestamp (ms).
+        created_by:
+          type: ['string', 'null']
+          description: Email of the creator (from Access JWT), or null.
+        revoked:
+          type: integer
+          enum: [0, 1]
+
+    CreateUpstreamTokenRequest:
+      type: object
+      required: [name, token, zone_ids]
+      properties:
+        name:
+          type: string
+        token:
+          type: string
+          description: Cloudflare API token with cache purge permissions.
+        zone_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: >
+            Zone IDs this token can purge, or `["*"]` for all zones.
+        created_by:
+          type: string
+
+    # --- Upstream R2 Endpoints ---
+
+    UpstreamR2:
+      type: object
+      required: [id, name, bucket_names, access_key_preview, endpoint, created_at, revoked]
+      properties:
+        id:
+          type: string
+          description: Endpoint ID (prefix `upr2_`).
+          examples: ['upr2_a1b2c3d4']
+        name:
+          type: string
+        bucket_names:
+          type: string
+          description: Comma-separated bucket names, or `*` for all buckets.
+        access_key_preview:
+          type: string
+          description: First 8 characters of the access key ID for identification.
+        endpoint:
+          type: string
+          description: R2 S3-compatible endpoint URL.
+        created_at:
+          type: integer
+          description: Unix timestamp (ms).
+        created_by:
+          type: ['string', 'null']
+          description: Email of the creator (from Access JWT), or null.
+        revoked:
+          type: integer
+          enum: [0, 1]
+
+    CreateUpstreamR2Request:
+      type: object
+      required: [name, access_key_id, secret_access_key, endpoint, bucket_names]
+      properties:
+        name:
+          type: string
+        access_key_id:
+          type: string
+          description: R2 access key ID.
+        secret_access_key:
+          type: string
+          description: R2 secret access key.
+        endpoint:
+          type: string
+          description: R2 S3-compatible endpoint URL.
+        bucket_names:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: >
+            Bucket names this endpoint serves, or `["*"]` for all buckets.
+        created_by:
+          type: string
+
+    # --- Config ---
+
+    GatewayConfig:
+      type: object
+      required:
+        - bulk_rate
+        - bulk_bucket_size
+        - bulk_max_ops
+        - single_rate
+        - single_bucket_size
+        - single_max_ops
+        - key_cache_ttl_ms
+        - retention_days
+      properties:
+        bulk_rate:
+          type: number
+          description: Bulk purge rate limit (req/sec).
+        bulk_bucket_size:
+          type: number
+          description: Bulk purge token bucket capacity.
+        bulk_max_ops:
+          type: number
+          description: Max operations per bulk purge request.
+        single_rate:
+          type: number
+          description: Single-file purge rate limit (URLs/sec).
+        single_bucket_size:
+          type: number
+          description: Single-file purge token bucket capacity.
+        single_max_ops:
+          type: number
+          description: Max URLs per single-file purge request.
+        key_cache_ttl_ms:
+          type: number
+          description: API key cache TTL in milliseconds.
+        retention_days:
+          type: number
+          description: Analytics event retention in days.
+
+    ConfigOverride:
+      type: object
+      required: [key, value, updated_at]
+      properties:
+        key:
+          type: string
+        value:
+          type: string
+        updated_at:
+          type: integer
+          description: Unix timestamp (ms).
+        updated_by:
+          type: ['string', 'null']
+
+    ConfigResponse:
+      type: object
+      required: [config, overrides, defaults]
+      properties:
+        config:
+          $ref: '#/components/schemas/GatewayConfig'
+        overrides:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfigOverride'
+        defaults:
+          type: object
+          additionalProperties:
+            type: number
+
   # ─── Reusable parameters ─────────────────────────────────────────────────
 
   parameters:
@@ -498,7 +688,7 @@ components:
       required: true
       schema:
         type: string
-        pattern: "^[a-f0-9]{32}$"
+        pattern: '^[a-f0-9]{32}$'
       description: Cloudflare zone ID.
 
     ZoneIdPath:
@@ -507,7 +697,7 @@ components:
       required: true
       schema:
         type: string
-        pattern: "^[a-f0-9]{32}$"
+        pattern: '^[a-f0-9]{32}$'
       description: Cloudflare zone ID.
 
     KeyIdPath:
@@ -537,7 +727,7 @@ paths:
       summary: Health check
       tags: [System]
       responses:
-        "200":
+        '200':
           description: Service is healthy.
           content:
             application/json:
@@ -563,45 +753,45 @@ paths:
       security:
         - ApiKeyAuth: []
       parameters:
-        - $ref: "#/components/parameters/ZoneIdPath"
+        - $ref: '#/components/parameters/ZoneIdPath'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PurgeBody"
+              $ref: '#/components/schemas/PurgeBody'
             examples:
               purge-urls:
                 summary: Purge specific URLs
                 value:
                   files:
-                    - "https://example.com/styles.css"
-                    - "https://example.com/app.js"
+                    - 'https://example.com/styles.css'
+                    - 'https://example.com/app.js'
               purge-urls-with-headers:
                 summary: Purge URLs with custom cache key headers
                 value:
                   files:
-                    - url: "https://example.com/"
+                    - url: 'https://example.com/'
                       headers:
                         CF-Device-Type: mobile
               purge-hosts:
                 summary: Purge by hostname
                 value:
-                  hosts: ["cdn.example.com"]
+                  hosts: ['cdn.example.com']
               purge-tags:
                 summary: Purge by cache tags
                 value:
-                  tags: ["blog", "release-v2.1"]
+                  tags: ['blog', 'release-v2.1']
               purge-prefixes:
                 summary: Purge by URL prefix
                 value:
-                  prefixes: ["https://example.com/api/"]
+                  prefixes: ['https://example.com/api/']
               purge-everything:
                 summary: Purge all cached content
                 value:
                   purge_everything: true
       responses:
-        "200":
+        '200':
           description: >
             Purge successful. Response body is proxied from Cloudflare's
             upstream API.
@@ -627,19 +817,19 @@ paths:
                 Format: `"<bucket-name>";q=<bucket-size>;w=<window-sec>`.
                 Example: `"purge-bulk";q=500;w=10`.
               example: '"purge-bulk";q=500;w=10'
-        "400":
+        '400':
           description: Invalid request (bad zone ID, invalid JSON, bad purge body).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
           description: Missing or invalid API key.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
           description: >
             Policy authorization denied. The key's policy does not permit
             this action/resource/condition combination.
@@ -647,7 +837,7 @@ paths:
             application/json:
               schema:
                 allOf:
-                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: '#/components/schemas/ErrorEnvelope'
                   - type: object
                     properties:
                       denied:
@@ -657,7 +847,7 @@ paths:
                         description: >
                           List of items that failed policy evaluation.
                           Present only when specific items were denied.
-        "429":
+        '429':
           description: >
             Rate limited — either by the gateway's token bucket or by the
             upstream Cloudflare API. Upstream 429 responses are passed through
@@ -665,7 +855,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
           headers:
             Retry-After:
               schema:
@@ -675,13 +865,13 @@ paths:
               schema:
                 type: string
               description: Token bucket state (same format as 200 response).
-        "502":
+        '502':
           description: >
             Upstream Cloudflare API request failed (network error, timeout).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   # ─── Admin: Keys ──────────────────────────────────────────────────────────
 
@@ -702,7 +892,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateKeyRequest"
+              $ref: '#/components/schemas/CreateKeyRequest'
             examples:
               minimal:
                 summary: Full purge access on one zone
@@ -710,29 +900,29 @@ paths:
                   name: ci-deploy
                   zone_id: aaaa1111bbbb2222cccc3333dddd4444
                   policy:
-                    version: "2025-01-01"
+                    version: '2025-01-01'
                     statements:
                       - effect: allow
-                        actions: ["purge:*"]
-                        resources: ["zone:aaaa1111bbbb2222cccc3333dddd4444"]
+                        actions: ['purge:*']
+                        resources: ['zone:aaaa1111bbbb2222cccc3333dddd4444']
               scoped:
                 summary: URL purge restricted to specific hosts
                 value:
                   name: cdn-purger
                   zone_id: aaaa1111bbbb2222cccc3333dddd4444
                   policy:
-                    version: "2025-01-01"
+                    version: '2025-01-01'
                     statements:
                       - effect: allow
-                        actions: ["purge:url"]
-                        resources: ["zone:aaaa1111bbbb2222cccc3333dddd4444"]
+                        actions: ['purge:url']
+                        resources: ['zone:aaaa1111bbbb2222cccc3333dddd4444']
                         conditions:
                           - field: host
                             operator: ends_with
-                            value: ".example.com"
+                            value: '.example.com'
                   expires_in_days: 90
       responses:
-        "200":
+        '200':
           description: Key created successfully.
           content:
             application/json:
@@ -748,22 +938,22 @@ paths:
                     required: [key]
                     properties:
                       key:
-                        $ref: "#/components/schemas/ApiKey"
+                        $ref: '#/components/schemas/ApiKey'
                         description: >
                           The created API key. The `id` field (prefix `gw_`)
                           is used as the Bearer token for purge requests.
-        "400":
+        '400':
           description: Validation error (missing fields, invalid policy, rate limits exceed account defaults).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
           description: Not authenticated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
 
     get:
       operationId: listKeys
@@ -773,7 +963,7 @@ paths:
         - CloudflareAccess: []
         - AdminKeyAuth: []
       parameters:
-        - $ref: "#/components/parameters/ZoneIdQuery"
+        - $ref: '#/components/parameters/ZoneIdQuery'
         - name: status
           in: query
           schema:
@@ -781,7 +971,7 @@ paths:
             enum: [active, revoked]
           description: Filter by key status.
       responses:
-        "200":
+        '200':
           description: List of API keys for the zone.
           content:
             application/json:
@@ -795,19 +985,19 @@ paths:
                   result:
                     type: array
                     items:
-                      $ref: "#/components/schemas/ApiKey"
-        "400":
+                      $ref: '#/components/schemas/ApiKey'
+        '400':
           description: Missing zone_id query parameter.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
           description: Not authenticated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   /admin/keys/{id}:
     get:
@@ -819,10 +1009,10 @@ paths:
         - CloudflareAccess: []
         - AdminKeyAuth: []
       parameters:
-        - $ref: "#/components/parameters/KeyIdPath"
-        - $ref: "#/components/parameters/ZoneIdQuery"
+        - $ref: '#/components/parameters/KeyIdPath'
+        - $ref: '#/components/parameters/ZoneIdQuery'
       responses:
-        "200":
+        '200':
           description: Key details.
           content:
             application/json:
@@ -838,25 +1028,25 @@ paths:
                     required: [key]
                     properties:
                       key:
-                        $ref: "#/components/schemas/ApiKey"
-        "400":
+                        $ref: '#/components/schemas/ApiKey'
+        '400':
           description: Missing zone_id query parameter.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
           description: Not authenticated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "404":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
           description: Key not found.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
 
     delete:
       operationId: revokeKey
@@ -866,10 +1056,10 @@ paths:
         - CloudflareAccess: []
         - AdminKeyAuth: []
       parameters:
-        - $ref: "#/components/parameters/KeyIdPath"
-        - $ref: "#/components/parameters/ZoneIdQuery"
+        - $ref: '#/components/parameters/KeyIdPath'
+        - $ref: '#/components/parameters/ZoneIdQuery'
       responses:
-        "200":
+        '200':
           description: Key revoked.
           content:
             application/json:
@@ -887,24 +1077,24 @@ paths:
                       revoked:
                         type: boolean
                         const: true
-        "400":
+        '400':
           description: Missing zone_id query parameter.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
           description: Not authenticated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "404":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
           description: Key not found or already revoked.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   # ─── Admin: Analytics ─────────────────────────────────────────────────────
 
@@ -917,7 +1107,7 @@ paths:
         - CloudflareAccess: []
         - AdminKeyAuth: []
       parameters:
-        - $ref: "#/components/parameters/ZoneIdQuery"
+        - $ref: '#/components/parameters/ZoneIdQuery'
         - name: key_id
           in: query
           schema:
@@ -941,7 +1131,7 @@ paths:
             maximum: 1000
           description: Max events to return.
       responses:
-        "200":
+        '200':
           description: List of purge events.
           content:
             application/json:
@@ -955,25 +1145,25 @@ paths:
                   result:
                     type: array
                     items:
-                      $ref: "#/components/schemas/PurgeEvent"
-        "400":
+                      $ref: '#/components/schemas/PurgeEvent'
+        '400':
           description: Missing zone_id query parameter.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
           description: Not authenticated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "503":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
           description: Analytics not configured (ANALYTICS_DB binding absent).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   /admin/analytics/summary:
     get:
@@ -984,7 +1174,7 @@ paths:
         - CloudflareAccess: []
         - AdminKeyAuth: []
       parameters:
-        - $ref: "#/components/parameters/ZoneIdQuery"
+        - $ref: '#/components/parameters/ZoneIdQuery'
         - name: key_id
           in: query
           schema:
@@ -1001,7 +1191,7 @@ paths:
             type: integer
           description: End time (unix ms).
       responses:
-        "200":
+        '200':
           description: Aggregated analytics for the zone.
           content:
             application/json:
@@ -1013,25 +1203,25 @@ paths:
                     type: boolean
                     const: true
                   result:
-                    $ref: "#/components/schemas/AnalyticsSummary"
-        "400":
+                    $ref: '#/components/schemas/AnalyticsSummary'
+        '400':
           description: Missing zone_id query parameter.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
           description: Not authenticated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "503":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
           description: Analytics not configured.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   # ─── Admin: S3 Credentials ────────────────────────────────────────────────
 
@@ -1054,35 +1244,35 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateS3CredentialRequest"
+              $ref: '#/components/schemas/CreateS3CredentialRequest'
             examples:
               full-access:
                 summary: Full S3 access to all buckets
                 value:
                   name: dev-full-access
                   policy:
-                    version: "2025-01-01"
+                    version: '2025-01-01'
                     statements:
                       - effect: allow
-                        actions: ["s3:*"]
-                        resources: ["*"]
+                        actions: ['s3:*']
+                        resources: ['*']
               read-only-prefix:
                 summary: Read-only access to a key prefix
                 value:
                   name: cdn-reader
                   policy:
-                    version: "2025-01-01"
+                    version: '2025-01-01'
                     statements:
                       - effect: allow
-                        actions: ["s3:GetObject", "s3:ListBucket"]
-                        resources: ["object:my-bucket/public/*", "bucket:my-bucket"]
+                        actions: ['s3:GetObject', 's3:ListBucket']
+                        resources: ['object:my-bucket/public/*', 'bucket:my-bucket']
                         conditions:
                           - field: key.prefix
                             operator: starts_with
-                            value: "public/"
+                            value: 'public/'
                   expires_in_days: 90
       responses:
-        "200":
+        '200':
           description: Credential created. Secret is only returned here.
           content:
             application/json:
@@ -1098,22 +1288,22 @@ paths:
                     required: [credential]
                     properties:
                       credential:
-                        $ref: "#/components/schemas/S3Credential"
+                        $ref: '#/components/schemas/S3Credential'
                         description: >
                           The created credential. `secret_access_key` is only
                           present in this response — store it securely.
-        "400":
+        '400':
           description: Validation error (missing fields, invalid policy).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
           description: Not authenticated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
 
     get:
       operationId: listS3Credentials
@@ -1133,7 +1323,7 @@ paths:
             enum: [active, revoked]
           description: Filter by credential status.
       responses:
-        "200":
+        '200':
           description: List of S3 credentials (secrets redacted).
           content:
             application/json:
@@ -1147,13 +1337,13 @@ paths:
                   result:
                     type: array
                     items:
-                      $ref: "#/components/schemas/S3Credential"
-        "401":
+                      $ref: '#/components/schemas/S3Credential'
+        '401':
           description: Not authenticated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   /admin/s3/credentials/{id}:
     get:
@@ -1167,9 +1357,9 @@ paths:
         - CloudflareAccess: []
         - AdminKeyAuth: []
       parameters:
-        - $ref: "#/components/parameters/AccessKeyIdPath"
+        - $ref: '#/components/parameters/AccessKeyIdPath'
       responses:
-        "200":
+        '200':
           description: Credential details (secret redacted).
           content:
             application/json:
@@ -1185,19 +1375,19 @@ paths:
                     required: [credential]
                     properties:
                       credential:
-                        $ref: "#/components/schemas/S3Credential"
-        "401":
+                        $ref: '#/components/schemas/S3Credential'
+        '401':
           description: Not authenticated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "404":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
           description: Credential not found.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
 
     delete:
       operationId: revokeS3Credential
@@ -1210,9 +1400,9 @@ paths:
         - CloudflareAccess: []
         - AdminKeyAuth: []
       parameters:
-        - $ref: "#/components/parameters/AccessKeyIdPath"
+        - $ref: '#/components/parameters/AccessKeyIdPath'
       responses:
-        "200":
+        '200':
           description: Credential revoked.
           content:
             application/json:
@@ -1230,18 +1420,18 @@ paths:
                       revoked:
                         type: boolean
                         const: true
-        "401":
+        '401':
           description: Not authenticated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "404":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
           description: Credential not found or already revoked.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   # ─── Admin: S3 Analytics ─────────────────────────────────────────────────
 
@@ -1290,7 +1480,7 @@ paths:
             maximum: 1000
           description: Max events to return.
       responses:
-        "200":
+        '200':
           description: List of S3 events.
           content:
             application/json:
@@ -1304,19 +1494,19 @@ paths:
                   result:
                     type: array
                     items:
-                      $ref: "#/components/schemas/S3Event"
-        "401":
+                      $ref: '#/components/schemas/S3Event'
+        '401':
           description: Not authenticated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "503":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
           description: Analytics not configured (ANALYTICS_DB binding absent).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   /admin/s3/analytics/summary:
     get:
@@ -1356,7 +1546,7 @@ paths:
             type: integer
           description: End time (unix ms).
       responses:
-        "200":
+        '200':
           description: Aggregated S3 analytics.
           content:
             application/json:
@@ -1368,19 +1558,499 @@ paths:
                     type: boolean
                     const: true
                   result:
-                    $ref: "#/components/schemas/S3AnalyticsSummary"
-        "401":
+                    $ref: '#/components/schemas/S3AnalyticsSummary'
+        '401':
           description: Not authenticated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "503":
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
           description: Analytics not configured.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  # ─── Admin: Upstream Tokens ────────────────────────────────────────────────
+
+  /admin/upstream-tokens:
+    post:
+      operationId: createUpstreamToken
+      summary: Register upstream CF API token
+      description: >
+        Register a Cloudflare API token for proxying purge requests to specific zones.
+        The token is encrypted at rest in the Durable Object's SQLite store.
+      tags: [UpstreamTokens]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUpstreamTokenRequest'
+      responses:
+        '200':
+          description: Token registered.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    $ref: '#/components/schemas/UpstreamToken'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+    get:
+      operationId: listUpstreamTokens
+      summary: List upstream tokens
+      tags: [UpstreamTokens]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, revoked]
+      responses:
+        '200':
+          description: List of upstream tokens (token values redacted).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UpstreamToken'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /admin/upstream-tokens/{id}:
+    get:
+      operationId: getUpstreamToken
+      summary: Get upstream token details
+      tags: [UpstreamTokens]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Upstream token ID (prefix `upt_`).
+      responses:
+        '200':
+          description: Token details (value redacted).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    $ref: '#/components/schemas/UpstreamToken'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Token not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+    delete:
+      operationId: revokeUpstreamToken
+      summary: Revoke upstream token
+      tags: [UpstreamTokens]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: object
+                    required: [revoked]
+                    properties:
+                      revoked:
+                        type: boolean
+                        const: true
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Token not found or already revoked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  # ─── Admin: Upstream R2 Endpoints ────────────────────────────────────────
+
+  /admin/upstream-r2:
+    post:
+      operationId: createUpstreamR2
+      summary: Register upstream R2 endpoint
+      description: >
+        Register R2 credentials for proxying S3 requests. Maps bucket names
+        to an R2 endpoint with access key and secret. Credentials are
+        encrypted at rest.
+      tags: [UpstreamR2]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUpstreamR2Request'
+      responses:
+        '200':
+          description: R2 endpoint registered.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    $ref: '#/components/schemas/UpstreamR2'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+    get:
+      operationId: listUpstreamR2
+      summary: List upstream R2 endpoints
+      tags: [UpstreamR2]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, revoked]
+      responses:
+        '200':
+          description: List of R2 endpoints (secrets redacted).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UpstreamR2'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /admin/upstream-r2/{id}:
+    get:
+      operationId: getUpstreamR2
+      summary: Get upstream R2 endpoint details
+      tags: [UpstreamR2]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Upstream R2 endpoint ID (prefix `upr2_`).
+      responses:
+        '200':
+          description: Endpoint details (secrets redacted).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    $ref: '#/components/schemas/UpstreamR2'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Endpoint not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+    delete:
+      operationId: revokeUpstreamR2
+      summary: Revoke upstream R2 endpoint
+      tags: [UpstreamR2]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Endpoint revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: object
+                    required: [revoked]
+                    properties:
+                      revoked:
+                        type: boolean
+                        const: true
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Endpoint not found or already revoked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  # ─── Admin: Config ───────────────────────────────────────────────────────
+
+  /admin/config:
+    get:
+      operationId: getConfig
+      summary: Get gateway configuration
+      description: >
+        Returns the resolved configuration, active overrides, and defaults.
+      tags: [Config]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      responses:
+        '200':
+          description: Current configuration.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    $ref: '#/components/schemas/ConfigResponse'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+    put:
+      operationId: setConfig
+      summary: Update gateway configuration
+      description: >
+        Set one or more config values. Values must be positive finite numbers.
+        Only known config keys are accepted.
+      tags: [Config]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                type: number
+              description: >
+                Key-value pairs of config keys to update.
+              examples:
+                - bulk_rate: 50
+                  retention_days: 30
+      responses:
+        '200':
+          description: Configuration updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: object
+                    required: [config]
+                    properties:
+                      config:
+                        $ref: '#/components/schemas/GatewayConfig'
+        '400':
+          description: Validation error (unknown key, invalid value).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /admin/config/{key}:
+    delete:
+      operationId: resetConfigKey
+      summary: Reset a config key to default
+      description: >
+        Deletes the override for a config key, reverting to the default value.
+      tags: [Config]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Config key to reset.
+      responses:
+        '200':
+          description: Override removed, reverted to default.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    type: object
+                    required: [config]
+                    properties:
+                      config:
+                        $ref: '#/components/schemas/GatewayConfig'
+        '400':
+          description: Unknown config key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: No override found for this key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   # ─── S3 Proxy ────────────────────────────────────────────────────────────
 
@@ -1413,16 +2083,16 @@ paths:
             S3 path: empty for ListBuckets, `<bucket>` for bucket ops,
             `<bucket>/<key>` for object ops.
       responses: &s3proxy-responses
-        "200":
+        '200':
           description: Proxied R2 response. Content type varies by operation.
-        "400":
+        '400':
           description: Invalid S3 request (malformed auth, bad path).
           content:
             application/xml:
               schema:
                 type: string
                 description: S3-compatible XML error response.
-        "403":
+        '403':
           description: >
             Authentication failed (bad signature, revoked credential) or
             IAM policy denied the operation.
@@ -1430,7 +2100,7 @@ paths:
             application/xml:
               schema:
                 type: string
-        "501":
+        '501':
           description: >
             Operation not implemented by R2 (returned by R2 itself).
           content:
@@ -1492,6 +2162,18 @@ tags:
     description: >
       D1-backed analytics for S3 proxy requests. Account-level (no zone_id
       required, unlike purge analytics).
+  - name: UpstreamTokens
+    description: >
+      Upstream Cloudflare API token management. Maps zone IDs to CF API tokens
+      for proxying purge requests to the Cloudflare API.
+  - name: UpstreamR2
+    description: >
+      Upstream R2 endpoint management. Maps bucket names to R2 credentials
+      and endpoints for proxying S3 requests.
+  - name: Config
+    description: >
+      Gateway configuration management. Supports runtime overrides of rate
+      limits, cache TTLs, and retention periods without redeployment.
   - name: S3Proxy
     description: >
       S3-compatible proxy to Cloudflare R2 with IAM policy authorization.

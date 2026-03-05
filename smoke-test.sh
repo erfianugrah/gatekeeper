@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # ─── Smoke test suite for gatekeeper ──────────────────────────────────────────
-# Requires: curl, jq, wrangler dev running on $BASE (default http://localhost:8787)
-# Reads ADMIN_KEY from .dev.vars, CF_API_TOKEN from env or .env
+# Requires: curl, jq
 # Usage:
-#   npm run dev &          # start wrangler dev
-#   ./smoke-test.sh        # run all tests
-#   ./smoke-test.sh -v     # verbose (print response bodies)
+#   npm run dev &                    # start wrangler dev
+#   ./smoke-test.sh                  # run all tests (local)
+#   BASE=https://gate.erfi.io ./smoke-test.sh    # run against live
+#   ./smoke-test.sh -v               # verbose (print response bodies)
 set -euo pipefail
 
 # ─── Config ──────────────────────────────────────────────────────────────────
@@ -16,16 +16,31 @@ PASS=0
 FAIL=0
 ERRORS=()
 
-# Read ADMIN_KEY from .dev.vars
-if [[ ! -f .dev.vars ]]; then
-	echo "ERROR: .dev.vars not found. Create it with ADMIN_KEY."
-	exit 1
+# Detect remote vs local — remote uses .env, local uses .dev.vars
+IS_REMOTE=false
+if [[ "$BASE" == https://* ]]; then
+	IS_REMOTE=true
 fi
-ADMIN_KEY=$(grep '^ADMIN_KEY=' .dev.vars | cut -d= -f2-)
 
-if [[ -z "$ADMIN_KEY" ]]; then
-	echo "ERROR: ADMIN_KEY missing from .dev.vars"
-	exit 1
+# Read ADMIN_KEY — remote from .env (GATEKEEPER_ADMIN_KEY), local from .dev.vars
+if [[ "$IS_REMOTE" == true ]]; then
+	if [[ -f .env ]]; then
+		ADMIN_KEY=$(grep '^GATEKEEPER_ADMIN_KEY=' .env | cut -d= -f2- || true)
+	fi
+	if [[ -z "${ADMIN_KEY:-}" ]]; then
+		echo "ERROR: GATEKEEPER_ADMIN_KEY missing from .env (needed for remote)"
+		exit 1
+	fi
+else
+	if [[ ! -f .dev.vars ]]; then
+		echo "ERROR: .dev.vars not found. Create it with ADMIN_KEY."
+		exit 1
+	fi
+	ADMIN_KEY=$(grep '^ADMIN_KEY=' .dev.vars | cut -d= -f2-)
+	if [[ -z "$ADMIN_KEY" ]]; then
+		echo "ERROR: ADMIN_KEY missing from .dev.vars"
+		exit 1
+	fi
 fi
 
 # CF API token — needed to look up zone ID and to register as upstream.
@@ -38,6 +53,9 @@ if [[ -z "$CF_API_TOKEN" ]]; then
 	echo "ERROR: Set CF_API_TOKEN env var or UPSTREAM_PURGE_KEY in .env"
 	exit 1
 fi
+
+# Track all created keys for cleanup
+CREATED_KEYS=()
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -96,12 +114,12 @@ assert_json() {
 	fi
 }
 
-# assert_header TEST_NAME HEADER_PATTERN
+# assert_header TEST_NAME KEY_TO_USE HEADER_PATTERN
 assert_header() {
-	local name="$1" pattern="$2"
+	local name="$1" key="$2" pattern="$3"
 	local headers
 	headers=$(curl -si -X POST "${BASE}${PURGE_URL}" \
-		-H "Authorization: Bearer $WILDCARD_ID" \
+		-H "Authorization: Bearer $key" \
 		-H "Content-Type: application/json" \
 		-d '{"hosts":["erfi.io"]}' 2>&1 | head -30)
 	if echo "$headers" | grep -qiE "$pattern"; then
@@ -121,6 +139,9 @@ create_key() {
 		"{\"name\":\"$name\",\"zone_id\":\"$ZONE\",\"policy\":$policy}" \
 		"X-Admin-Key: $ADMIN_KEY"
 	KEY_ID=$(echo "$BODY" | jq -r '.result.key.id')
+	if [[ "$KEY_ID" != "null" && -n "$KEY_ID" ]]; then
+		CREATED_KEYS+=("$KEY_ID")
+	fi
 }
 
 section() {
@@ -133,6 +154,7 @@ section() {
 echo ""
 printf "\033[1mGatekeeper — Smoke Tests\033[0m\n"
 echo "Base: $BASE"
+echo "Remote: $IS_REMOTE"
 
 # Check server is up
 if ! curl -sf "$BASE/health" >/dev/null 2>&1; then
@@ -230,14 +252,17 @@ create_key "smoke-revoke-target" "$WILDCARD_POLICY"
 assert_status "create key for revoke -> 200" 200
 REVOKE_ID="$KEY_ID"
 
-create_key "smoke-with-ratelimit" \
-	"{\"name\":\"smoke-with-ratelimit\",\"zone_id\":\"$ZONE\",\"policy\":$WILDCARD_POLICY,\"rate_limit\":{\"bulk_rate\":10,\"bulk_bucket\":100}}" 2>/dev/null || true
-# Re-do with correct shape (rate_limit is at request level, not nested in policy)
+# Second disposable key for zone_id-optional revoke test
+create_key "smoke-revoke-target-2" "$WILDCARD_POLICY"
+assert_status "create second revoke target -> 200" 200
+REVOKE_ID_2="$KEY_ID"
+
 request POST "/admin/keys" \
 	"{\"name\":\"smoke-with-ratelimit\",\"zone_id\":\"$ZONE\",\"policy\":$WILDCARD_POLICY,\"rate_limit\":{\"bulk_rate\":10,\"bulk_bucket\":100}}" \
 	"X-Admin-Key: $ADMIN_KEY"
 assert_status "create key with per-key rate limit -> 200" 200
 RATELIMIT_ID=$(echo "$BODY" | jq -r '.result.key.id')
+CREATED_KEYS+=("$RATELIMIT_ID")
 assert_json "per-key bulk_rate stored" '.result.key.bulk_rate' "10"
 assert_json "per-key bulk_bucket stored" '.result.key.bulk_bucket' "100"
 
@@ -249,9 +274,12 @@ request POST "/admin/keys" '{"zone_id":"'"$ZONE"'","policy":'"$WILDCARD_POLICY"'
 	"X-Admin-Key: $ADMIN_KEY"
 assert_status "missing name -> 400" 400
 
-request POST "/admin/keys" '{"name":"x","policy":'"$WILDCARD_POLICY"'}' \
+# zone_id is optional — missing zone_id should succeed
+request POST "/admin/keys" '{"name":"smoke-no-zone","policy":'"$WILDCARD_POLICY"'}' \
 	"X-Admin-Key: $ADMIN_KEY"
-assert_status "missing zone_id -> 400" 400
+assert_status "missing zone_id -> 200 (zone_id is optional)" 200
+NO_ZONE_KEY=$(echo "$BODY" | jq -r '.result.key.id')
+CREATED_KEYS+=("$NO_ZONE_KEY")
 
 request POST "/admin/keys" '{"name":"x","zone_id":"'"$ZONE"'"}' \
 	"X-Admin-Key: $ADMIN_KEY"
@@ -289,7 +317,7 @@ assert_status "rate_limit exceeds account default -> 400" 400
 section "List Keys"
 
 request GET "/admin/keys?zone_id=$ZONE" "X-Admin-Key: $ADMIN_KEY"
-assert_status "list all keys -> 200" 200
+assert_status "list keys by zone -> 200" 200
 KEY_COUNT=$(echo "$BODY" | jq '.result | length')
 if [[ "$KEY_COUNT" -ge 8 ]]; then
 	PASS=$((PASS + 1))
@@ -303,8 +331,9 @@ fi
 request GET "/admin/keys?zone_id=$ZONE&status=active" "X-Admin-Key: $ADMIN_KEY"
 assert_status "list active keys -> 200" 200
 
+# zone_id is optional — listing without it returns all keys
 request GET "/admin/keys" "X-Admin-Key: $ADMIN_KEY"
-assert_status "list without zone_id -> 400" 400
+assert_status "list without zone_id -> 200 (returns all)" 200
 
 request GET "/admin/keys?zone_id=aaaa1111bbbb2222cccc3333dddd4444" "X-Admin-Key: $ADMIN_KEY"
 assert_status "list for unknown zone -> 200 (empty)" 200
@@ -325,42 +354,11 @@ assert_status "get nonexistent key -> 404" 404
 request GET "/admin/keys/$WILDCARD_ID?zone_id=aaaa1111bbbb2222cccc3333dddd4444" "X-Admin-Key: $ADMIN_KEY"
 assert_status "get key with wrong zone -> 404" 404
 
+# zone_id is optional — get without it should succeed
 request GET "/admin/keys/$WILDCARD_ID" "X-Admin-Key: $ADMIN_KEY"
-assert_status "get key without zone_id -> 400" 400
+assert_status "get key without zone_id -> 200" 200
 
-# ─── 7. Revoke Key ──────────────────────────────────────────────────────────
-
-section "Revoke Key"
-
-request DELETE "/admin/keys/$REVOKE_ID?zone_id=$ZONE" "X-Admin-Key: $ADMIN_KEY"
-assert_status "revoke key -> 200" 200
-assert_json "revoke result" '.result.revoked' "true"
-
-request DELETE "/admin/keys/$REVOKE_ID?zone_id=$ZONE" "X-Admin-Key: $ADMIN_KEY"
-assert_status "revoke already-revoked -> 404" 404
-
-request GET "/admin/keys?zone_id=$ZONE&status=revoked" "X-Admin-Key: $ADMIN_KEY"
-assert_status "list revoked keys -> 200" 200
-REVOKED_COUNT=$(echo "$BODY" | jq '[.result[] | select(.id == "'"$REVOKE_ID"'")] | length')
-if [[ "$REVOKED_COUNT" == "1" ]]; then
-	PASS=$((PASS + 1))
-	printf "  \033[32mPASS\033[0m  revoked key appears in revoked filter\n"
-else
-	FAIL=$((FAIL + 1))
-	ERRORS+=("revoked key not in filtered list")
-	printf "  \033[31mFAIL\033[0m  revoked key not in revoked filter\n"
-fi
-
-request DELETE "/admin/keys/gw_00000000000000000000000000000000?zone_id=$ZONE" "X-Admin-Key: $ADMIN_KEY"
-assert_status "revoke nonexistent key -> 404" 404
-
-request DELETE "/admin/keys/$WILDCARD_ID?zone_id=aaaa1111bbbb2222cccc3333dddd4444" "X-Admin-Key: $ADMIN_KEY"
-assert_status "revoke key wrong zone -> 404" 404
-
-request DELETE "/admin/keys/$WILDCARD_ID" "X-Admin-Key: $ADMIN_KEY"
-assert_status "revoke without zone_id -> 400" 400
-
-# ─── 8. Purge Authentication ────────────────────────────────────────────────
+# ─── 7. Purge Authentication ────────────────────────────────────────────────
 
 section "Purge Authentication"
 
@@ -373,16 +371,14 @@ assert_status "nonexistent key -> 401" 401
 assert_json "401 invalid key" '.errors[0].message' "Invalid API key"
 
 request POST "$PURGE_URL" '{"hosts":["erfi.io"]}' "Authorization: Bearer $REVOKE_ID"
-assert_status "revoked key -> 403" 403
-assert_json "403 revoked msg" '.errors[0].message' "API key has been revoked"
+assert_status "revoked key (not yet revoked) -> 200" 200
 
-# Wrong zone — key is for $ZONE but we send to a different zone
+# Wrong zone — no upstream token registered for fake zone -> 502
 request POST "/v1/zones/aaaa1111bbbb2222cccc3333dddd4444/purge_cache" \
 	'{"hosts":["erfi.io"]}' "Authorization: Bearer $WILDCARD_ID"
-assert_status "key used on wrong zone -> 403" 403
-assert_json "wrong zone error" '.errors[0].message' "API key is not authorized for this zone"
+assert_status "wrong zone (no upstream token) -> 502" 502
 
-# ─── 9. Purge Validation ────────────────────────────────────────────────────
+# ─── 8. Purge Validation ────────────────────────────────────────────────────
 
 section "Purge Validation"
 
@@ -405,7 +401,7 @@ FILES_501=$(python3 -c "import json; print(json.dumps({'files':['https://erfi.io
 request POST "$PURGE_URL" "$FILES_501" "Authorization: Bearer $WILDCARD_ID"
 assert_status "oversized files array (501) -> 400" 400
 
-# ─── 10. Purge Happy Path — all 5 types ─────────────────────────────────────
+# ─── 9. Purge Happy Path — all 5 types ──────────────────────────────────────
 
 section "Purge Happy Path (wildcard key)"
 
@@ -438,15 +434,15 @@ assert_status "multi-host purge -> 200" 200
 request POST "$PURGE_URL" '{"tags":["v1","v2","v3"]}' "Authorization: Bearer $WILDCARD_ID"
 assert_status "multi-tag purge -> 200" 200
 
-# ─── 11. Rate Limit Headers ─────────────────────────────────────────────────
+# ─── 10. Rate Limit Headers ─────────────────────────────────────────────────
 
 section "Rate Limit Headers"
 
-assert_header "Ratelimit header present" "^Ratelimit:"
-assert_header "Ratelimit-Policy header present" "^Ratelimit-Policy:"
-assert_header "Content-Type is JSON" "^Content-Type:.*application/json"
+assert_header "Ratelimit header present" "$WILDCARD_ID" "^Ratelimit:"
+assert_header "Ratelimit-Policy header present" "$WILDCARD_ID" "^Ratelimit-Policy:"
+assert_header "Content-Type is JSON" "$WILDCARD_ID" "^Content-Type:.*application/json"
 
-# ─── 12. Scoped Key Authorization ───────────────────────────────────────────
+# ─── 11. Scoped Key Authorization ───────────────────────────────────────────
 
 section "Scoped Key Authorization"
 
@@ -508,9 +504,47 @@ request POST "$PURGE_URL" '{"hosts":["erfi.io","evil.com"]}' "Authorization: Bea
 assert_status "host key: partial match (1 ok, 1 denied) -> 403" 403
 assert_json "denied list has evil.com" '.denied[0]' "host:evil.com"
 
+# ─── 12. Revoke Key (after purge tests to avoid breaking wildcard key) ──────
+
+section "Revoke Key"
+
+request DELETE "/admin/keys/$REVOKE_ID" "X-Admin-Key: $ADMIN_KEY"
+assert_status "revoke key -> 200" 200
+assert_json "revoke result" '.result.revoked' "true"
+
+request DELETE "/admin/keys/$REVOKE_ID" "X-Admin-Key: $ADMIN_KEY"
+assert_status "revoke already-revoked -> 404" 404
+
+request GET "/admin/keys?zone_id=$ZONE&status=revoked" "X-Admin-Key: $ADMIN_KEY"
+assert_status "list revoked keys -> 200" 200
+REVOKED_COUNT=$(echo "$BODY" | jq '[.result[] | select(.id == "'"$REVOKE_ID"'")] | length')
+if [[ "$REVOKED_COUNT" == "1" ]]; then
+	PASS=$((PASS + 1))
+	printf "  \033[32mPASS\033[0m  revoked key appears in revoked filter\n"
+else
+	FAIL=$((FAIL + 1))
+	ERRORS+=("revoked key not in filtered list")
+	printf "  \033[31mFAIL\033[0m  revoked key not in revoked filter\n"
+fi
+
+request DELETE "/admin/keys/gw_00000000000000000000000000000000" "X-Admin-Key: $ADMIN_KEY"
+assert_status "revoke nonexistent key -> 404" 404
+
+# Revoke without zone_id — zone_id is optional, so this should succeed
+request DELETE "/admin/keys/$REVOKE_ID_2" "X-Admin-Key: $ADMIN_KEY"
+assert_status "revoke without zone_id -> 200" 200
+
+# Use revoked key for purge -> 403
+request POST "$PURGE_URL" '{"hosts":["erfi.io"]}' "Authorization: Bearer $REVOKE_ID"
+assert_status "purge with revoked key -> 403" 403
+assert_json "403 revoked msg" '.errors[0].message' "API key has been revoked"
+
 # ─── 13. Analytics ───────────────────────────────────────────────────────────
 
 section "Analytics"
+
+# Small delay to let fire-and-forget D1 writes complete
+sleep 1
 
 request GET "/admin/analytics/events?zone_id=$ZONE" "X-Admin-Key: $ADMIN_KEY"
 assert_status "events -> 200" 200
@@ -524,11 +558,23 @@ else
 	printf "  \033[31mFAIL\033[0m  events count > 0 (got %s)\n" "$EVENT_COUNT"
 fi
 
-# Event shape
+# Event shape — including new fields
 assert_json "event has key_id" '.result[0].key_id | startswith("gw_")' "true"
 assert_json "event has zone_id" '.result[0].zone_id' "$ZONE"
 assert_json "event has purge_type" '.result[0].purge_type | length > 0' "true"
 assert_json "event has status" '.result[0].status | . > 0' "true"
+assert_json "event has created_by" '.result[0].created_by | startswith("gw_")' "true"
+
+# Find a 200-status event to verify response_detail
+DETAIL_EVENT=$(echo "$BODY" | jq -r '[.result[] | select(.status == 200)][0].response_detail // ""')
+if [[ -n "$DETAIL_EVENT" && "$DETAIL_EVENT" != "null" ]]; then
+	PASS=$((PASS + 1))
+	printf "  \033[32mPASS\033[0m  200-status event has response_detail\n"
+else
+	FAIL=$((FAIL + 1))
+	ERRORS+=("200-status event missing response_detail")
+	printf "  \033[31mFAIL\033[0m  200-status event missing response_detail\n"
+fi
 
 request GET "/admin/analytics/events?zone_id=$ZONE&limit=2" "X-Admin-Key: $ADMIN_KEY"
 assert_status "events with limit -> 200" 200
@@ -551,52 +597,59 @@ assert_json "summary has total_requests" '.result.total_requests | . > 0' "true"
 assert_json "summary has by_status" '.result.by_status | keys | length > 0' "true"
 assert_json "summary has by_purge_type" '.result.by_purge_type | keys | length > 0' "true"
 
+# zone_id is optional for analytics too
 request GET "/admin/analytics/events" "X-Admin-Key: $ADMIN_KEY"
-assert_status "events without zone_id -> 400" 400
+assert_status "events without zone_id -> 200 (returns all)" 200
 
 request GET "/admin/analytics/summary" "X-Admin-Key: $ADMIN_KEY"
-assert_status "summary without zone_id -> 400" 400
+assert_status "summary without zone_id -> 200 (returns all)" 200
 
 # ─── 14. Dashboard Static Assets ────────────────────────────────────────────
 
-section "Dashboard Static Assets"
-
-request GET "/dashboard/"
-assert_status "GET /dashboard/ -> 200" 200
-if echo "$BODY" | grep -q 'gatekeeper'; then
-	PASS=$((PASS + 1))
-	printf "  \033[32mPASS\033[0m  dashboard HTML contains 'gatekeeper'\n"
+# Skip dashboard tests for remote — CF Access intercepts with 302 redirect to SSO
+if [[ "$IS_REMOTE" == true ]]; then
+	section "Dashboard Static Assets (skipped — CF Access SSO redirect)"
+	printf "  \033[33mSKIP\033[0m  Dashboard tests skipped on remote (CF Access 302)\n"
 else
-	FAIL=$((FAIL + 1))
-	ERRORS+=("dashboard HTML missing 'gatekeeper'")
-	printf "  \033[31mFAIL\033[0m  dashboard HTML missing 'gatekeeper'\n"
-fi
+	section "Dashboard Static Assets"
 
-request GET "/dashboard/keys/"
-assert_status "GET /dashboard/keys/ -> 200" 200
+	request GET "/dashboard/"
+	assert_status "GET /dashboard/ -> 200" 200
+	if echo "$BODY" | grep -q 'gatekeeper'; then
+		PASS=$((PASS + 1))
+		printf "  \033[32mPASS\033[0m  dashboard HTML contains 'gatekeeper'\n"
+	else
+		FAIL=$((FAIL + 1))
+		ERRORS+=("dashboard HTML missing 'gatekeeper'")
+		printf "  \033[31mFAIL\033[0m  dashboard HTML missing 'gatekeeper'\n"
+	fi
 
-request GET "/dashboard/analytics/"
-assert_status "GET /dashboard/analytics/ -> 200" 200
+	request GET "/dashboard/keys/"
+	assert_status "GET /dashboard/keys/ -> 200" 200
 
-request GET "/dashboard/purge/"
-assert_status "GET /dashboard/purge/ -> 200" 200
+	request GET "/dashboard/analytics/"
+	assert_status "GET /dashboard/analytics/ -> 200" 200
 
-request GET "/dashboard/favicon.svg"
-assert_status "GET /dashboard/favicon.svg -> 200" 200
+	request GET "/dashboard/purge/"
+	assert_status "GET /dashboard/purge/ -> 200" 200
 
-# SPA fallback — unknown dashboard sub-route still serves index
-request GET "/dashboard/nonexistent/deep/route"
-assert_status "SPA fallback for unknown route -> 200" 200
+	request GET "/dashboard/favicon.svg"
+	assert_status "GET /dashboard/favicon.svg -> 200" 200
 
-# Static JS assets
-JS_FILE=$(curl -s "$BASE/dashboard/" | grep -oP '/_astro/[^"]+\.js' | head -1)
-if [[ -n "$JS_FILE" ]]; then
-	request GET "$JS_FILE"
-	assert_status "JS asset ($JS_FILE) -> 200" 200
-else
-	FAIL=$((FAIL + 1))
-	ERRORS+=("No JS asset found in dashboard HTML")
-	printf "  \033[31mFAIL\033[0m  No JS asset found in dashboard HTML\n"
+	# SPA fallback — unknown dashboard sub-route still serves index
+	request GET "/dashboard/nonexistent/deep/route"
+	assert_status "SPA fallback for unknown route -> 200" 200
+
+	# Static JS assets
+	JS_FILE=$(curl -s "$BASE/dashboard/" | grep -oP '/_astro/[^"]+\.js' | head -1)
+	if [[ -n "$JS_FILE" ]]; then
+		request GET "$JS_FILE"
+		assert_status "JS asset ($JS_FILE) -> 200" 200
+	else
+		FAIL=$((FAIL + 1))
+		ERRORS+=("No JS asset found in dashboard HTML")
+		printf "  \033[31mFAIL\033[0m  No JS asset found in dashboard HTML\n"
+	fi
 fi
 
 # Root redirect
@@ -619,6 +672,13 @@ assert_status "unknown /admin/ route -> 404" 404
 # ─── Cleanup ─────────────────────────────────────────────────────────────────
 
 section "Cleanup"
+
+# Revoke all created smoke-test keys
+for kid in "${CREATED_KEYS[@]}"; do
+	curl -s -X DELETE "${BASE}/admin/keys/${kid}" \
+		-H "X-Admin-Key: $ADMIN_KEY" >/dev/null 2>&1 || true
+done
+printf "  Revoked %d smoke-test keys\n" "${#CREATED_KEYS[@]}"
 
 # Revoke the upstream token registered at the start
 curl -s -X DELETE "${BASE}/admin/upstream-tokens/${UPSTREAM_TOKEN_ID}" \

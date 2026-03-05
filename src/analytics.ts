@@ -1,7 +1,11 @@
 /**
  * D1-backed analytics for purge requests.
  * All writes are fire-and-forget via waitUntil() so they don't add latency.
+ *
+ * Schema source of truth: schema.sql (project root).
  */
+
+import { PURGE_EVENTS_TABLE_SQL, PURGE_EVENTS_INDEX_ZONE_SQL, PURGE_EVENTS_INDEX_KEY_SQL } from './schema';
 
 export interface PurgeEvent {
 	key_id: string;
@@ -13,35 +17,14 @@ export interface PurgeEvent {
 	upstream_status: number | null;
 	duration_ms: number;
 	created_at: number; // unix ms
+	/** Truncated upstream response for debugging (CF API errors, etc.). */
+	response_detail: string | null;
+	/** Identity of the caller — Access JWT email, or key_id for API-key-only requests. */
+	created_by: string | null;
 }
 
-const CREATE_TABLE_SQL = `
-CREATE TABLE IF NOT EXISTS purge_events (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	key_id TEXT NOT NULL,
-	zone_id TEXT NOT NULL,
-	purge_type TEXT NOT NULL,
-	cost INTEGER NOT NULL,
-	status INTEGER NOT NULL,
-	collapsed TEXT,
-	upstream_status INTEGER,
-	duration_ms INTEGER NOT NULL,
-	created_at INTEGER NOT NULL
-);
-`;
-
-const CREATE_INDEX_SQL = `
-CREATE INDEX IF NOT EXISTS idx_purge_events_zone_created
-ON purge_events (zone_id, created_at DESC);
-`;
-
-const CREATE_KEY_INDEX_SQL = `
-CREATE INDEX IF NOT EXISTS idx_purge_events_key_created
-ON purge_events (key_id, created_at DESC);
-`;
-
 async function ensureTables(db: D1Database): Promise<void> {
-	await db.batch([db.prepare(CREATE_TABLE_SQL), db.prepare(CREATE_INDEX_SQL), db.prepare(CREATE_KEY_INDEX_SQL)]);
+	await db.batch([db.prepare(PURGE_EVENTS_TABLE_SQL), db.prepare(PURGE_EVENTS_INDEX_ZONE_SQL), db.prepare(PURGE_EVENTS_INDEX_KEY_SQL)]);
 }
 
 /**
@@ -52,8 +35,8 @@ export async function logPurgeEvent(db: D1Database, event: PurgeEvent): Promise<
 		await ensureTables(db);
 		await db
 			.prepare(
-				`INSERT INTO purge_events (key_id, zone_id, purge_type, cost, status, collapsed, upstream_status, duration_ms, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO purge_events (key_id, zone_id, purge_type, cost, status, collapsed, upstream_status, duration_ms, response_detail, created_by, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
 				event.key_id,
@@ -64,6 +47,8 @@ export async function logPurgeEvent(db: D1Database, event: PurgeEvent): Promise<
 				event.collapsed || null,
 				event.upstream_status,
 				event.duration_ms,
+				event.response_detail,
+				event.created_by,
 				event.created_at,
 			)
 			.run();
