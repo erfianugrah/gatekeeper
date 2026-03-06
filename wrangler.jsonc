@@ -40,6 +40,10 @@
 		"not_found_handling": "single-page-application",
 		"run_worker_first": ["/v1/*", "/admin/*", "/health", "/s3", "/s3/*"],
 	},
+	"vars": {
+		"CF_ACCESS_TEAM_NAME": "erfianugrah",
+		"CF_ACCESS_AUD": "f5143ae5a95df1fdac6528435b69d8d005e3123a79e37969b1b693daa0ce411e",
+	},
 	"triggers": {
 		"crons": ["0 3 * * *"],
 	},
