@@ -19,22 +19,26 @@ export function evaluatePolicy(policy: PolicyDocument, contexts: RequestContext[
 
 /**
  * Evaluate a policy against a single request context.
- * Returns true if any statement allows the request (OR across statements).
+ * Deny-first: if any deny statement matches → denied.
+ * Then if any allow statement matches → allowed.
+ * Otherwise → denied (implicit deny).
  */
 function evaluatePolicyForContext(policy: PolicyDocument, ctx: RequestContext): boolean {
+	let allowed = false;
 	for (const stmt of policy.statements) {
-		if (evaluateStatement(stmt, ctx)) {
-			return true;
+		if (matchesStatement(stmt, ctx)) {
+			if (stmt.effect === 'deny') return false;
+			allowed = true;
 		}
 	}
-	return false;
+	return allowed;
 }
 
 /**
- * Evaluate a single statement against a request context.
- * All three checks must pass: action, resource, and conditions (AND).
+ * Check if a statement's action, resource, and conditions all match a request context.
+ * Does NOT check effect — caller must handle allow/deny logic.
  */
-function evaluateStatement(stmt: Statement, ctx: RequestContext): boolean {
+function matchesStatement(stmt: Statement, ctx: RequestContext): boolean {
 	if (!matchesAction(stmt.actions, ctx.action)) return false;
 	if (!matchesResource(stmt.resources, ctx.resource)) return false;
 	if (stmt.conditions && stmt.conditions.length > 0) {
@@ -132,9 +136,28 @@ function evaluateLeaf(cond: LeafCondition, fields: Record<string, string | boole
 			return Array.isArray(cond.value) && !cond.value.includes(String(fieldValue));
 		case 'wildcard':
 			return typeof fieldValue === 'string' && typeof cond.value === 'string' && evalWildcard(fieldValue, cond.value);
+		case 'lt':
+			return evalNumeric(fieldValue, cond.value, (a, b) => a < b);
+		case 'gt':
+			return evalNumeric(fieldValue, cond.value, (a, b) => a > b);
+		case 'lte':
+			return evalNumeric(fieldValue, cond.value, (a, b) => a <= b);
+		case 'gte':
+			return evalNumeric(fieldValue, cond.value, (a, b) => a >= b);
 		default:
 			return false;
 	}
+}
+
+/**
+ * Evaluate a numeric comparison. Coerces both sides to numbers.
+ * Returns false if either side is NaN (safe default: deny).
+ */
+function evalNumeric(fieldValue: string | boolean, condValue: ConditionValue, cmp: (a: number, b: number) => boolean): boolean {
+	const a = Number(fieldValue);
+	const b = Number(condValue);
+	if (Number.isNaN(a) || Number.isNaN(b)) return false;
+	return cmp(a, b);
 }
 
 /**
@@ -213,8 +236,8 @@ function validateStatement(stmt: unknown, path: string, errors: PolicyValidation
 
 	const s = stmt as Record<string, unknown>;
 
-	if (s.effect !== 'allow') {
-		errors.push({ path: `${path}.effect`, message: 'effect must be "allow"' });
+	if (s.effect !== 'allow' && s.effect !== 'deny') {
+		errors.push({ path: `${path}.effect`, message: 'effect must be "allow" or "deny"' });
 	}
 
 	if (!Array.isArray(s.actions) || s.actions.length === 0) {
@@ -262,6 +285,10 @@ const VALID_OPERATORS = new Set<string>([
 	'wildcard',
 	'exists',
 	'not_exists',
+	'lt',
+	'gt',
+	'lte',
+	'gte',
 ]);
 
 /** Patterns known to cause catastrophic backtracking. */
@@ -340,6 +367,13 @@ function validateCondition(cond: unknown, path: string, errors: PolicyValidation
 	if (op === 'eq' || op === 'ne') {
 		if (typeof c.value !== 'string' && typeof c.value !== 'boolean') {
 			errors.push({ path: `${path}.value`, message: `${op} requires a string or boolean value` });
+		}
+		return;
+	}
+
+	if (op === 'lt' || op === 'gt' || op === 'lte' || op === 'gte') {
+		if (typeof c.value !== 'string' || Number.isNaN(Number(c.value))) {
+			errors.push({ path: `${path}.value`, message: `${op} requires a numeric string value (e.g. "100")` });
 		}
 		return;
 	}

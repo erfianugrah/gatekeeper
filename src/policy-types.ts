@@ -8,10 +8,13 @@ export interface PolicyDocument {
 	statements: Statement[];
 }
 
-/** A single permission statement. Multiple statements are OR'd — any match = allowed. */
+/**
+ * A single permission statement.
+ * Evaluation order: deny-first. If any deny matches → denied. Then if any allow matches → allowed. Otherwise → denied.
+ */
 export interface Statement {
-	effect: 'allow';
-	/** Actions this statement permits, e.g. ["purge:url", "purge:host"]. Wildcard suffix supported: "purge:*". */
+	effect: 'allow' | 'deny';
+	/** Actions this statement permits/denies, e.g. ["purge:url", "purge:host"]. Wildcard suffix supported: "purge:*". */
 	actions: string[];
 	/** Resources this statement applies to, e.g. ["zone:abc123"]. Wildcard suffix supported: "zone:*". */
 	resources: string[];
@@ -63,7 +66,11 @@ export type LeafOperator =
 	| 'not_in'
 	| 'wildcard'
 	| 'exists'
-	| 'not_exists';
+	| 'not_exists'
+	| 'lt'
+	| 'gt'
+	| 'lte'
+	| 'gte';
 
 /** Condition values — string for most operators, string[] for in/not_in, boolean for eq/ne. */
 export type ConditionValue = string | string[] | boolean;

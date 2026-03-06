@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 import { ConditionEditor, summarizeStatement } from '@/components/ConditionEditor';
@@ -30,6 +31,12 @@ const CONDITION_FIELDS: readonly FieldOption[] = [
 	{ value: 'url', label: 'URL', hint: 'e.g. https://example.com/page' },
 	{ value: 'url.path', label: 'URL Path', hint: 'e.g. /api/v1/' },
 	{ value: 'purge_everything', label: 'Purge Everything', hint: 'true/false' },
+	{ value: 'client_ip', label: 'Client IP', hint: 'e.g. 203.0.113.42' },
+	{ value: 'client_country', label: 'Country', hint: 'e.g. US, DE, SG' },
+	{ value: 'client_asn', label: 'ASN', hint: 'e.g. 13335' },
+	{ value: 'time.hour', label: 'Hour (UTC)', hint: '0-23' },
+	{ value: 'time.day_of_week', label: 'Day of Week', hint: '0=Sun, 6=Sat' },
+	{ value: 'time.iso', label: 'Time (ISO)', hint: 'e.g. 2025-01-01T...' },
 ] as const;
 
 const OPERATORS: readonly OperatorOption[] = [
@@ -45,6 +52,10 @@ const OPERATORS: readonly OperatorOption[] = [
 	{ value: 'not_in', label: 'not in (list)' },
 	{ value: 'exists', label: 'exists' },
 	{ value: 'not_exists', label: 'not exists' },
+	{ value: 'lt', label: '< (less than)' },
+	{ value: 'gt', label: '> (greater than)' },
+	{ value: 'lte', label: '<= (less or equal)' },
+	{ value: 'gte', label: '>= (greater or equal)' },
 ] as const;
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -97,7 +108,24 @@ function StatementEditor({ index, statement, onChange, onRemove, canRemove }: St
 					{collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
 				</button>
 				<span className={T.sectionLabel}>Statement {index + 1}</span>
-				<Badge className="bg-lv-green/20 text-lv-green border-lv-green/30 text-[10px]">ALLOW</Badge>
+				<Select value={statement.effect} onValueChange={(v) => onChange({ ...statement, effect: v as 'allow' | 'deny' })}>
+					<SelectTrigger
+						className={cn(
+							'w-[90px] h-6 text-[10px] font-semibold border',
+							statement.effect === 'deny' ? 'bg-lv-red/20 text-lv-red border-lv-red/30' : 'bg-lv-green/20 text-lv-green border-lv-green/30',
+						)}
+					>
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="allow" className="text-xs text-lv-green">
+							ALLOW
+						</SelectItem>
+						<SelectItem value="deny" className="text-xs text-lv-red">
+							DENY
+						</SelectItem>
+					</SelectContent>
+				</Select>
 				{canRemove && (
 					<Button
 						type="button"

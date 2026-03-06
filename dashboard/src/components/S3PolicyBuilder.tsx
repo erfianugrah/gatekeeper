@@ -4,11 +4,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ConditionEditor, summarizeStatement } from '@/components/ConditionEditor';
 import type { FieldOption, OperatorOption } from '@/components/ConditionEditor';
 import type { PolicyDocument, Statement, Condition } from '@/lib/api';
+import { convertAwsPolicy } from '@/lib/aws-policy-converter';
+import type { ConvertResult } from '@/lib/aws-policy-converter';
 import { cn } from '@/lib/utils';
 import { T } from '@/lib/typography';
 
@@ -48,6 +51,12 @@ const S3_CONDITION_FIELDS: readonly FieldOption[] = [
 	{ value: 'source_bucket', label: 'Source Bucket', hint: 'For CopyObject' },
 	{ value: 'source_key', label: 'Source Key', hint: 'For CopyObject' },
 	{ value: 'list_prefix', label: 'List Prefix', hint: 'e.g. logs/' },
+	{ value: 'client_ip', label: 'Client IP', hint: 'e.g. 203.0.113.42' },
+	{ value: 'client_country', label: 'Country', hint: 'e.g. US, DE, SG' },
+	{ value: 'client_asn', label: 'ASN', hint: 'e.g. 13335' },
+	{ value: 'time.hour', label: 'Hour (UTC)', hint: '0-23' },
+	{ value: 'time.day_of_week', label: 'Day of Week', hint: '0=Sun, 6=Sat' },
+	{ value: 'time.iso', label: 'Time (ISO)', hint: 'e.g. 2025-01-01T...' },
 ] as const;
 
 const OPERATORS: readonly OperatorOption[] = [
@@ -63,6 +72,10 @@ const OPERATORS: readonly OperatorOption[] = [
 	{ value: 'not_in', label: 'not in (list)' },
 	{ value: 'exists', label: 'exists' },
 	{ value: 'not_exists', label: 'not exists' },
+	{ value: 'lt', label: '< (less than)' },
+	{ value: 'gt', label: '> (greater than)' },
+	{ value: 'lte', label: '<= (less or equal)' },
+	{ value: 'gte', label: '>= (greater or equal)' },
 ] as const;
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -115,7 +128,24 @@ function StatementEditor({ index, statement, onChange, onRemove, canRemove }: St
 					{collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
 				</button>
 				<span className={T.sectionLabel}>Statement {index + 1}</span>
-				<Badge className="bg-lv-green/20 text-lv-green border-lv-green/30 text-[10px]">ALLOW</Badge>
+				<Select value={statement.effect} onValueChange={(v) => onChange({ ...statement, effect: v as 'allow' | 'deny' })}>
+					<SelectTrigger
+						className={cn(
+							'w-[90px] h-6 text-[10px] font-semibold border',
+							statement.effect === 'deny' ? 'bg-lv-red/20 text-lv-red border-lv-red/30' : 'bg-lv-green/20 text-lv-green border-lv-green/30',
+						)}
+					>
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="allow" className="text-xs text-lv-green">
+							ALLOW
+						</SelectItem>
+						<SelectItem value="deny" className="text-xs text-lv-red">
+							DENY
+						</SelectItem>
+					</SelectContent>
+				</Select>
 				{canRemove && (
 					<Button
 						type="button"
@@ -209,113 +239,7 @@ function StatementEditor({ index, statement, onChange, onRemove, canRemove }: St
 }
 
 // ─── AWS IAM Policy Converter ───────────────────────────────────────
-
-interface AwsStatement {
-	Sid?: string;
-	Effect: string;
-	Action: string | string[];
-	Resource: string | string[];
-	Condition?: Record<string, Record<string, string>>;
-}
-
-interface AwsPolicy {
-	Version?: string;
-	Statement: AwsStatement[];
-}
-
-interface ConvertResult {
-	policy: PolicyDocument;
-	warnings: string[];
-	skipped: string[];
-}
-
-function convertAwsPolicy(aws: AwsPolicy): ConvertResult {
-	const warnings: string[] = [];
-	const skipped: string[] = [];
-	const statements: Statement[] = [];
-
-	for (const stmt of aws.Statement) {
-		const actions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
-		const resources = Array.isArray(stmt.Resource) ? stmt.Resource : [stmt.Resource];
-
-		if (stmt.Effect !== 'Allow') {
-			skipped.push(`${stmt.Sid ?? 'Statement'}: Deny statements not supported (only Allow)`);
-			continue;
-		}
-
-		const s3Actions = actions.filter((a) => a.startsWith('s3:'));
-		const nonS3Actions = actions.filter((a) => !a.startsWith('s3:'));
-
-		if (s3Actions.length === 0) {
-			skipped.push(
-				`${stmt.Sid ?? 'Statement'}: No S3 actions (${nonS3Actions.slice(0, 3).join(', ')}${nonS3Actions.length > 3 ? '...' : ''})`,
-			);
-			continue;
-		}
-
-		if (nonS3Actions.length > 0) {
-			warnings.push(`${stmt.Sid ?? 'Statement'}: Dropped non-S3 actions: ${nonS3Actions.join(', ')}`);
-		}
-
-		const converted = convertResources(resources, warnings, stmt.Sid);
-
-		if (converted.length === 0) {
-			statements.push({ effect: 'allow', actions: s3Actions, resources: ['*'] });
-		} else {
-			statements.push({ effect: 'allow', actions: s3Actions, resources: converted });
-		}
-
-		if (stmt.Condition) {
-			warnings.push(`${stmt.Sid ?? 'Statement'}: AWS Conditions dropped — translate manually if needed`);
-		}
-	}
-
-	if (statements.length === 0) {
-		statements.push({ effect: 'allow', actions: ['s3:GetObject'], resources: ['*'] });
-		warnings.push('No S3 statements found — added a placeholder');
-	}
-
-	return { policy: { version: '2025-01-01', statements }, warnings, skipped };
-}
-
-function convertResources(resources: string[], warnings: string[], sid?: string): string[] {
-	const result: string[] = [];
-
-	for (const resource of resources) {
-		if (resource === '*') return [];
-
-		const arnMatch = resource.match(/^arn:aws:s3:::(.+)$/);
-		if (!arnMatch) {
-			warnings.push(`${sid ?? 'Statement'}: Unrecognized resource format: ${resource}`);
-			continue;
-		}
-
-		const path = arnMatch[1];
-		const slashIndex = path.indexOf('/');
-		if (slashIndex === -1) {
-			const bucketName = path.replace(/\*+$/, '');
-			if (path.includes('*') || path.includes('?')) {
-				result.push(`bucket:${path}`);
-				result.push(`object:${path}/*`);
-				warnings.push(`${sid ?? 'Statement'}: Wildcard bucket "${path}" — use conditions for finer control`);
-			} else {
-				result.push(`bucket:${bucketName}`);
-			}
-		} else {
-			const bucket = path.slice(0, slashIndex);
-			const keyPattern = path.slice(slashIndex + 1);
-
-			if (bucket.includes('*') || bucket.includes('?')) {
-				result.push(`object:${bucket}/${keyPattern}`);
-				warnings.push(`${sid ?? 'Statement'}: Wildcard bucket in object resource "${path}" — verify manually`);
-			} else {
-				result.push(`object:${bucket}/${keyPattern}`);
-			}
-		}
-	}
-
-	return result;
-}
+// Converter logic extracted to @/lib/aws-policy-converter for testability.
 
 // ─── Import Dialog ──────────────────────────────────────────────────
 

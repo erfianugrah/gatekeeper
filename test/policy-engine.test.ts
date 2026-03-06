@@ -1,20 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { evaluatePolicy, validatePolicy } from '../src/policy-engine';
-import type { PolicyDocument, RequestContext, Statement, Condition } from '../src/policy-types';
-
-// --- Helpers ---
-
-function makePolicy(...statements: Statement[]): PolicyDocument {
-	return { version: '2025-01-01', statements };
-}
-
-function allowStmt(actions: string[], resources: string[], conditions?: Condition[]): Statement {
-	return { effect: 'allow', actions, resources, ...(conditions ? { conditions } : {}) };
-}
-
-function makeCtx(action: string, resource: string, fields: Record<string, string | boolean> = {}): RequestContext {
-	return { action, resource, fields };
-}
+import { evaluatePolicy } from '../src/policy-engine';
+import { makePolicy, allowStmt, makeCtx } from './policy-helpers';
 
 // --- Action matching ---
 
@@ -279,11 +265,8 @@ describe('multiple statements', () => {
 			allowStmt(['purge:host'], ['zone:abc'], [{ field: 'host', operator: 'eq', value: 'cdn.example.com' }]),
 			allowStmt(['purge:tag'], ['zone:abc'], [{ field: 'tag', operator: 'starts_with', value: 'release-' }]),
 		);
-		// Matches first statement
 		expect(evaluatePolicy(p, [makeCtx('purge:host', 'zone:abc', { host: 'cdn.example.com' })])).toBe(true);
-		// Matches second statement
 		expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:abc', { tag: 'release-v1' })])).toBe(true);
-		// Matches neither
 		expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:abc', { tag: 'dev-build' })])).toBe(false);
 	});
 });
@@ -311,7 +294,7 @@ describe('multiple request contexts', () => {
 
 describe('empty policy', () => {
 	it('policy with no statements denies everything', () => {
-		const p: PolicyDocument = { version: '2025-01-01', statements: [] };
+		const p = makePolicy();
 		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a')])).toBe(false);
 	});
 });
@@ -322,151 +305,5 @@ describe('statement without conditions', () => {
 	it('no conditions means action+resource match is sufficient', () => {
 		const p = makePolicy(allowStmt(['purge:*'], ['zone:abc']));
 		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:abc', { host: 'anything.com', url: 'https://whatever/' })])).toBe(true);
-	});
-});
-
-// --- Policy validation ---
-
-describe('validatePolicy', () => {
-	it('valid policy returns no errors', () => {
-		const errors = validatePolicy({
-			version: '2025-01-01',
-			statements: [
-				{
-					effect: 'allow',
-					actions: ['purge:url'],
-					resources: ['zone:abc'],
-					conditions: [{ field: 'host', operator: 'eq', value: 'example.com' }],
-				},
-			],
-		});
-		expect(errors).toHaveLength(0);
-	});
-
-	it('missing version', () => {
-		const errors = validatePolicy({ statements: [{ effect: 'allow', actions: ['*'], resources: ['*'] }] });
-		expect(errors.some((e) => e.path === 'version')).toBe(true);
-	});
-
-	it('empty statements', () => {
-		const errors = validatePolicy({ version: '2025-01-01', statements: [] });
-		expect(errors.some((e) => e.path === 'statements')).toBe(true);
-	});
-
-	it('invalid operator', () => {
-		const errors = validatePolicy({
-			version: '2025-01-01',
-			statements: [
-				{
-					effect: 'allow',
-					actions: ['*'],
-					resources: ['*'],
-					conditions: [{ field: 'host', operator: 'INVALID', value: 'x' }],
-				},
-			],
-		});
-		expect(errors.some((e) => e.path.includes('operator'))).toBe(true);
-	});
-
-	it('regex too long', () => {
-		const errors = validatePolicy({
-			version: '2025-01-01',
-			statements: [
-				{
-					effect: 'allow',
-					actions: ['*'],
-					resources: ['*'],
-					conditions: [{ field: 'tag', operator: 'matches', value: 'a'.repeat(300) }],
-				},
-			],
-		});
-		expect(errors.some((e) => e.message.includes('max length'))).toBe(true);
-	});
-
-	it('dangerous regex rejected', () => {
-		const errors = validatePolicy({
-			version: '2025-01-01',
-			statements: [
-				{
-					effect: 'allow',
-					actions: ['*'],
-					resources: ['*'],
-					conditions: [{ field: 'tag', operator: 'matches', value: '(a+)+$' }],
-				},
-			],
-		});
-		expect(errors.some((e) => e.message.includes('catastrophic'))).toBe(true);
-	});
-
-	it('invalid regex syntax', () => {
-		const errors = validatePolicy({
-			version: '2025-01-01',
-			statements: [
-				{
-					effect: 'allow',
-					actions: ['*'],
-					resources: ['*'],
-					conditions: [{ field: 'tag', operator: 'matches', value: '[unclosed' }],
-				},
-			],
-		});
-		expect(errors.some((e) => e.message.includes('Invalid regex'))).toBe(true);
-	});
-
-	it('in operator requires string array', () => {
-		const errors = validatePolicy({
-			version: '2025-01-01',
-			statements: [
-				{
-					effect: 'allow',
-					actions: ['*'],
-					resources: ['*'],
-					conditions: [{ field: 'host', operator: 'in', value: 'not-an-array' }],
-				},
-			],
-		});
-		expect(errors.some((e) => e.message.includes('non-empty string array'))).toBe(true);
-	});
-
-	it('validates compound conditions', () => {
-		const errors = validatePolicy({
-			version: '2025-01-01',
-			statements: [
-				{
-					effect: 'allow',
-					actions: ['*'],
-					resources: ['*'],
-					conditions: [
-						{
-							any: [
-								{ field: 'host', operator: 'eq', value: 'a.com' },
-								{ field: '', operator: 'eq', value: 'b.com' }, // empty field
-							],
-						},
-					],
-				},
-			],
-		});
-		expect(errors.some((e) => e.path.includes('field'))).toBe(true);
-	});
-
-	it('null policy', () => {
-		const errors = validatePolicy(null);
-		expect(errors.length).toBeGreaterThan(0);
-	});
-
-	it('exists operator does not require value', () => {
-		const errors = validatePolicy({
-			version: '2025-01-01',
-			statements: [
-				{
-					effect: 'allow',
-					actions: ['*'],
-					resources: ['*'],
-					conditions: [{ field: 'header.CF-Device-Type', operator: 'exists' }],
-				},
-			],
-		});
-		expect(errors).toHaveLength(0);
 	});
 });

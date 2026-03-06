@@ -517,7 +517,8 @@ export function summarizeStatement(
 		condStr = ` where ${parts.join(' AND ')}`;
 	}
 
-	return `Allow ${actionStr}${resourceStr}${condStr}`;
+	const effectLabel = statement.effect === 'deny' ? 'Deny' : 'Allow';
+	return `${effectLabel} ${actionStr}${resourceStr}${condStr}`;
 }
 
 function summarizeCondition(c: Condition): string {
@@ -540,6 +541,10 @@ function summarizeCondition(c: Condition): string {
 			wildcard: 'matches',
 			matches: '~',
 			not_matches: '!~',
+			lt: '<',
+			gt: '>',
+			lte: '<=',
+			gte: '>=',
 		};
 		return `${c.field} ${opLabel[op] ?? op} "${c.value}"`;
 	}

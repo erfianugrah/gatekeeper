@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Plus, ShieldOff, Loader2, Copy, Check } from 'lucide-react';
+import { Plus, ShieldOff, Trash2, Loader2, Copy, Check } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { S3PolicyBuilder } from '@/components/S3PolicyBuilder';
-import { listS3Credentials, createS3Credential, revokeS3Credential } from '@/lib/api';
+import {
+	listS3Credentials,
+	createS3Credential,
+	revokeS3Credential,
+	deleteS3Credential,
+	bulkRevokeS3Credentials,
+	bulkDeleteS3Credentials,
+} from '@/lib/api';
 import type { S3Credential, PolicyDocument } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { T } from '@/lib/typography';
@@ -256,6 +263,9 @@ export function S3CredentialsPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [newCred, setNewCred] = useState<{ accessKeyId: string; secretAccessKey: string } | null>(null);
 	const [revokingId, setRevokingId] = useState<string | null>(null);
+	const [deletingId, setDeletingId] = useState<string | null>(null);
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+	const [bulkLoading, setBulkLoading] = useState(false);
 	const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'revoked'>('all');
 
 	const fetchCredentials = useCallback(async () => {
@@ -290,10 +300,82 @@ export function S3CredentialsPage() {
 		}
 	};
 
+	const handleDelete = async (accessKeyId: string) => {
+		if (
+			!confirm(
+				`Permanently delete credential ${truncateId(accessKeyId)}? The row will be removed from the database. Analytics are preserved.`,
+			)
+		)
+			return;
+		setDeletingId(accessKeyId);
+		try {
+			await deleteS3Credential(accessKeyId);
+			await fetchCredentials();
+		} catch (e: any) {
+			setError(e.message ?? 'Failed to delete credential');
+		} finally {
+			setDeletingId(null);
+		}
+	};
+
 	const handleCreated = (accessKeyId: string, secretAccessKey: string) => {
 		setNewCred({ accessKeyId, secretAccessKey });
 		fetchCredentials();
 	};
+
+	const toggleSelect = (id: string) => {
+		setSelectedIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	};
+
+	const toggleSelectAll = () => {
+		if (selectedIds.size === credentials.length) {
+			setSelectedIds(new Set());
+		} else {
+			setSelectedIds(new Set(credentials.map((c) => c.access_key_id)));
+		}
+	};
+
+	const handleBulkRevoke = async () => {
+		const ids = [...selectedIds];
+		const activeIds = ids.filter((id) => credentials.find((c) => c.access_key_id === id && !c.revoked));
+		if (activeIds.length === 0) return;
+		if (!confirm(`Bulk revoke ${activeIds.length} credential${activeIds.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+		setBulkLoading(true);
+		try {
+			await bulkRevokeS3Credentials(activeIds);
+			setSelectedIds(new Set());
+			await fetchCredentials();
+		} catch (e: any) {
+			setError(e.message ?? 'Bulk revoke failed');
+		} finally {
+			setBulkLoading(false);
+		}
+	};
+
+	const handleBulkDelete = async () => {
+		const ids = [...selectedIds];
+		const revokedIds = ids.filter((id) => credentials.find((c) => c.access_key_id === id && c.revoked));
+		if (revokedIds.length === 0) return;
+		if (!confirm(`Permanently delete ${revokedIds.length} credential${revokedIds.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+		setBulkLoading(true);
+		try {
+			await bulkDeleteS3Credentials(revokedIds);
+			setSelectedIds(new Set());
+			await fetchCredentials();
+		} catch (e: any) {
+			setError(e.message ?? 'Bulk delete failed');
+		} finally {
+			setBulkLoading(false);
+		}
+	};
+
+	const selectedActiveCount = [...selectedIds].filter((id) => credentials.find((c) => c.access_key_id === id && !c.revoked)).length;
+	const selectedRevokedCount = [...selectedIds].filter((id) => credentials.find((c) => c.access_key_id === id && c.revoked)).length;
 
 	const activeCount = credentials.filter((c) => !c.revoked).length;
 	const revokedCount = credentials.filter((c) => c.revoked).length;
@@ -308,6 +390,42 @@ export function S3CredentialsPage() {
 				</div>
 				<CreateCredentialDialog onCreated={handleCreated} />
 			</div>
+
+			{/* ── Bulk actions bar ────────────────────────────────── */}
+			{selectedIds.size > 0 && (
+				<div className="flex items-center gap-3 rounded-lg border border-lv-purple/30 bg-lv-purple/10 px-4 py-2">
+					<span className="text-sm font-data text-lv-purple">{selectedIds.size} selected</span>
+					<div className="ml-auto flex gap-2">
+						{selectedActiveCount > 0 && (
+							<Button
+								size="sm"
+								variant="outline"
+								className="text-lv-red border-lv-red/30"
+								onClick={handleBulkRevoke}
+								disabled={bulkLoading}
+							>
+								{bulkLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldOff className="h-3.5 w-3.5" />}
+								Revoke ({selectedActiveCount})
+							</Button>
+						)}
+						{selectedRevokedCount > 0 && (
+							<Button
+								size="sm"
+								variant="outline"
+								className="text-lv-red border-lv-red/30"
+								onClick={handleBulkDelete}
+								disabled={bulkLoading}
+							>
+								{bulkLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+								Delete ({selectedRevokedCount})
+							</Button>
+						)}
+						<Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+							Clear
+						</Button>
+					</div>
+				</div>
+			)}
 
 			{/* ── Secret banner ──────────────────────────────────── */}
 			{newCred && (
@@ -346,6 +464,14 @@ export function S3CredentialsPage() {
 						<Table>
 							<TableHeader>
 								<TableRow>
+									<TableHead className="w-8">
+										<input
+											type="checkbox"
+											checked={credentials.length > 0 && selectedIds.size === credentials.length}
+											onChange={toggleSelectAll}
+											className="rounded border-border"
+										/>
+									</TableHead>
 									<TableHead className={T.sectionLabel}>Name</TableHead>
 									<TableHead className={T.sectionLabel}>Access Key ID</TableHead>
 									<TableHead className={T.sectionLabel}>Status</TableHead>
@@ -358,7 +484,15 @@ export function S3CredentialsPage() {
 							</TableHeader>
 							<TableBody>
 								{credentials.map((c) => (
-									<TableRow key={c.access_key_id}>
+									<TableRow key={c.access_key_id} className={selectedIds.has(c.access_key_id) ? 'bg-lv-purple/5' : undefined}>
+										<TableCell className="w-8">
+											<input
+												type="checkbox"
+												checked={selectedIds.has(c.access_key_id)}
+												onChange={() => toggleSelect(c.access_key_id)}
+												className="rounded border-border"
+											/>
+										</TableCell>
 										<TableCell className={T.tableRowName}>{c.name}</TableCell>
 										<TableCell>
 											<code className={T.tableCellMono} title={c.access_key_id}>
@@ -380,7 +514,7 @@ export function S3CredentialsPage() {
 										<TableCell className="max-w-xs">
 											<PolicyPreview policyJson={c.policy} />
 										</TableCell>
-										<TableCell className="text-right">
+										<TableCell className="text-right space-x-1">
 											{!c.revoked && (
 												<Button
 													size="xs"
@@ -395,6 +529,22 @@ export function S3CredentialsPage() {
 														<ShieldOff className="h-3.5 w-3.5" />
 													)}
 													Revoke
+												</Button>
+											)}
+											{!!c.revoked && (
+												<Button
+													size="xs"
+													variant="ghost"
+													className="text-muted-foreground hover:text-lv-red hover:bg-lv-red/10"
+													onClick={() => handleDelete(c.access_key_id)}
+													disabled={deletingId === c.access_key_id}
+												>
+													{deletingId === c.access_key_id ? (
+														<Loader2 className="h-3.5 w-3.5 animate-spin" />
+													) : (
+														<Trash2 className="h-3.5 w-3.5" />
+													)}
+													Delete
 												</Button>
 											)}
 										</TableCell>

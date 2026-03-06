@@ -83,6 +83,57 @@ components:
         message:
           type: string
 
+    # --- Bulk operation results ---
+
+    BulkItemResult:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [revoked, deleted, already_revoked, not_found]
+
+    BulkResult:
+      type: object
+      required: [processed, results]
+      properties:
+        processed:
+          type: integer
+          description: Number of items processed.
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkItemResult'
+
+    BulkDryRunItem:
+      type: object
+      required: [id, current_status, would_become]
+      properties:
+        id:
+          type: string
+        current_status:
+          type: string
+          enum: [active, revoked, expired, not_found]
+        would_become:
+          type: string
+
+    BulkDryRunResult:
+      type: object
+      required: [dry_run, would_process, items]
+      properties:
+        dry_run:
+          type: boolean
+          const: true
+        would_process:
+          type: integer
+          description: Number of items that would be processed.
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkDryRunItem'
+
     # --- Policy document ---
 
     PolicyDocument:
@@ -104,14 +155,18 @@ components:
       properties:
         effect:
           type: string
-          const: allow
+          enum: [allow, deny]
+          description: >
+            Whether this statement allows or denies matching requests.
+            Deny-first: if any deny statement matches, the request is denied
+            regardless of allow statements.
         actions:
           type: array
           minItems: 1
           items:
             type: string
           description: >
-            Actions this statement permits. Wildcard suffix supported.
+            Actions this statement permits or denies. Wildcard suffix supported.
             Purge actions: `purge:url`, `purge:host`, `purge:tag`,
             `purge:prefix`, `purge:everything`, `purge:*`.
           examples:
@@ -153,6 +208,9 @@ components:
             Request context field. Purge fields: `host`, `tag`, `prefix`,
             `url`, `url.path`, `url.query`, `url.query.<param>`,
             `header.<name>`, `purge_everything`.
+            S3 fields: `bucket`, `key`, `key.prefix`, `operation`.
+            Request fields (all services): `client_ip`, `client_country`,
+            `client_asn`, `time.hour`, `time.day_of_week`, `time.iso`.
         operator:
           type: string
           enum:
@@ -169,6 +227,10 @@ components:
             - wildcard
             - exists
             - not_exists
+            - lt
+            - gt
+            - lte
+            - gte
         value:
           oneOf:
             - type: string
@@ -935,6 +997,24 @@ paths:
                             operator: ends_with
                             value: '.example.com'
                   expires_in_days: 90
+              deny-off-hours:
+                summary: Allow purge but deny purge_everything outside business hours
+                value:
+                  name: safe-purger
+                  zone_id: aaaa1111bbbb2222cccc3333dddd4444
+                  policy:
+                    version: '2025-01-01'
+                    statements:
+                      - effect: allow
+                        actions: ['purge:*']
+                        resources: ['zone:aaaa1111bbbb2222cccc3333dddd4444']
+                      - effect: deny
+                        actions: ['purge:everything']
+                        resources: ['zone:*']
+                        conditions:
+                          - field: time.hour
+                            operator: gte
+                            value: '22'
       responses:
         '200':
           description: Key created successfully.
@@ -1063,8 +1143,13 @@ paths:
                 $ref: '#/components/schemas/ErrorEnvelope'
 
     delete:
-      operationId: revokeKey
-      summary: Revoke API key
+      operationId: revokeOrDeleteKey
+      summary: Revoke or permanently delete an API key
+      description: >
+        Without `permanent`, soft-revokes the key (sets `revoked = 1`).
+        With `permanent=true`, permanently removes the key from the database.
+        Hard-delete works on keys in any state (active or already revoked).
+        Analytics events referencing the key are preserved.
       tags: [Keys]
       security:
         - CloudflareAccess: []
@@ -1072,9 +1157,16 @@ paths:
       parameters:
         - $ref: '#/components/parameters/KeyIdPath'
         - $ref: '#/components/parameters/ZoneIdQuery'
+        - name: permanent
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: >
+            When `true`, permanently deletes the key row instead of soft-revoking.
       responses:
         '200':
-          description: Key revoked.
+          description: Key revoked or deleted.
           content:
             application/json:
               schema:
@@ -1086,13 +1178,79 @@ paths:
                     const: true
                   result:
                     type: object
-                    required: [revoked]
                     properties:
                       revoked:
                         type: boolean
-                        const: true
+                        description: Present when soft-revoking.
+                      deleted:
+                        type: boolean
+                        description: Present when permanently deleting.
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Key not found (or already revoked, when soft-revoking).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  # ─── Admin: Bulk Key Operations ───────────────────────────────────────────
+
+  /admin/keys/bulk-revoke:
+    post:
+      operationId: bulkRevokeKeys
+      summary: Bulk soft-revoke multiple API keys
+      description: >
+        Soft-revoke multiple keys in one request. Requires `confirm_count` to match the
+        number of IDs as a fat-finger guard. Set `dry_run: true` to preview without executing.
+      tags: [Keys]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, confirm_count]
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  maxItems: 100
+                  description: Array of key IDs to revoke.
+                confirm_count:
+                  type: integer
+                  description: Must exactly match the length of `ids`.
+                dry_run:
+                  type: boolean
+                  default: false
+                  description: Preview the operation without executing.
+      responses:
+        '200':
+          description: Bulk revoke result or dry-run preview.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    oneOf:
+                      - $ref: '#/components/schemas/BulkResult'
+                      - $ref: '#/components/schemas/BulkDryRunResult'
         '400':
-          description: Missing zone_id query parameter.
+          description: Validation error (empty array, confirm_count mismatch, over 100 items).
           content:
             application/json:
               schema:
@@ -1103,8 +1261,65 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
-        '404':
-          description: Key not found or already revoked.
+
+  /admin/keys/bulk-delete:
+    post:
+      operationId: bulkDeleteKeys
+      summary: Bulk permanently delete multiple API keys
+      description: >
+        Permanently remove multiple keys from the database. Works on keys in any state.
+        Requires `confirm_count` as a fat-finger guard. Set `dry_run: true` to preview.
+        Analytics events referencing deleted keys are preserved.
+      tags: [Keys]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, confirm_count]
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  maxItems: 100
+                  description: Array of key IDs to delete.
+                confirm_count:
+                  type: integer
+                  description: Must exactly match the length of `ids`.
+                dry_run:
+                  type: boolean
+                  default: false
+                  description: Preview the operation without executing.
+      responses:
+        '200':
+          description: Bulk delete result or dry-run preview.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    oneOf:
+                      - $ref: '#/components/schemas/BulkResult'
+                      - $ref: '#/components/schemas/BulkDryRunResult'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Not authenticated.
           content:
             application/json:
               schema:
@@ -1404,20 +1619,29 @@ paths:
                 $ref: '#/components/schemas/ErrorEnvelope'
 
     delete:
-      operationId: revokeS3Credential
-      summary: Revoke S3 credential
+      operationId: revokeOrDeleteS3Credential
+      summary: Revoke or permanently delete an S3 credential
       description: >
-        Soft-revoke — sets `revoked = 1`. The credential is immediately
-        rejected on subsequent S3 requests (cache TTL up to 60s).
+        Without `permanent`, soft-revokes the credential (sets `revoked = 1`).
+        The credential is immediately rejected on subsequent S3 requests
+        (cache TTL up to 60s). With `permanent=true`, permanently removes the
+        credential row from the database. Analytics events are preserved.
       tags: [S3Credentials]
       security:
         - CloudflareAccess: []
         - AdminKeyAuth: []
       parameters:
         - $ref: '#/components/parameters/AccessKeyIdPath'
+        - name: permanent
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: >
+            When `true`, permanently deletes the credential row instead of soft-revoking.
       responses:
         '200':
-          description: Credential revoked.
+          description: Credential revoked or deleted.
           content:
             application/json:
               schema:
@@ -1429,11 +1653,13 @@ paths:
                     const: true
                   result:
                     type: object
-                    required: [revoked]
                     properties:
                       revoked:
                         type: boolean
-                        const: true
+                        description: Present when soft-revoking.
+                      deleted:
+                        type: boolean
+                        description: Present when permanently deleting.
         '401':
           description: Not authenticated.
           content:
@@ -1441,7 +1667,134 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '404':
-          description: Credential not found or already revoked.
+          description: Credential not found (or already revoked, when soft-revoking).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  # ─── Admin: Bulk S3 Credential Operations ────────────────────────────────
+
+  /admin/s3/credentials/bulk-revoke:
+    post:
+      operationId: bulkRevokeS3Credentials
+      summary: Bulk soft-revoke multiple S3 credentials
+      description: >
+        Soft-revoke multiple S3 credentials in one request. Requires `confirm_count` to match
+        the number of IDs as a fat-finger guard. Set `dry_run: true` to preview without executing.
+      tags: [S3 Credentials]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [access_key_ids, confirm_count]
+              properties:
+                access_key_ids:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  maxItems: 100
+                  description: Array of access key IDs to revoke.
+                confirm_count:
+                  type: integer
+                  description: Must exactly match the length of `access_key_ids`.
+                dry_run:
+                  type: boolean
+                  default: false
+                  description: Preview the operation without executing.
+      responses:
+        '200':
+          description: Bulk revoke result or dry-run preview.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    oneOf:
+                      - $ref: '#/components/schemas/BulkResult'
+                      - $ref: '#/components/schemas/BulkDryRunResult'
+        '400':
+          description: Validation error (empty array, confirm_count mismatch, over 100 items).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /admin/s3/credentials/bulk-delete:
+    post:
+      operationId: bulkDeleteS3Credentials
+      summary: Bulk permanently delete multiple S3 credentials
+      description: >
+        Permanently remove multiple S3 credentials from the database. Works on credentials
+        in any state. Requires `confirm_count` as a fat-finger guard. Set `dry_run: true` to preview.
+        Analytics events referencing deleted credentials are preserved.
+      tags: [S3 Credentials]
+      security:
+        - CloudflareAccess: []
+        - AdminKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [access_key_ids, confirm_count]
+              properties:
+                access_key_ids:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  maxItems: 100
+                  description: Array of access key IDs to delete.
+                confirm_count:
+                  type: integer
+                  description: Must exactly match the length of `access_key_ids`.
+                dry_run:
+                  type: boolean
+                  default: false
+                  description: Preview the operation without executing.
+      responses:
+        '200':
+          description: Bulk delete result or dry-run preview.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, result]
+                properties:
+                  success:
+                    type: boolean
+                    const: true
+                  result:
+                    oneOf:
+                      - $ref: '#/components/schemas/BulkResult'
+                      - $ref: '#/components/schemas/BulkDryRunResult'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Not authenticated.
           content:
             application/json:
               schema:

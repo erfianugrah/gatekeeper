@@ -118,15 +118,35 @@ adminS3App.get('/credentials/:id', async (c) => {
 	return c.json({ success: true, result });
 });
 
-// ─── Revoke credential ──────────────────────────────────────────────────────
+// ─── Revoke / delete credential ─────────────────────────────────────────────
 
 adminS3App.delete('/credentials/:id', async (c) => {
 	const accessKeyId = c.req.param('id');
+	const permanent = c.req.query('permanent') === 'true';
 	const stub = getStub(c.env);
 
 	const existing = await stub.getS3Credential(accessKeyId);
 	if (!existing) {
-		return c.json({ success: false, errors: [{ code: 404, message: 'Credential not found or already revoked' }] }, 404);
+		return c.json({ success: false, errors: [{ code: 404, message: 'Credential not found' }] }, 404);
+	}
+
+	if (permanent) {
+		const deleted = await stub.deleteS3Credential(accessKeyId);
+
+		console.log(
+			JSON.stringify({
+				route: 'admin.deleteS3Credential',
+				accessKeyId,
+				deleted,
+				ts: new Date().toISOString(),
+			}),
+		);
+
+		if (!deleted) {
+			return c.json({ success: false, errors: [{ code: 404, message: 'Credential not found' }] }, 404);
+		}
+
+		return c.json({ success: true, result: { deleted: true } });
 	}
 
 	const revoked = await stub.revokeS3Credential(accessKeyId);
@@ -146,6 +166,97 @@ adminS3App.delete('/credentials/:id', async (c) => {
 
 	return c.json({ success: true, result: { revoked: true } });
 });
+
+// ─── Bulk revoke credentials ────────────────────────────────────────────────
+
+const MAX_BULK_ITEMS = 100;
+
+adminS3App.post('/credentials/bulk-revoke', async (c) => {
+	const log: Record<string, unknown> = { route: 'admin.bulkRevokeS3Credentials', ts: new Date().toISOString() };
+
+	const body = await parseBulkS3Body(c);
+	if (body instanceof Response) return body;
+
+	const { ids, dryRun } = body;
+	const stub = getStub(c.env);
+
+	if (dryRun) {
+		const preview = await stub.bulkInspectS3Credentials(ids, 'revoked');
+		log.status = 200;
+		log.dryRun = true;
+		log.count = ids.length;
+		console.log(JSON.stringify(log));
+		return c.json({ success: true, result: preview });
+	}
+
+	const result = await stub.bulkRevokeS3Credentials(ids);
+	log.status = 200;
+	log.processed = result.processed;
+	console.log(JSON.stringify(log));
+	return c.json({ success: true, result });
+});
+
+// ─── Bulk delete credentials ────────────────────────────────────────────────
+
+adminS3App.post('/credentials/bulk-delete', async (c) => {
+	const log: Record<string, unknown> = { route: 'admin.bulkDeleteS3Credentials', ts: new Date().toISOString() };
+
+	const body = await parseBulkS3Body(c);
+	if (body instanceof Response) return body;
+
+	const { ids, dryRun } = body;
+	const stub = getStub(c.env);
+
+	if (dryRun) {
+		const preview = await stub.bulkInspectS3Credentials(ids, 'deleted');
+		log.status = 200;
+		log.dryRun = true;
+		log.count = ids.length;
+		console.log(JSON.stringify(log));
+		return c.json({ success: true, result: preview });
+	}
+
+	const result = await stub.bulkDeleteS3Credentials(ids);
+	log.status = 200;
+	log.processed = result.processed;
+	console.log(JSON.stringify(log));
+	return c.json({ success: true, result });
+});
+
+/** Parse and validate a bulk S3 credential operation request body. */
+async function parseBulkS3Body(c: {
+	req: { json: <T>() => Promise<T> };
+	json: (data: unknown, status: number) => Response;
+}): Promise<{ ids: string[]; dryRun: boolean } | Response> {
+	let raw: Record<string, unknown>;
+	try {
+		raw = await c.req.json<Record<string, unknown>>();
+	} catch {
+		return c.json({ success: false, errors: [{ code: 400, message: 'Invalid JSON body' }] }, 400);
+	}
+
+	const ids = raw.access_key_ids;
+	if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id) => typeof id === 'string')) {
+		return c.json({ success: false, errors: [{ code: 400, message: 'access_key_ids must be a non-empty array of strings' }] }, 400);
+	}
+
+	if (ids.length > MAX_BULK_ITEMS) {
+		return c.json({ success: false, errors: [{ code: 400, message: `Maximum ${MAX_BULK_ITEMS} items per request` }] }, 400);
+	}
+
+	if (typeof raw.confirm_count !== 'number' || raw.confirm_count !== ids.length) {
+		return c.json(
+			{
+				success: false,
+				errors: [{ code: 400, message: `confirm_count must equal access_key_ids array length (${ids.length})` }],
+			},
+			400,
+		);
+	}
+
+	const dryRun = raw.dry_run === true;
+	return { ids: ids as string[], dryRun };
+}
 
 // ─── S3 Analytics: events ───────────────────────────────────────────────────
 

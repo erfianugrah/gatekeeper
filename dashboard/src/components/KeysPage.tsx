@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, ShieldOff, Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus, ShieldOff, Trash2, Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { PolicyBuilder } from '@/components/PolicyBuilder';
-import { listKeys, createKey, revokeKey } from '@/lib/api';
+import { listKeys, createKey, revokeKey, deleteKey, bulkRevokeKeys, bulkDeleteKeys } from '@/lib/api';
 import type { ApiKey, PolicyDocument } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { T } from '@/lib/typography';
@@ -179,6 +179,9 @@ export function KeysPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [secret, setSecret] = useState<string | null>(null);
 	const [revokingId, setRevokingId] = useState<string | null>(null);
+	const [deletingId, setDeletingId] = useState<string | null>(null);
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+	const [bulkLoading, setBulkLoading] = useState(false);
 	const [search, setSearch] = useState('');
 	const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'revoked'>('all');
 	const [sortField, setSortField] = useState<SortField>('created_at');
@@ -215,10 +218,78 @@ export function KeysPage() {
 		}
 	};
 
+	const handleDelete = async (keyId: string) => {
+		if (!confirm(`Permanently delete key ${truncateId(keyId)}? The row will be removed from the database. Analytics are preserved.`))
+			return;
+		setDeletingId(keyId);
+		try {
+			await deleteKey(keyId);
+			await fetchKeys();
+		} catch (e: any) {
+			setError(e.message ?? 'Failed to delete key');
+		} finally {
+			setDeletingId(null);
+		}
+	};
+
 	const handleKeyCreated = (newSecret: string) => {
 		setSecret(newSecret);
 		fetchKeys();
 	};
+
+	const toggleSelect = (id: string) => {
+		setSelectedIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	};
+
+	const toggleSelectAll = () => {
+		if (selectedIds.size === filteredKeys.length) {
+			setSelectedIds(new Set());
+		} else {
+			setSelectedIds(new Set(filteredKeys.map((k) => k.id)));
+		}
+	};
+
+	const handleBulkRevoke = async () => {
+		const ids = [...selectedIds];
+		const activeIds = ids.filter((id) => keys.find((k) => k.id === id && !k.revoked));
+		if (activeIds.length === 0) return;
+		if (!confirm(`Bulk revoke ${activeIds.length} key${activeIds.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+		setBulkLoading(true);
+		try {
+			await bulkRevokeKeys(activeIds);
+			setSelectedIds(new Set());
+			await fetchKeys();
+		} catch (e: any) {
+			setError(e.message ?? 'Bulk revoke failed');
+		} finally {
+			setBulkLoading(false);
+		}
+	};
+
+	const handleBulkDelete = async () => {
+		const ids = [...selectedIds];
+		const revokedIds = ids.filter((id) => keys.find((k) => k.id === id && k.revoked));
+		if (revokedIds.length === 0) return;
+		if (!confirm(`Permanently delete ${revokedIds.length} key${revokedIds.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+		setBulkLoading(true);
+		try {
+			await bulkDeleteKeys(revokedIds);
+			setSelectedIds(new Set());
+			await fetchKeys();
+		} catch (e: any) {
+			setError(e.message ?? 'Bulk delete failed');
+		} finally {
+			setBulkLoading(false);
+		}
+	};
+
+	const selectedActiveCount = [...selectedIds].filter((id) => keys.find((k) => k.id === id && !k.revoked)).length;
+	const selectedRevokedCount = [...selectedIds].filter((id) => keys.find((k) => k.id === id && k.revoked)).length;
 
 	const toggleSort = (field: SortField) => {
 		if (sortField === field) {
@@ -329,6 +400,42 @@ export function KeysPage() {
 				</div>
 			</div>
 
+			{/* ── Bulk actions bar ────────────────────────────────────── */}
+			{selectedIds.size > 0 && (
+				<div className="flex items-center gap-3 rounded-lg border border-lv-purple/30 bg-lv-purple/10 px-4 py-2">
+					<span className="text-sm font-data text-lv-purple">{selectedIds.size} selected</span>
+					<div className="ml-auto flex gap-2">
+						{selectedActiveCount > 0 && (
+							<Button
+								size="sm"
+								variant="outline"
+								className="text-lv-red border-lv-red/30"
+								onClick={handleBulkRevoke}
+								disabled={bulkLoading}
+							>
+								{bulkLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldOff className="h-3.5 w-3.5" />}
+								Revoke ({selectedActiveCount})
+							</Button>
+						)}
+						{selectedRevokedCount > 0 && (
+							<Button
+								size="sm"
+								variant="outline"
+								className="text-lv-red border-lv-red/30"
+								onClick={handleBulkDelete}
+								disabled={bulkLoading}
+							>
+								{bulkLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+								Delete ({selectedRevokedCount})
+							</Button>
+						)}
+						<Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+							Clear
+						</Button>
+					</div>
+				</div>
+			)}
+
 			{/* ── Secret banner ──────────────────────────────────────── */}
 			{secret && <SecretBanner secret={secret} onDismiss={() => setSecret(null)} />}
 
@@ -363,6 +470,14 @@ export function KeysPage() {
 							<Table>
 								<TableHeader>
 									<TableRow>
+										<TableHead className="w-8">
+											<input
+												type="checkbox"
+												checked={filteredKeys.length > 0 && selectedIds.size === filteredKeys.length}
+												onChange={toggleSelectAll}
+												className="rounded border-border"
+											/>
+										</TableHead>
 										<TableHead className={cn(T.sectionLabel, 'cursor-pointer select-none')} onClick={() => toggleSort('name')}>
 											<span className="flex items-center gap-1">
 												Name <SortIcon field="name" />
@@ -399,7 +514,15 @@ export function KeysPage() {
 								</TableHeader>
 								<TableBody>
 									{filteredKeys.map((k) => (
-										<TableRow key={k.id}>
+										<TableRow key={k.id} className={selectedIds.has(k.id) ? 'bg-lv-purple/5' : undefined}>
+											<TableCell className="w-8">
+												<input
+													type="checkbox"
+													checked={selectedIds.has(k.id)}
+													onChange={() => toggleSelect(k.id)}
+													className="rounded border-border"
+												/>
+											</TableCell>
 											<TableCell className={T.tableRowName}>{k.name}</TableCell>
 											<TableCell>
 												<code className={T.tableCellMono} title={k.id}>
@@ -427,7 +550,7 @@ export function KeysPage() {
 												{k.expires_at ? formatDate(k.expires_at) : <span className={T.muted}>Never</span>}
 											</TableCell>
 											<TableCell className={T.tableCell}>{k.created_by ?? <span className={T.muted}>—</span>}</TableCell>
-											<TableCell className="text-right">
+											<TableCell className="text-right space-x-1">
 												{!k.revoked && (
 													<Button
 														size="xs"
@@ -438,6 +561,18 @@ export function KeysPage() {
 													>
 														{revokingId === k.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldOff className="h-3.5 w-3.5" />}
 														Revoke
+													</Button>
+												)}
+												{!!k.revoked && (
+													<Button
+														size="xs"
+														variant="ghost"
+														className="text-muted-foreground hover:text-lv-red hover:bg-lv-red/10"
+														onClick={() => handleDelete(k.id)}
+														disabled={deletingId === k.id}
+													>
+														{deletingId === k.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+														Delete
 													</Button>
 												)}
 											</TableCell>

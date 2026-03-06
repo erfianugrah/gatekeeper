@@ -1,6 +1,16 @@
 import { evaluatePolicy } from './policy-engine';
 import { queryAll } from './crypto';
-import type { ApiKey, CachedKey, CreateKeyRequest, AuthResult, PurgeBody } from './types';
+import type {
+	ApiKey,
+	CachedKey,
+	CreateKeyRequest,
+	AuthResult,
+	PurgeBody,
+	BulkItemResult,
+	BulkResult,
+	BulkInspectItem,
+	BulkDryRunResult,
+} from './types';
 import type { PolicyDocument, RequestContext } from './policy-types';
 
 /** Key prefix for all keys. */
@@ -142,6 +152,65 @@ export class IamManager {
 		return result.rowsWritten > 0;
 	}
 
+	/** Permanently delete a key. Returns true if the row existed and was removed. */
+	deleteKey(id: string): boolean {
+		const result = this.sql.exec('DELETE FROM api_keys WHERE id = ?', id);
+		this.cache.delete(id);
+		return result.rowsWritten > 0;
+	}
+
+	// ─── Bulk operations ────────────────────────────────────────────────
+
+	/** Bulk soft-revoke keys. Returns per-item status. */
+	bulkRevoke(ids: string[]): BulkResult {
+		const results: BulkItemResult[] = [];
+		for (const id of ids) {
+			const existing = this.getKey(id);
+			if (!existing) {
+				results.push({ id, status: 'not_found' });
+			} else if (existing.key.revoked) {
+				results.push({ id, status: 'already_revoked' });
+			} else {
+				this.revokeKey(id);
+				results.push({ id, status: 'revoked' });
+			}
+		}
+		return { processed: results.length, results };
+	}
+
+	/** Bulk hard-delete keys. Returns per-item status. */
+	bulkDelete(ids: string[]): BulkResult {
+		const results: BulkItemResult[] = [];
+		for (const id of ids) {
+			const deleted = this.deleteKey(id);
+			results.push({ id, status: deleted ? 'deleted' : 'not_found' });
+		}
+		return { processed: results.length, results };
+	}
+
+	/** Inspect keys without modifying — for dry-run preview. */
+	bulkInspect(ids: string[], wouldBecome: string): BulkDryRunResult {
+		const items: BulkInspectItem[] = [];
+		for (const id of ids) {
+			const existing = this.getKey(id);
+			if (!existing) {
+				items.push({ id, current_status: 'not_found', would_become: 'not_found' });
+			} else {
+				const key = existing.key;
+				let currentStatus: BulkInspectItem['current_status'];
+				if (key.revoked) {
+					currentStatus = 'revoked';
+				} else if (key.expires_at && key.expires_at < Date.now()) {
+					currentStatus = 'expired';
+				} else {
+					currentStatus = 'active';
+				}
+				items.push({ id, current_status: currentStatus, would_become: wouldBecome });
+			}
+		}
+		return { dry_run: true, would_process: items.length, items };
+	}
+
 	// ─── Authorization ──────────────────────────────────────────────────
 
 	/** Evaluate the key's policy against request contexts. */
@@ -185,9 +254,10 @@ export class IamManager {
 
 	/**
 	 * Convenience: authorize from a PurgeBody (converts to RequestContext[] internally).
+	 * Optional requestFields are merged into every context (e.g. client_ip, client_country).
 	 */
-	authorizeFromBody(keyId: string, zoneId: string, body: PurgeBody): AuthResult {
-		const contexts = purgeBodyToContexts(body, zoneId);
+	authorizeFromBody(keyId: string, zoneId: string, body: PurgeBody, requestFields?: Record<string, string>): AuthResult {
+		const contexts = purgeBodyToContexts(body, zoneId, requestFields);
 		return this.authorize(keyId, zoneId, contexts);
 	}
 
@@ -254,15 +324,16 @@ function formatDeniedContext(ctx: RequestContext): string {
 
 // ─── Purge body → RequestContext conversion ─────────────────────────────────
 
-export function purgeBodyToContexts(body: PurgeBody, zoneId: string): RequestContext[] {
+export function purgeBodyToContexts(body: PurgeBody, zoneId: string, requestFields?: Record<string, string>): RequestContext[] {
 	const resource = `zone:${zoneId}`;
 	const contexts: RequestContext[] = [];
+	const extra: Record<string, string> = requestFields ?? {};
 
 	if (body.purge_everything) {
 		contexts.push({
 			action: 'purge:everything',
 			resource,
-			fields: { purge_everything: true },
+			fields: { ...extra, purge_everything: true },
 		});
 		return contexts;
 	}
@@ -272,7 +343,7 @@ export function purgeBodyToContexts(body: PurgeBody, zoneId: string): RequestCon
 			const url = typeof file === 'string' ? file : file.url;
 			const headers = typeof file === 'object' && file.headers ? file.headers : {};
 
-			const fields: Record<string, string | boolean> = { url };
+			const fields: Record<string, string | boolean> = { ...extra, url };
 
 			try {
 				const parsed = new URL(url);
@@ -298,19 +369,19 @@ export function purgeBodyToContexts(body: PurgeBody, zoneId: string): RequestCon
 
 	if (body.hosts) {
 		for (const host of body.hosts) {
-			contexts.push({ action: 'purge:host', resource, fields: { host } });
+			contexts.push({ action: 'purge:host', resource, fields: { ...extra, host } });
 		}
 	}
 
 	if (body.tags) {
 		for (const tag of body.tags) {
-			contexts.push({ action: 'purge:tag', resource, fields: { tag } });
+			contexts.push({ action: 'purge:tag', resource, fields: { ...extra, tag } });
 		}
 	}
 
 	if (body.prefixes) {
 		for (const prefix of body.prefixes) {
-			contexts.push({ action: 'purge:prefix', resource, fields: { prefix } });
+			contexts.push({ action: 'purge:prefix', resource, fields: { ...extra, prefix } });
 		}
 	}
 

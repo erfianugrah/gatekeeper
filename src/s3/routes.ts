@@ -5,6 +5,7 @@ import { detectOperation, buildConditionFields } from './operations';
 import { logS3Event } from './analytics';
 import { s3XmlError, parseDeleteObjectKeys } from './xml';
 import { getStub } from '../do-stub';
+import { extractRequestFields } from '../request-fields';
 import type { HonoEnv } from '../types';
 import type { RequestContext } from '../policy-types';
 import type { R2Credentials } from './upstream-r2';
@@ -133,6 +134,9 @@ s3App.all('/*', async (c) => {
 
 	// 3. Build request context and authorize via IAM
 	const fields = buildConditionFields(op, c.req.method, c.req.raw.headers, url.searchParams);
+	// Merge request-level fields (IP, geo, time) into condition fields
+	const reqFields = extractRequestFields(c.req.raw);
+	Object.assign(fields, reqFields);
 	const contexts: RequestContext[] = [
 		{
 			action: op.action,
@@ -256,7 +260,7 @@ s3App.all('/*', async (c) => {
 					status: r2Response.status,
 					duration_ms: Date.now() - start,
 					response_detail: responseDetail,
-					created_by: accessKeyId,
+					created_by: 'via API key',
 					created_at: Date.now(),
 				}),
 			);
@@ -294,7 +298,7 @@ s3App.all('/*', async (c) => {
 					status: 502,
 					duration_ms: Date.now() - start,
 					response_detail: e.message ?? null,
-					created_by: accessKeyId,
+					created_by: 'via API key',
 					created_at: Date.now(),
 				}),
 			);

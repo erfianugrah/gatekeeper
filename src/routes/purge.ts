@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { RequestCollapser } from '../request-collapse';
 import { logPurgeEvent } from '../analytics';
 import { getStub } from '../do-stub';
+import { extractRequestFields } from '../request-fields';
 import type { PurgeEvent } from '../analytics';
 import type { PurgeBody, ParsedPurgeRequest, PurgeResult, HonoEnv } from '../types';
 
@@ -100,8 +101,11 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 		return c.json({ success: false, errors: [{ code: 502, message: `No upstream API token registered for zone ${zoneId}` }] }, 502);
 	}
 
+	// Extract request-level fields for policy conditions (IP, geo, time)
+	const requestFields = extractRequestFields(c.req.raw);
+
 	// Full policy authorization (always per-request, never collapsed)
-	const authResult = await stub.authorizeFromBody(keyId, zoneId, body);
+	const authResult = await stub.authorizeFromBody(keyId, zoneId, body, requestFields);
 	if (!authResult.authorized) {
 		const status = authResult.error === 'Invalid API key' ? 401 : 403;
 		log.status = status;
@@ -133,8 +137,9 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 
 	// Determine collapse level for logging
 	const collapseLevel = collapsedAtIsolate ? 'isolate' : result.collapsed ? 'do' : false;
-	// Use the isolate-level flightId if collapsed at isolate, otherwise the DO's flightId
-	const flightId = collapsedAtIsolate ? isolateFlightId : result.flightId;
+	// Always use the DO's flightId — isolate followers share the same DO result,
+	// so all events in a flight group (leader + DO-collapsed + isolate-collapsed) share one ID.
+	const flightId = result.flightId;
 	log.collapsed = collapseLevel;
 	log.rateLimitAllowed = result.status !== 429 || !!collapseLevel;
 	log.rateLimitRemaining = result.rateLimitInfo.remaining;

@@ -141,28 +141,50 @@ adminKeysApp.get('/:id', async (c) => {
 	return c.json({ success: true, result });
 });
 
-// ─── Revoke key ─────────────────────────────────────────────────────────────
+// ─── Revoke / delete key ────────────────────────────────────────────────────
 
 adminKeysApp.delete('/:id', async (c) => {
 	const zoneId = c.req.query('zone_id') || undefined;
+	const permanent = c.req.query('permanent') === 'true';
 	const keyId = c.req.param('id');
 	const stub = getStub(c.env);
 
 	const existing = await stub.getKey(keyId);
 	if (!existing || (zoneId && existing.key.zone_id !== zoneId)) {
-		return c.json({ success: false, errors: [{ code: 404, message: 'Key not found or already revoked' }] }, 404);
+		return c.json({ success: false, errors: [{ code: 404, message: 'Key not found' }] }, 404);
+	}
+
+	if (permanent) {
+		const deleted = await stub.deleteKey(keyId);
+
+		console.log(
+			JSON.stringify({
+				route: 'admin.deleteKey',
+				zoneId: existing.key.zone_id,
+				keyId: keyId.slice(0, 12) + '...',
+				deleted,
+				ts: new Date().toISOString(),
+			}),
+		);
+
+		if (!deleted) {
+			return c.json({ success: false, errors: [{ code: 404, message: 'Key not found' }] }, 404);
+		}
+
+		return c.json({ success: true, result: { deleted: true } });
 	}
 
 	const revoked = await stub.revokeKey(keyId);
 
-	const log: Record<string, unknown> = {
-		route: 'admin.revokeKey',
-		zoneId: existing.key.zone_id,
-		keyId: keyId.slice(0, 12) + '...',
-		revoked,
-		ts: new Date().toISOString(),
-	};
-	console.log(JSON.stringify(log));
+	console.log(
+		JSON.stringify({
+			route: 'admin.revokeKey',
+			zoneId: existing.key.zone_id,
+			keyId: keyId.slice(0, 12) + '...',
+			revoked,
+			ts: new Date().toISOString(),
+		}),
+	);
 
 	if (!revoked) {
 		return c.json({ success: false, errors: [{ code: 404, message: 'Key not found or already revoked' }] }, 404);
@@ -171,7 +193,98 @@ adminKeysApp.delete('/:id', async (c) => {
 	return c.json({ success: true, result: { revoked: true } });
 });
 
+// ─── Bulk revoke ────────────────────────────────────────────────────────────
+
+adminKeysApp.post('/bulk-revoke', async (c) => {
+	const log: Record<string, unknown> = { route: 'admin.bulkRevokeKeys', ts: new Date().toISOString() };
+
+	const body = await parseBulkBody(c, 'ids');
+	if (body instanceof Response) return body;
+
+	const { ids, dryRun } = body;
+	const stub = getStub(c.env);
+
+	if (dryRun) {
+		const preview = await stub.bulkInspectKeys(ids, 'revoked');
+		log.status = 200;
+		log.dryRun = true;
+		log.count = ids.length;
+		console.log(JSON.stringify(log));
+		return c.json({ success: true, result: preview });
+	}
+
+	const result = await stub.bulkRevokeKeys(ids);
+	log.status = 200;
+	log.processed = result.processed;
+	console.log(JSON.stringify(log));
+	return c.json({ success: true, result });
+});
+
+// ─── Bulk delete ────────────────────────────────────────────────────────────
+
+adminKeysApp.post('/bulk-delete', async (c) => {
+	const log: Record<string, unknown> = { route: 'admin.bulkDeleteKeys', ts: new Date().toISOString() };
+
+	const body = await parseBulkBody(c, 'ids');
+	if (body instanceof Response) return body;
+
+	const { ids, dryRun } = body;
+	const stub = getStub(c.env);
+
+	if (dryRun) {
+		const preview = await stub.bulkInspectKeys(ids, 'deleted');
+		log.status = 200;
+		log.dryRun = true;
+		log.count = ids.length;
+		console.log(JSON.stringify(log));
+		return c.json({ success: true, result: preview });
+	}
+
+	const result = await stub.bulkDeleteKeys(ids);
+	log.status = 200;
+	log.processed = result.processed;
+	console.log(JSON.stringify(log));
+	return c.json({ success: true, result });
+});
+
 // ─── Private helpers ────────────────────────────────────────────────────────
+
+const MAX_BULK_ITEMS = 100;
+
+/** Parse and validate a bulk operation request body. Returns parsed data or a 400 Response. */
+async function parseBulkBody(
+	c: { req: { json: <T>() => Promise<T> }; json: (data: unknown, status: number) => Response },
+	idField: 'ids' | 'access_key_ids',
+): Promise<{ ids: string[]; dryRun: boolean } | Response> {
+	let raw: Record<string, unknown>;
+	try {
+		raw = await c.req.json<Record<string, unknown>>();
+	} catch {
+		return c.json({ success: false, errors: [{ code: 400, message: 'Invalid JSON body' }] }, 400);
+	}
+
+	const ids = raw[idField];
+	if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id) => typeof id === 'string')) {
+		return c.json({ success: false, errors: [{ code: 400, message: `${idField} must be a non-empty array of strings` }] }, 400);
+	}
+
+	if (ids.length > MAX_BULK_ITEMS) {
+		return c.json({ success: false, errors: [{ code: 400, message: `Maximum ${MAX_BULK_ITEMS} items per request` }] }, 400);
+	}
+
+	if (typeof raw.confirm_count !== 'number' || raw.confirm_count !== ids.length) {
+		return c.json(
+			{
+				success: false,
+				errors: [{ code: 400, message: `confirm_count must equal ${idField} array length (${ids.length})` }],
+			},
+			400,
+		);
+	}
+
+	const dryRun = raw.dry_run === true;
+	return { ids: ids as string[], dryRun };
+}
 
 /** Validate per-key rate limits against account defaults. Returns error string or null. */
 function validateRateLimits(rl: NonNullable<CreateKeyRequest['rate_limit']>, config: GatewayConfig): string | null {

@@ -210,13 +210,17 @@ const get = defineCommand({
 
 // --- keys revoke ---
 const revoke = defineCommand({
-	meta: { name: 'revoke', description: 'Revoke an API key (irreversible)' },
+	meta: { name: 'revoke', description: 'Revoke or permanently delete an API key' },
 	args: {
 		...globalArgs,
 		'key-id': {
 			type: 'string',
 			description: 'The API key ID to revoke (gw_...)',
 			required: true,
+		},
+		permanent: {
+			type: 'boolean',
+			description: 'Permanently delete the key row instead of soft-revoking',
 		},
 		force: {
 			type: 'boolean',
@@ -228,9 +232,11 @@ const revoke = defineCommand({
 		const config = resolveConfig(args);
 		const zoneId = resolveZoneId(args);
 		const keyId = args['key-id'];
+		const isPermanent = !!args.permanent;
+		const action = isPermanent ? 'permanently delete' : 'revoke';
 
 		if (!args.force && process.stdin.isTTY) {
-			warn(`You are about to revoke key ${bold(keyId)}. This cannot be undone.`);
+			warn(`You are about to ${action} key ${bold(keyId)}. This cannot be undone.`);
 			process.stderr.write(`  Continue? [y/N] `);
 
 			const confirmed = await new Promise<boolean>((resolve) => {
@@ -251,12 +257,11 @@ const revoke = defineCommand({
 			}
 		}
 
-		const { status, data, durationMs } = await request(
-			config,
-			'DELETE',
-			`/admin/keys/${encodeURIComponent(keyId)}?zone_id=${encodeURIComponent(zoneId)}`,
-			{ auth: 'admin', label: 'Revoking key...' },
-		);
+		const qs = `zone_id=${encodeURIComponent(zoneId)}${isPermanent ? '&permanent=true' : ''}`;
+		const { status, data, durationMs } = await request(config, 'DELETE', `/admin/keys/${encodeURIComponent(keyId)}?${qs}`, {
+			auth: 'admin',
+			label: isPermanent ? 'Deleting key...' : 'Revoking key...',
+		});
 
 		if (args.json) {
 			assertOk(status, data);
@@ -266,7 +271,153 @@ const revoke = defineCommand({
 
 		assertOk(status, data);
 		console.error('');
-		success(`Key ${bold(keyId)} revoked ${dim(`(${formatDuration(durationMs)})`)}`);
+		if (isPermanent) {
+			success(`Key ${bold(keyId)} permanently deleted ${dim(`(${formatDuration(durationMs)})`)}`);
+		} else {
+			success(`Key ${bold(keyId)} revoked ${dim(`(${formatDuration(durationMs)})`)}`);
+		}
+		console.error('');
+	},
+});
+
+// --- keys bulk-revoke ---
+const bulkRevoke = defineCommand({
+	meta: { name: 'bulk-revoke', description: 'Bulk soft-revoke multiple API keys' },
+	args: {
+		...globalArgs,
+		ids: {
+			type: 'string',
+			description: 'Comma-separated list of key IDs (gw_...)',
+			required: true,
+		},
+		confirm: {
+			type: 'boolean',
+			description: 'Execute the operation (without this flag, runs in dry-run mode)',
+		},
+	},
+	async run({ args }) {
+		const config = resolveConfig(args);
+		const ids = args.ids
+			.split(',')
+			.map((s: string) => s.trim())
+			.filter(Boolean);
+
+		if (ids.length === 0) {
+			error('No key IDs provided');
+			process.exit(1);
+		}
+
+		const body: Record<string, unknown> = {
+			ids,
+			confirm_count: ids.length,
+			dry_run: !args.confirm,
+		};
+
+		const { status, data, durationMs } = await request(config, 'POST', '/admin/keys/bulk-revoke', {
+			body,
+			auth: 'admin',
+			label: args.confirm ? 'Bulk revoking keys...' : 'Previewing bulk revoke (dry run)...',
+		});
+
+		if (args.json) {
+			assertOk(status, data);
+			printJson(data);
+			return;
+		}
+
+		assertOk(status, data);
+		const result = (data as Record<string, unknown>).result as Record<string, unknown>;
+
+		console.error('');
+		if (result.dry_run) {
+			warn(`Dry run — no changes made ${dim(`(${formatDuration(durationMs)})`)}`);
+			console.error('');
+			const items = result.items as { id: string; current_status: string; would_become: string }[];
+			const rows = items.map((i) => [cyan(i.id), i.current_status, yellow(i.would_become)]);
+			table(['ID', 'Current Status', 'Would Become'], rows);
+			console.error('');
+			info(`Re-run with ${bold('--confirm')} to execute.`);
+		} else {
+			success(`Bulk revoke complete ${dim(`(${formatDuration(durationMs)})`)}`);
+			console.error('');
+			const results = result.results as { id: string; status: string }[];
+			const rows = results.map((r) => {
+				const statusLabel = r.status === 'revoked' ? green(r.status) : r.status === 'not_found' ? red(r.status) : yellow(r.status);
+				return [cyan(r.id), statusLabel];
+			});
+			table(['ID', 'Status'], rows);
+		}
+		console.error('');
+	},
+});
+
+// --- keys bulk-delete ---
+const bulkDelete = defineCommand({
+	meta: { name: 'bulk-delete', description: 'Bulk permanently delete multiple API keys' },
+	args: {
+		...globalArgs,
+		ids: {
+			type: 'string',
+			description: 'Comma-separated list of key IDs (gw_...)',
+			required: true,
+		},
+		confirm: {
+			type: 'boolean',
+			description: 'Execute the operation (without this flag, runs in dry-run mode)',
+		},
+	},
+	async run({ args }) {
+		const config = resolveConfig(args);
+		const ids = args.ids
+			.split(',')
+			.map((s: string) => s.trim())
+			.filter(Boolean);
+
+		if (ids.length === 0) {
+			error('No key IDs provided');
+			process.exit(1);
+		}
+
+		const body: Record<string, unknown> = {
+			ids,
+			confirm_count: ids.length,
+			dry_run: !args.confirm,
+		};
+
+		const { status, data, durationMs } = await request(config, 'POST', '/admin/keys/bulk-delete', {
+			body,
+			auth: 'admin',
+			label: args.confirm ? 'Bulk deleting keys...' : 'Previewing bulk delete (dry run)...',
+		});
+
+		if (args.json) {
+			assertOk(status, data);
+			printJson(data);
+			return;
+		}
+
+		assertOk(status, data);
+		const result = (data as Record<string, unknown>).result as Record<string, unknown>;
+
+		console.error('');
+		if (result.dry_run) {
+			warn(`Dry run — no changes made ${dim(`(${formatDuration(durationMs)})`)}`);
+			console.error('');
+			const items = result.items as { id: string; current_status: string; would_become: string }[];
+			const rows = items.map((i) => [cyan(i.id), i.current_status, yellow(i.would_become)]);
+			table(['ID', 'Current Status', 'Would Become'], rows);
+			console.error('');
+			info(`Re-run with ${bold('--confirm')} to execute.`);
+		} else {
+			success(`Bulk delete complete ${dim(`(${formatDuration(durationMs)})`)}`);
+			console.error('');
+			const results = result.results as { id: string; status: string }[];
+			const rows = results.map((r) => {
+				const statusLabel = r.status === 'deleted' ? green(r.status) : red(r.status);
+				return [cyan(r.id), statusLabel];
+			});
+			table(['ID', 'Status'], rows);
+		}
 		console.error('');
 	},
 });
@@ -274,5 +425,5 @@ const revoke = defineCommand({
 // --- keys (parent) ---
 export default defineCommand({
 	meta: { name: 'keys', description: 'Manage API keys' },
-	subCommands: { create, list, get, revoke },
+	subCommands: { create, list, get, revoke, 'bulk-revoke': bulkRevoke, 'bulk-delete': bulkDelete },
 });

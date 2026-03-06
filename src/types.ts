@@ -117,6 +117,40 @@ export interface CachedKey {
 	cachedAt: number;
 }
 
+// --- Bulk operation types ---
+
+/** Per-item status from a bulk revoke operation. */
+export type BulkRevokeStatus = 'revoked' | 'already_revoked' | 'not_found';
+
+/** Per-item status from a bulk delete operation. */
+export type BulkDeleteStatus = 'deleted' | 'not_found';
+
+/** Per-item result for a bulk operation. */
+export interface BulkItemResult {
+	id: string;
+	status: BulkRevokeStatus | BulkDeleteStatus;
+}
+
+/** Response payload for a bulk operation. */
+export interface BulkResult {
+	processed: number;
+	results: BulkItemResult[];
+}
+
+/** Per-item preview for a dry-run bulk operation. */
+export interface BulkInspectItem {
+	id: string;
+	current_status: 'active' | 'revoked' | 'expired' | 'not_found';
+	would_become: string;
+}
+
+/** Response payload for a dry-run bulk operation. */
+export interface BulkDryRunResult {
+	dry_run: true;
+	would_process: number;
+	items: BulkInspectItem[];
+}
+
 // --- Request collapsing types ---
 
 export interface PurgeResult {

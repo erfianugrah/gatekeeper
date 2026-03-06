@@ -6,7 +6,17 @@ import { S3CredentialManager } from './s3/iam';
 import { UpstreamTokenManager } from './upstream-tokens';
 import { UpstreamR2Manager } from './s3/upstream-r2';
 import { ConfigManager } from './config-registry';
-import type { PurgeBody, ConsumeResult, CreateKeyRequest, AuthResult, ApiKey, PurgeResult, RateClass } from './types';
+import type {
+	PurgeBody,
+	ConsumeResult,
+	CreateKeyRequest,
+	AuthResult,
+	ApiKey,
+	PurgeResult,
+	RateClass,
+	BulkResult,
+	BulkDryRunResult,
+} from './types';
 import type { S3Credential, CreateS3CredentialRequest } from './s3/types';
 import type { UpstreamToken, CreateUpstreamTokenRequest } from './upstream-tokens';
 import type { UpstreamR2, CreateUpstreamR2Request, R2Credentials } from './s3/upstream-r2';
@@ -312,8 +322,8 @@ export class Gatekeeper extends DurableObject<Env> {
 		bucket.drain();
 	}
 
-	async authorizeFromBody(keyId: string, zoneId: string, body: PurgeBody): Promise<AuthResult> {
-		return this.iam.authorizeFromBody(keyId, zoneId, body);
+	async authorizeFromBody(keyId: string, zoneId: string, body: PurgeBody, requestFields?: Record<string, string>): Promise<AuthResult> {
+		return this.iam.authorizeFromBody(keyId, zoneId, body, requestFields);
 	}
 
 	async createKey(req: CreateKeyRequest): Promise<{ key: ApiKey }> {
@@ -333,6 +343,31 @@ export class Gatekeeper extends DurableObject<Env> {
 		return this.iam.revokeKey(id);
 	}
 
+	async deleteKey(id: string): Promise<boolean> {
+		this.keyBuckets.delete(id);
+		return this.iam.deleteKey(id);
+	}
+
+	async bulkRevokeKeys(ids: string[]): Promise<BulkResult> {
+		const result = this.iam.bulkRevoke(ids);
+		for (const item of result.results) {
+			if (item.status === 'revoked') this.keyBuckets.delete(item.id);
+		}
+		return result;
+	}
+
+	async bulkDeleteKeys(ids: string[]): Promise<BulkResult> {
+		const result = this.iam.bulkDelete(ids);
+		for (const item of result.results) {
+			if (item.status === 'deleted') this.keyBuckets.delete(item.id);
+		}
+		return result;
+	}
+
+	async bulkInspectKeys(ids: string[], wouldBecome: string): Promise<BulkDryRunResult> {
+		return this.iam.bulkInspect(ids, wouldBecome);
+	}
+
 	// ─── S3 Credential RPC methods ──────────────────────────────────────
 
 	async createS3Credential(req: CreateS3CredentialRequest): Promise<{ credential: S3Credential }> {
@@ -349,6 +384,22 @@ export class Gatekeeper extends DurableObject<Env> {
 
 	async revokeS3Credential(accessKeyId: string): Promise<boolean> {
 		return this.s3Iam.revokeCredential(accessKeyId);
+	}
+
+	async deleteS3Credential(accessKeyId: string): Promise<boolean> {
+		return this.s3Iam.deleteCredential(accessKeyId);
+	}
+
+	async bulkRevokeS3Credentials(accessKeyIds: string[]): Promise<BulkResult> {
+		return this.s3Iam.bulkRevoke(accessKeyIds);
+	}
+
+	async bulkDeleteS3Credentials(accessKeyIds: string[]): Promise<BulkResult> {
+		return this.s3Iam.bulkDelete(accessKeyIds);
+	}
+
+	async bulkInspectS3Credentials(accessKeyIds: string[], wouldBecome: string): Promise<BulkDryRunResult> {
+		return this.s3Iam.bulkInspect(accessKeyIds, wouldBecome);
 	}
 
 	/** Get the secret for Sig V4 verification. Returns null if credential is invalid/revoked/expired. */

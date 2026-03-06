@@ -30,7 +30,7 @@ export interface PolicyDocument {
 }
 
 export interface Statement {
-	effect: 'allow';
+	effect: 'allow' | 'deny';
 	actions: string[];
 	resources: string[];
 	conditions?: Condition[];
@@ -173,6 +173,48 @@ export async function revokeKey(id: string): Promise<{ revoked: boolean }> {
 	});
 }
 
+export async function deleteKey(id: string): Promise<{ deleted: boolean }> {
+	return apiFetch<{ deleted: boolean }>(`/admin/keys/${id}?permanent=true`, {
+		method: 'DELETE',
+	});
+}
+
+export interface BulkItemResult {
+	id: string;
+	status: string;
+}
+
+export interface BulkResult {
+	processed: number;
+	results: BulkItemResult[];
+}
+
+export interface BulkDryRunItem {
+	id: string;
+	current_status: string;
+	would_become: string;
+}
+
+export interface BulkDryRunResult {
+	dry_run: true;
+	would_process: number;
+	items: BulkDryRunItem[];
+}
+
+export async function bulkRevokeKeys(ids: string[]): Promise<BulkResult> {
+	return apiFetch<BulkResult>('/admin/keys/bulk-revoke', {
+		method: 'POST',
+		body: JSON.stringify({ ids, confirm_count: ids.length }),
+	});
+}
+
+export async function bulkDeleteKeys(ids: string[]): Promise<BulkResult> {
+	return apiFetch<BulkResult>('/admin/keys/bulk-delete', {
+		method: 'POST',
+		body: JSON.stringify({ ids, confirm_count: ids.length }),
+	});
+}
+
 // ─── Analytics ───────────────────────────────────────────────────────
 
 export interface EventsQuery {
@@ -245,6 +287,26 @@ export async function createS3Credential(req: CreateS3CredentialRequest): Promis
 export async function revokeS3Credential(accessKeyId: string): Promise<{ revoked: boolean }> {
 	return apiFetch<{ revoked: boolean }>(`/admin/s3/credentials/${accessKeyId}`, {
 		method: 'DELETE',
+	});
+}
+
+export async function deleteS3Credential(accessKeyId: string): Promise<{ deleted: boolean }> {
+	return apiFetch<{ deleted: boolean }>(`/admin/s3/credentials/${accessKeyId}?permanent=true`, {
+		method: 'DELETE',
+	});
+}
+
+export async function bulkRevokeS3Credentials(accessKeyIds: string[]): Promise<BulkResult> {
+	return apiFetch<BulkResult>('/admin/s3/credentials/bulk-revoke', {
+		method: 'POST',
+		body: JSON.stringify({ access_key_ids: accessKeyIds, confirm_count: accessKeyIds.length }),
+	});
+}
+
+export async function bulkDeleteS3Credentials(accessKeyIds: string[]): Promise<BulkResult> {
+	return apiFetch<BulkResult>('/admin/s3/credentials/bulk-delete', {
+		method: 'POST',
+		body: JSON.stringify({ access_key_ids: accessKeyIds, confirm_count: accessKeyIds.length }),
 	});
 }
 

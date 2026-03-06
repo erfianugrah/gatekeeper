@@ -2,7 +2,7 @@ import { evaluatePolicy } from '../policy-engine';
 import { queryAll } from '../crypto';
 import type { PolicyDocument, RequestContext } from '../policy-types';
 import type { S3Credential, CachedS3Credential, CreateS3CredentialRequest } from './types';
-import type { AuthResult } from '../types';
+import type { AuthResult, BulkItemResult, BulkResult, BulkInspectItem, BulkDryRunResult } from '../types';
 
 /** Access key ID prefix. */
 const KEY_PREFIX = 'GK';
@@ -112,6 +112,65 @@ export class S3CredentialManager {
 		const result = this.sql.exec('UPDATE s3_credentials SET revoked = 1 WHERE access_key_id = ? AND revoked = 0', accessKeyId);
 		this.cache.delete(accessKeyId);
 		return result.rowsWritten > 0;
+	}
+
+	/** Permanently delete a credential. Returns true if the row existed and was removed. */
+	deleteCredential(accessKeyId: string): boolean {
+		const result = this.sql.exec('DELETE FROM s3_credentials WHERE access_key_id = ?', accessKeyId);
+		this.cache.delete(accessKeyId);
+		return result.rowsWritten > 0;
+	}
+
+	// ─── Bulk operations ────────────────────────────────────────────────
+
+	/** Bulk soft-revoke credentials. Returns per-item status. */
+	bulkRevoke(accessKeyIds: string[]): BulkResult {
+		const results: BulkItemResult[] = [];
+		for (const id of accessKeyIds) {
+			const existing = this.getCredential(id);
+			if (!existing) {
+				results.push({ id, status: 'not_found' });
+			} else if (existing.credential.revoked) {
+				results.push({ id, status: 'already_revoked' });
+			} else {
+				this.revokeCredential(id);
+				results.push({ id, status: 'revoked' });
+			}
+		}
+		return { processed: results.length, results };
+	}
+
+	/** Bulk hard-delete credentials. Returns per-item status. */
+	bulkDelete(accessKeyIds: string[]): BulkResult {
+		const results: BulkItemResult[] = [];
+		for (const id of accessKeyIds) {
+			const deleted = this.deleteCredential(id);
+			results.push({ id, status: deleted ? 'deleted' : 'not_found' });
+		}
+		return { processed: results.length, results };
+	}
+
+	/** Inspect credentials without modifying — for dry-run preview. */
+	bulkInspect(accessKeyIds: string[], wouldBecome: string): BulkDryRunResult {
+		const items: BulkInspectItem[] = [];
+		for (const id of accessKeyIds) {
+			const existing = this.getCredential(id);
+			if (!existing) {
+				items.push({ id, current_status: 'not_found', would_become: 'not_found' });
+			} else {
+				const cred = existing.credential;
+				let currentStatus: BulkInspectItem['current_status'];
+				if (cred.revoked) {
+					currentStatus = 'revoked';
+				} else if (cred.expires_at && cred.expires_at < Date.now()) {
+					currentStatus = 'expired';
+				} else {
+					currentStatus = 'active';
+				}
+				items.push({ id, current_status: currentStatus, would_become: wouldBecome });
+			}
+		}
+		return { dry_run: true, would_process: items.length, items };
 	}
 
 	// ─── Auth path (used by Sig V4 verification) ────────────────────────

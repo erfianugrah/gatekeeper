@@ -83,6 +83,157 @@ describe('S3 credentials — CRUD', () => {
 		expect(revokeRes2.status).toBe(404);
 	});
 
+	it('permanent delete removes the credential entirely', async () => {
+		const createRes = await createS3Credential(s3WildcardPolicy(), 'delete-me');
+		const accessKeyId = (await createRes.json<any>()).result.credential.access_key_id;
+
+		// Permanent delete (active credential)
+		const delRes = await SELF.fetch(`http://localhost/admin/s3/credentials/${accessKeyId}?permanent=true`, {
+			method: 'DELETE',
+			headers: adminHeaders(),
+		});
+		expect(delRes.status).toBe(200);
+		expect((await delRes.json<any>()).result.deleted).toBe(true);
+
+		// GET -> 404
+		const getRes = await SELF.fetch(`http://localhost/admin/s3/credentials/${accessKeyId}`, { headers: adminHeaders() });
+		expect(getRes.status).toBe(404);
+
+		// Delete again -> 404
+		const delAgain = await SELF.fetch(`http://localhost/admin/s3/credentials/${accessKeyId}?permanent=true`, {
+			method: 'DELETE',
+			headers: adminHeaders(),
+		});
+		expect(delAgain.status).toBe(404);
+	});
+
+	it('permanent delete works on already-revoked credentials', async () => {
+		const createRes = await createS3Credential(s3WildcardPolicy(), 'revoke-then-delete');
+		const accessKeyId = (await createRes.json<any>()).result.credential.access_key_id;
+
+		// Revoke first
+		await SELF.fetch(`http://localhost/admin/s3/credentials/${accessKeyId}`, { method: 'DELETE', headers: adminHeaders() });
+
+		// Permanent delete
+		const delRes = await SELF.fetch(`http://localhost/admin/s3/credentials/${accessKeyId}?permanent=true`, {
+			method: 'DELETE',
+			headers: adminHeaders(),
+		});
+		expect(delRes.status).toBe(200);
+		expect((await delRes.json<any>()).result.deleted).toBe(true);
+
+		// Gone from list
+		const listRes = await SELF.fetch('http://localhost/admin/s3/credentials', { headers: adminHeaders() });
+		const creds = (await listRes.json<any>()).result;
+		expect(creds.some((c: any) => c.access_key_id === accessKeyId)).toBe(false);
+	});
+
+	it('bulk-revoke mix of active, already-revoked, not-found', async () => {
+		const res1 = await createS3Credential(s3WildcardPolicy(), 'bulk-r-1');
+		const id1 = (await res1.json<any>()).result.credential.access_key_id;
+		const res2 = await createS3Credential(s3WildcardPolicy(), 'bulk-r-2');
+		const id2 = (await res2.json<any>()).result.credential.access_key_id;
+		// Revoke id2 first
+		await SELF.fetch(`http://localhost/admin/s3/credentials/${id2}`, { method: 'DELETE', headers: adminHeaders() });
+
+		const res = await SELF.fetch('http://localhost/admin/s3/credentials/bulk-revoke', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				access_key_ids: [id1, id2, 'GK000000000000000000'],
+				confirm_count: 3,
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.result.processed).toBe(3);
+
+		const statuses = Object.fromEntries(data.result.results.map((r: any) => [r.id, r.status]));
+		expect(statuses[id1]).toBe('revoked');
+		expect(statuses[id2]).toBe('already_revoked');
+		expect(statuses['GK000000000000000000']).toBe('not_found');
+	});
+
+	it('bulk-revoke dry_run returns preview without modifying', async () => {
+		const res1 = await createS3Credential(s3WildcardPolicy(), 'bulk-dry-s3');
+		const id1 = (await res1.json<any>()).result.credential.access_key_id;
+
+		const res = await SELF.fetch('http://localhost/admin/s3/credentials/bulk-revoke', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({ access_key_ids: [id1], confirm_count: 1, dry_run: true }),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.result.dry_run).toBe(true);
+		expect(data.result.items[0].current_status).toBe('active');
+		expect(data.result.items[0].would_become).toBe('revoked');
+
+		// Credential should still be active
+		const getRes = await SELF.fetch(`http://localhost/admin/s3/credentials/${id1}`, { headers: adminHeaders() });
+		const getCred = await getRes.json<any>();
+		expect(getCred.result.credential.revoked).toBe(0);
+	});
+
+	it('bulk-revoke rejects confirm_count mismatch', async () => {
+		const res = await SELF.fetch('http://localhost/admin/s3/credentials/bulk-revoke', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({ access_key_ids: ['GKa', 'GKb'], confirm_count: 5 }),
+		});
+		expect(res.status).toBe(400);
+		const data = await res.json<any>();
+		expect(data.errors[0].message).toMatch(/confirm_count/);
+	});
+
+	it('bulk-delete mix of existing and not-found', async () => {
+		const res1 = await createS3Credential(s3WildcardPolicy(), 'bulk-d-s3-1');
+		const id1 = (await res1.json<any>()).result.credential.access_key_id;
+		const res2 = await createS3Credential(s3WildcardPolicy(), 'bulk-d-s3-2');
+		const id2 = (await res2.json<any>()).result.credential.access_key_id;
+
+		const res = await SELF.fetch('http://localhost/admin/s3/credentials/bulk-delete', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				access_key_ids: [id1, id2, 'GK000000000000000000'],
+				confirm_count: 3,
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.result.processed).toBe(3);
+
+		const statuses = Object.fromEntries(data.result.results.map((r: any) => [r.id, r.status]));
+		expect(statuses[id1]).toBe('deleted');
+		expect(statuses[id2]).toBe('deleted');
+		expect(statuses['GK000000000000000000']).toBe('not_found');
+
+		// Both should be gone
+		const get1 = await SELF.fetch(`http://localhost/admin/s3/credentials/${id1}`, { headers: adminHeaders() });
+		expect(get1.status).toBe(404);
+	});
+
+	it('bulk-delete dry_run returns preview without modifying', async () => {
+		const res1 = await createS3Credential(s3WildcardPolicy(), 'bulk-dry-d-s3');
+		const id1 = (await res1.json<any>()).result.credential.access_key_id;
+
+		const res = await SELF.fetch('http://localhost/admin/s3/credentials/bulk-delete', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({ access_key_ids: [id1], confirm_count: 1, dry_run: true }),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.result.dry_run).toBe(true);
+		expect(data.result.items[0].would_become).toBe('deleted');
+
+		// Credential should still exist
+		const getRes = await SELF.fetch(`http://localhost/admin/s3/credentials/${id1}`, { headers: adminHeaders() });
+		expect(getRes.status).toBe(200);
+	});
+
 	it('get non-existent credential -> 404', async () => {
 		const res = await SELF.fetch('http://localhost/admin/s3/credentials/GK000000000000000000', {
 			headers: adminHeaders(),
