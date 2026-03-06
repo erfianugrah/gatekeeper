@@ -22,6 +22,7 @@ import { run as runAnalytics } from './smoke/analytics.js';
 import { run as runDashboard } from './smoke/dashboard.js';
 import { run as runS3 } from './smoke/s3.js';
 import { run as runRoutes } from './smoke/routes.js';
+import { run as runConfig } from './smoke/config.js';
 
 // ─── Preflight checks ─────────────────────────────────────────────────────
 
@@ -108,6 +109,7 @@ async function main(): Promise<void> {
 		await runAnalytics(ctx);
 		await runDashboard();
 		await runS3(ctx);
+		await runConfig(ctx);
 		await runRoutes(ctx);
 	} finally {
 		// ─── Cleanup ────────────────────────────────────────────────────

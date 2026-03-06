@@ -172,7 +172,7 @@ Token/secret values are write-only — they can't be retrieved after registratio
 npm run dev              # wrangler dev (local)
 npm run build            # build dashboard + CLI
 npm run deploy           # build dashboard, then wrangler deploy
-npm test                 # run all tests (482 across worker + CLI)
+npm test                 # run all tests (551 across worker + CLI)
 npm run test:worker      # worker tests only
 npm run test:cli         # CLI tests only
 npx wrangler types       # regenerate types after changing wrangler.jsonc
@@ -1374,7 +1374,7 @@ Config via env vars (`GATEKEEPER_URL`, `GATEKEEPER_ADMIN_KEY`, `GATEKEEPER_API_K
 
 ## Tests
 
-482 tests across 25 test files (466 worker + 16 CLI):
+551 tests across 29 test files (535 worker + 16 CLI):
 
 ```bash
 npm test              # all (vitest workspace: worker + CLI)
@@ -1409,9 +1409,13 @@ npm run smoke         # E2E smoke tests against a live instance (via tsx)
 | `test/admin.test.ts`                    | 22    | Admin auth, key lifecycle, hard-delete, bulk revoke/delete                        |
 | `test/security-headers.test.ts`         | 12    | Security headers on every route type, no functional interference                  |
 | `test/analytics.test.ts`                | 9     | D1 event logging, filtering, summary                                              |
+| `test/upstream-tokens.test.ts`          | 15    | Upstream token CRUD lifecycle, validation, auth, created_by                       |
+| `test/upstream-r2.test.ts`              | 14    | Upstream R2 endpoint CRUD lifecycle, validation, auth                             |
+| `test/s3-analytics.test.ts`             | 10    | S3 analytics events/summary, D1 logging, credential filtering                     |
+| `test/s3-xml.test.ts`                   | 31    | XML escaping, entity decoding, DeleteObjects parsing, S3 error responses          |
 | `cli/cli.test.ts`                       | 16    | Policy parsing, config resolution                                                 |
 
-Smoke tests: `npm run smoke` — modularized E2E suite (20 sections across 7 modules) against a live instance.
+Smoke tests: `npm run smoke` — modularized E2E suite (22 sections across 9 modules) against a live instance.
 
 ---
 
@@ -1481,7 +1485,7 @@ src/
 cli/
   index.ts                           Entry point (citty, 8 subcommands)
   smoke-test.ts                      E2E smoke test orchestrator
-  smoke/                             Modularized smoke test modules (7 files)
+  smoke/                             Modularized smoke test modules (9 files)
   client.ts                          HTTP client
   ui.ts                              Colors, spinners, tables
   commands/
@@ -1493,7 +1497,7 @@ cli/
     upstream-tokens.ts               gk upstream-tokens {create,list,get,revoke}
     upstream-r2.ts                   gk upstream-r2 {create,list,get,revoke}
     config.ts                        gk config {get,set,reset}
-test/                                25 test files (482 tests)
+test/                                29 test files (551 tests)
   helpers.ts                         Test factories, upstream token registration, mock helpers
   s3-helpers.ts                      R2 upstream registration, test constants
   policy-helpers.ts                  Shared policy test helpers (makePolicy, allowStmt, denyStmt, makeCtx)

@@ -252,4 +252,42 @@ export async function run(ctx: SmokeContext): Promise<void> {
 
 	const getNoZone = await admin('GET', `/admin/keys/${ctx.WILDCARD_ID}`);
 	assertStatus('get key without zone_id -> 200', getNoZone, 200);
+
+	// ─── 7. Upstream Tokens — list & get ────────────────────────────
+
+	section('Upstream Tokens (list/get)');
+
+	const listTokens = await admin('GET', '/admin/upstream-tokens');
+	assertStatus('list upstream tokens -> 200', listTokens, 200);
+	assertTruthy('tokens result is array', Array.isArray(listTokens.body?.result));
+	const upstreamFound = listTokens.body?.result?.find((t: any) => t.id === ctx.UPSTREAM_TOKEN_ID);
+	assertTruthy('smoke-test token in list', upstreamFound);
+	assertTruthy('token_preview present (no secret)', upstreamFound?.token_preview && !upstreamFound?.token);
+
+	const getToken = await admin('GET', `/admin/upstream-tokens/${ctx.UPSTREAM_TOKEN_ID}`);
+	assertStatus('get upstream token by ID -> 200', getToken, 200);
+	assertJson('token ID matches', getToken.body?.result?.id, ctx.UPSTREAM_TOKEN_ID);
+	assertTruthy('secret not exposed in get', !getToken.body?.result?.token);
+
+	const getNoToken = await admin('GET', '/admin/upstream-tokens/upt_does_not_exist_smoke');
+	assertStatus('get nonexistent upstream token -> 404', getNoToken, 404);
+
+	const listActiveTokens = await admin('GET', '/admin/upstream-tokens?status=active');
+	assertStatus('list active upstream tokens -> 200', listActiveTokens, 200);
+	for (const t of listActiveTokens.body?.result ?? []) {
+		assertJson('active token not revoked', t.revoked, 0);
+	}
+
+	// ─── 8. Upstream R2 — list & get ────────────────────────────────
+
+	section('Upstream R2 (list/get)');
+
+	const listR2 = await admin('GET', '/admin/upstream-r2');
+	assertStatus('list upstream R2 -> 200', listR2, 200);
+	assertTruthy('R2 result is array', Array.isArray(listR2.body?.result));
+
+	// If an R2 endpoint exists (created later in S3 tests), we can verify it.
+	// For now, just verify the endpoint works and returns a proper array.
+	const getNoR2 = await admin('GET', '/admin/upstream-r2/upr2_does_not_exist_smoke');
+	assertStatus('get nonexistent upstream R2 -> 404', getNoR2, 404);
 }
