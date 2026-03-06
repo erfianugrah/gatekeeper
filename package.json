@@ -19,7 +19,8 @@
 		"deploy": "npm run build:dashboard && wrangler deploy",
 		"ship": "npm run preflight && npm run deploy",
 		"cf-typegen": "wrangler types",
-		"cli": "node --env-file=.env --import tsx cli/index.ts"
+		"cli": "node --env-file=.env --import tsx cli/index.ts",
+		"smoke": "node --env-file=.env --import tsx cli/smoke-test.ts"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.12.19",

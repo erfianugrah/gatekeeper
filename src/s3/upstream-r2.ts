@@ -163,7 +163,7 @@ export class UpstreamR2Manager {
 			return cached.creds;
 		}
 
-		const rows = queryAll<UpstreamR2Row>(this.sql, 'SELECT * FROM upstream_r2 WHERE revoked = 0');
+		const rows = queryAll<UpstreamR2Row>(this.sql, 'SELECT * FROM upstream_r2 WHERE revoked = 0 ORDER BY created_at DESC');
 
 		let wildcardCreds: R2Credentials | null = null;
 
