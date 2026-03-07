@@ -408,3 +408,57 @@ describe('Admin — edge cases', () => {
 		expect(Array.isArray(data.result)).toBe(true);
 	});
 });
+
+// --- Zone ID validation on admin endpoints ---
+
+describe('Admin — zone_id validation', () => {
+	it('create key with invalid zone_id -> 400', async () => {
+		const res = await SELF.fetch('http://localhost/admin/keys', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'bad-zone-key',
+				zone_id: 'NOT-A-VALID-ZONE!',
+				policy: wildcardPolicy(),
+			}),
+		});
+		expect(res.status).toBe(400);
+		const data = await res.json<any>();
+		expect(data.success).toBe(false);
+	});
+
+	it('create key with short zone_id -> 400', async () => {
+		const res = await SELF.fetch('http://localhost/admin/keys', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'short-zone-key',
+				zone_id: 'abc123',
+				policy: wildcardPolicy(),
+			}),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	it('list keys with invalid zone_id -> 400', async () => {
+		const res = await SELF.fetch('http://localhost/admin/keys?zone_id=ZZZZ-invalid', {
+			headers: adminHeaders(),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	it('delete key with invalid zone_id -> 400', async () => {
+		const res = await SELF.fetch('http://localhost/admin/keys/gw_fake1234567890abcdef12345678?zone_id=not-hex!!', {
+			method: 'DELETE',
+			headers: adminHeaders(),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	it('list keys with valid zone_id -> 200', async () => {
+		const res = await SELF.fetch(`http://localhost/admin/keys?zone_id=${ZONE_ID}`, {
+			headers: adminHeaders(),
+		});
+		expect(res.status).toBe(200);
+	});
+});

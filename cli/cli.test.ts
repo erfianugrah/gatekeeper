@@ -12,6 +12,7 @@ import {
 	printJson,
 	formatRateLimit,
 	parseTime,
+	confirmAction,
 } from './ui.js';
 import { resolveConfig, resolveZoneId, assertOk, request } from './client.js';
 import type { ClientConfig } from './client.js';
@@ -607,5 +608,73 @@ describe('parseTime', () => {
 	it('exits on invalid time format', () => {
 		parseTime('not-a-date');
 		expect(process.exit).toHaveBeenCalledWith(1);
+	});
+});
+
+// ---------- confirmAction ----------
+
+describe('confirmAction', () => {
+	it('returns false when stdin is not a TTY', async () => {
+		// In test environment, process.stdin.isTTY is undefined (not a TTY)
+		const result = await confirmAction('Delete everything?');
+		expect(result).toBe(false);
+	});
+});
+
+// ---------- bulk-helpers factory ----------
+
+describe('makeBulkSubcommand', () => {
+	it('returns a valid citty command definition', async () => {
+		const { makeBulkSubcommand } = await import('./bulk-helpers.js');
+		const cmd = makeBulkSubcommand({
+			entityName: 'test-entities',
+			apiPath: '/admin/test/bulk-delete',
+			idField: 'ids',
+			action: 'delete',
+		});
+
+		const meta = cmd.meta as Record<string, unknown>;
+		const args = cmd.args as Record<string, unknown>;
+		expect(meta?.name).toBe('bulk-delete');
+		expect(meta?.description).toMatch(/test-entities/);
+		expect(args).toBeDefined();
+		expect(args.ids).toBeDefined();
+		expect(args.confirm).toBeDefined();
+		expect(typeof cmd.run).toBe('function');
+	});
+
+	it('includes extra args when provided', async () => {
+		const { makeBulkSubcommand } = await import('./bulk-helpers.js');
+		const cmd = makeBulkSubcommand({
+			entityName: 'keys',
+			apiPath: '/admin/keys/bulk-revoke',
+			idField: 'ids',
+			action: 'revoke',
+			extraArgs: { 'zone-id': { type: 'string' as const, description: 'Zone ID' } },
+		});
+
+		const args = cmd.args as Record<string, unknown>;
+		expect(args['zone-id']).toBeDefined();
+	});
+});
+
+// ---------- OpenAPI generation smoke test ----------
+
+describe('OpenAPI generation', () => {
+	it('openapi.json exists and is valid JSON with expected structure', () => {
+		const fs = require('node:fs');
+		const path = require('node:path');
+		const openapiPath = path.resolve(__dirname, '..', 'openapi.json');
+		expect(fs.existsSync(openapiPath)).toBe(true);
+
+		const content = fs.readFileSync(openapiPath, 'utf-8');
+		const doc = JSON.parse(content);
+
+		expect(doc.openapi).toMatch(/^3\.\d+\.\d+$/);
+		expect(doc.info.title).toBeTruthy();
+		expect(doc.paths).toBeTruthy();
+		expect(Object.keys(doc.paths).length).toBeGreaterThan(10);
+		expect(doc.components?.schemas).toBeTruthy();
+		expect(Object.keys(doc.components.schemas).length).toBeGreaterThan(10);
 	});
 });

@@ -141,6 +141,46 @@ describe('validateAccessJwt', () => {
 		expect(identity).toBeNull();
 	});
 
+	it('accepts JWT expired within clock-skew window (60s tolerance)', async () => {
+		mockCerts();
+		// Expired only 30s ago — within the 60s clock-skew tolerance
+		const token = await createJwt(defaultPayload({ exp: Math.floor(Date.now() / 1000) - 30 }));
+		const request = new Request('https://purge.example.com/admin/keys', {
+			headers: { 'Cf-Access-Jwt-Assertion': token },
+		});
+
+		const identity = await validateAccessJwt(request, TEAM_NAME, AUD);
+		expect(identity).not.toBeNull();
+		expect(identity!.email).toBe('test@example.com');
+	});
+
+	it('accepts JWT with iat slightly in the future (within 60s skew)', async () => {
+		mockCerts();
+		const now = Math.floor(Date.now() / 1000);
+		// iat is 30s in the future — within the 60s clock-skew tolerance
+		const token = await createJwt(defaultPayload({ iat: now + 30 }));
+		const request = new Request('https://purge.example.com/admin/keys', {
+			headers: { 'Cf-Access-Jwt-Assertion': token },
+		});
+
+		const identity = await validateAccessJwt(request, TEAM_NAME, AUD);
+		expect(identity).not.toBeNull();
+		expect(identity!.email).toBe('test@example.com');
+	});
+
+	it('returns null for JWT with iat far in the future (beyond 60s skew)', async () => {
+		mockCerts();
+		const now = Math.floor(Date.now() / 1000);
+		// iat is 120s in the future — well beyond the 60s clock-skew tolerance
+		const token = await createJwt(defaultPayload({ iat: now + 120 }));
+		const request = new Request('https://purge.example.com/admin/keys', {
+			headers: { 'Cf-Access-Jwt-Assertion': token },
+		});
+
+		const identity = await validateAccessJwt(request, TEAM_NAME, AUD);
+		expect(identity).toBeNull();
+	});
+
 	it('returns null for wrong audience', async () => {
 		mockCerts();
 		const token = await createJwt(defaultPayload({ aud: ['wrong-aud'] }));
