@@ -101,6 +101,19 @@ export class Gatekeeper extends DurableObject<Env> {
 
 			this.upstreamR2 = new UpstreamR2Manager(ctx.storage.sql, cacheTtl);
 			this.upstreamR2.initTables();
+
+			console.log(
+				JSON.stringify({
+					breadcrumb: 'do-init',
+					bulkRate: rlConfig.bulk.rate,
+					bulkBucket: rlConfig.bulk.bucketSize,
+					singleRate: rlConfig.single.rate,
+					singleBucket: rlConfig.single.bucketSize,
+					s3Rps: gwConfig.s3_rps,
+					s3Burst: gwConfig.s3_burst,
+					cacheTtlMs: cacheTtl,
+				}),
+			);
 		});
 	}
 
@@ -126,6 +139,18 @@ export class Gatekeeper extends DurableObject<Env> {
 		if (bulkChanged || singleChanged) {
 			// Clear per-key buckets so they pick up new account defaults
 			this.keyBuckets.clear();
+		}
+
+		if (bulkChanged || singleChanged || s3Changed) {
+			console.log(
+				JSON.stringify({
+					breadcrumb: 'do-rebuild-buckets',
+					bulkChanged,
+					singleChanged,
+					s3Changed,
+					keyBucketsCleared: bulkChanged || singleChanged,
+				}),
+			);
 		}
 	}
 
@@ -201,6 +226,16 @@ export class Gatekeeper extends DurableObject<Env> {
 		const result = bucket.consume(tokens);
 
 		if (!result.allowed) {
+			console.log(
+				JSON.stringify({
+					breadcrumb: 'do-per-key-rate-limited',
+					keyId,
+					rateClass,
+					tokens,
+					remaining: result.remaining,
+					retryAfterSec: result.retryAfterSec,
+				}),
+			);
 			const name = rateClass === 'single' ? 'purge-single-key' : 'purge-bulk-key';
 			return buildRateLimitResult(name, bucket, result, `Per-key rate limit exceeded. Retry after ${result.retryAfterSec} second(s).`);
 		}
@@ -222,6 +257,16 @@ export class Gatekeeper extends DurableObject<Env> {
 		const window = Math.round(bucket.bucketSize / bucket.rate);
 
 		if (!consumeResult.allowed) {
+			console.log(
+				JSON.stringify({
+					breadcrumb: 'do-account-rate-limited',
+					zoneId,
+					rateClass,
+					tokens,
+					remaining: consumeResult.remaining,
+					retryAfterSec: consumeResult.retryAfterSec,
+				}),
+			);
 			return buildRateLimitResult(
 				name,
 				bucket,
@@ -244,6 +289,13 @@ export class Gatekeeper extends DurableObject<Env> {
 				body: bodyText,
 			});
 		} catch (e: any) {
+			console.log(
+				JSON.stringify({
+					breadcrumb: 'do-upstream-fetch-error',
+					zoneId,
+					error: e.message,
+				}),
+			);
 			return {
 				status: 502,
 				body: JSON.stringify({
@@ -269,6 +321,15 @@ export class Gatekeeper extends DurableObject<Env> {
 		if (upstreamResponse.status === 429) {
 			bucket.drain();
 			const retryAfter = upstreamResponse.headers.get('Retry-After') || String(DEFAULT_RETRY_AFTER_SEC);
+			console.log(
+				JSON.stringify({
+					breadcrumb: 'do-upstream-429-drain',
+					zoneId,
+					rateClass,
+					retryAfter,
+					flightId,
+				}),
+			);
 			const responseBody = await upstreamResponse.text();
 
 			return {
@@ -294,6 +355,17 @@ export class Gatekeeper extends DurableObject<Env> {
 		const responseBody = await upstreamResponse.text();
 		const remaining = bucket.getRemaining();
 		const secondsUntilRefill = bucket.getSecondsUntilRefill();
+
+		console.log(
+			JSON.stringify({
+				breadcrumb: 'do-upstream-response',
+				zoneId,
+				rateClass,
+				status: upstreamResponse.status,
+				remaining,
+				flightId,
+			}),
+		);
 
 		const responseHeaders: Record<string, string> = {
 			'Content-Type': upstreamResponse.headers.get('Content-Type') || 'application/json',

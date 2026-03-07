@@ -4,6 +4,13 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2026-03-01",
 	"compatibility_flags": ["nodejs_compat"],
+	// ─── Secrets (set via `wrangler secret put <NAME>`) ─────────────────
+	// ADMIN_KEY              — shared secret for CLI / automation (X-Admin-Key header)
+	// CF_ACCESS_TEAM_NAME    — Cloudflare Access team name (e.g. "erfianugrah")
+	// CF_ACCESS_AUD          — Cloudflare Access Application Audience (AUD) tag
+	// RBAC_ADMIN_GROUPS      — (optional) comma-separated IdP group names for admin role
+	// RBAC_OPERATOR_GROUPS   — (optional) comma-separated IdP group names for operator role
+	// RBAC_VIEWER_GROUPS     — (optional) comma-separated IdP group names for viewer role
 	"observability": {
 		"enabled": true,
 	},

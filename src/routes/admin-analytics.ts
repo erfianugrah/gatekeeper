@@ -12,6 +12,7 @@ export const adminAnalyticsApp = new Hono<HonoEnv>();
 
 adminAnalyticsApp.get('/events', async (c) => {
 	if (!c.env.ANALYTICS_DB) {
+		console.log(JSON.stringify({ breadcrumb: 'analytics-not-configured', route: 'purge-events' }));
 		return jsonError(c, 503, 'Analytics not configured');
 	}
 
@@ -44,6 +45,7 @@ adminAnalyticsApp.get('/events', async (c) => {
 
 adminAnalyticsApp.get('/summary', async (c) => {
 	if (!c.env.ANALYTICS_DB) {
+		console.log(JSON.stringify({ breadcrumb: 'analytics-not-configured', route: 'purge-summary' }));
 		return jsonError(c, 503, 'Analytics not configured');
 	}
 

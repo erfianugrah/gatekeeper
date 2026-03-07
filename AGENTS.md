@@ -118,6 +118,24 @@ Retrieve API references and limits from:
 - Catch clauses: `catch (e: any)` when the error value is used, bare `catch` when unused.
 - No generic Result/Either monad. `AuthResult` uses `{ authorized: boolean, error?: string }` pattern.
 
+### Breadcrumb Logging
+
+Structured breadcrumb logs are emitted at every significant decision point. They help operators debug auth failures, IdP misconfigurations, upstream resolution, and request flow without reading source code.
+
+Format:
+
+```ts
+console.log(JSON.stringify({ breadcrumb: 'descriptive-name', ...contextFields }));
+```
+
+Conventions:
+
+- `breadcrumb` is always a **kebab-case** string prefixed with the module area (e.g., `iam-authorize-ok`, `upstream-token-not-found`, `do-upstream-429-drain`).
+- Context fields are whatever is useful for debugging that specific decision point -- key IDs, zone IDs, email, role, cache hit/miss, error messages, etc.
+- Breadcrumbs are for **decision points and failures**, not for every function call. If a code path has only one possible outcome, it does not need a breadcrumb.
+- Fire-and-forget errors (analytics, etc.) use `console.error(JSON.stringify({...}))` instead.
+- Pure crypto / math modules (e.g., `sig-v4-verify.ts`, `sig-v4-sign.ts`) do not emit breadcrumbs -- the calling layer logs all outcomes.
+
 ### Comments
 
 - **Section dividers** in source files use Unicode box-drawing (`─`):

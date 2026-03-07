@@ -24,6 +24,7 @@ export async function getCachedConfig(stub: { getConfig: () => Promise<GatewayCo
 	if (cached && now - cached.fetchedAt < CONFIG_CACHE_TTL_MS) {
 		return cached.config;
 	}
+	console.log(JSON.stringify({ breadcrumb: 'config-cache-miss', staleMs: cached ? now - cached.fetchedAt : null }));
 	const config = await stub.getConfig();
 	cached = { config, fetchedAt: now };
 	return config;

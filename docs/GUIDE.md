@@ -69,6 +69,16 @@ npx wrangler secret put CF_ACCESS_TEAM_NAME
 npx wrangler secret put CF_ACCESS_AUD
 ```
 
+Optional (for RBAC -- role-based access control via IdP groups):
+
+```bash
+npx wrangler secret put RBAC_ADMIN_GROUPS      # e.g. "gatekeeper-admins"
+npx wrangler secret put RBAC_OPERATOR_GROUPS    # e.g. "gatekeeper-operators"
+npx wrangler secret put RBAC_VIEWER_GROUPS      # e.g. "gatekeeper-viewers"
+```
+
+When RBAC secrets are set, dashboard users are assigned roles (admin/operator/viewer) based on their IdP group memberships. When not set, all authenticated users receive the admin role. See [SECURITY.md](SECURITY.md#rbac-roles) for details on role permissions.
+
 ### First deploy
 
 ```bash

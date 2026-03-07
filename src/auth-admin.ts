@@ -65,7 +65,27 @@ export async function adminAuth(c: Context<HonoEnv>, next: Next): Promise<Respon
 		const identity = await validateAccessJwt(c.req.raw, c.env.CF_ACCESS_TEAM_NAME, c.env.CF_ACCESS_AUD);
 		if (identity) {
 			const role = resolveRole(identity.groups, c.env);
+			console.log(
+				JSON.stringify({
+					breadcrumb: 'admin-auth-access',
+					email: identity.email,
+					groups: identity.groups,
+					role,
+					method: c.req.method,
+					path: c.req.path,
+				}),
+			);
 			if (!role) {
+				console.log(
+					JSON.stringify({
+						breadcrumb: 'admin-auth-rbac-denied',
+						email: identity.email,
+						groups: identity.groups,
+						rbacAdmin: c.env.RBAC_ADMIN_GROUPS,
+						rbacOperator: c.env.RBAC_OPERATOR_GROUPS,
+						rbacViewer: c.env.RBAC_VIEWER_GROUPS,
+					}),
+				);
 				return c.json({ success: false, errors: [{ code: 403, message: 'Insufficient permissions — no matching RBAC group' }] }, 403);
 			}
 			c.set('accessIdentity', identity);
@@ -78,11 +98,13 @@ export async function adminAuth(c: Context<HonoEnv>, next: Next): Promise<Respon
 	// 2. Fall back to X-Admin-Key — for CLI and automation (always admin role)
 	const adminKey = c.req.header(ADMIN_KEY_HEADER);
 	if (adminKey && (await timingSafeEqual(adminKey, c.env.ADMIN_KEY))) {
+		console.log(JSON.stringify({ breadcrumb: 'admin-auth-key', method: c.req.method, path: c.req.path }));
 		c.set('adminRole', 'admin');
 		await next();
 		return;
 	}
 
+	console.log(JSON.stringify({ breadcrumb: 'admin-auth-rejected', method: c.req.method, path: c.req.path }));
 	return c.json({ success: false, errors: [{ code: 401, message: 'Unauthorized' }] }, 401);
 }
 
@@ -98,6 +120,15 @@ export function requireRole(minRole: AdminRole) {
 		const level = ROLE_LEVELS[role];
 
 		if (level < minLevel) {
+			console.log(
+				JSON.stringify({
+					breadcrumb: 'rbac-denied',
+					required: minRole,
+					actual: role,
+					method: c.req.method,
+					path: c.req.path,
+				}),
+			);
 			return c.json({ success: false, errors: [{ code: 403, message: `Forbidden — requires ${minRole} role, you have ${role}` }] }, 403);
 		}
 
@@ -121,6 +152,15 @@ export function requireRoleByMethod(readRole: AdminRole, writeRole: AdminRole) {
 		const requiredRole = isWrite ? writeRole : readRole;
 
 		if (level < requiredLevel) {
+			console.log(
+				JSON.stringify({
+					breadcrumb: 'rbac-denied',
+					required: requiredRole,
+					actual: role,
+					method: c.req.method,
+					path: c.req.path,
+				}),
+			);
 			return c.json(
 				{ success: false, errors: [{ code: 403, message: `Forbidden — requires ${requiredRole} role, you have ${role}` }] },
 				403,

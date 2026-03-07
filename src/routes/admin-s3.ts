@@ -107,6 +107,7 @@ adminS3App.get('/credentials/:id', async (c) => {
 	const result = await stub.getS3Credential(params.id);
 
 	if (!result) {
+		console.log(JSON.stringify({ breadcrumb: 'admin-get-s3-credential-not-found', id: params.id }));
 		return jsonError(c, 404, 'Credential not found');
 	}
 
@@ -225,6 +226,7 @@ adminS3App.post('/credentials/bulk-delete', async (c) => {
 
 adminS3App.get('/analytics/events', async (c) => {
 	if (!c.env.ANALYTICS_DB) {
+		console.log(JSON.stringify({ breadcrumb: 'analytics-not-configured', route: 's3-events' }));
 		return jsonError(c, 503, 'Analytics not configured');
 	}
 
@@ -257,6 +259,7 @@ adminS3App.get('/analytics/events', async (c) => {
 
 adminS3App.get('/analytics/summary', async (c) => {
 	if (!c.env.ANALYTICS_DB) {
+		console.log(JSON.stringify({ breadcrumb: 'analytics-not-configured', route: 's3-summary' }));
 		return jsonError(c, 503, 'Analytics not configured');
 	}
 

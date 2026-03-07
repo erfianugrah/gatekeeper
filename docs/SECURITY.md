@@ -67,7 +67,9 @@ Validation steps:
 7. Check `iss` matches `https://<team>.cloudflareaccess.com`.
 8. Check `aud` contains the configured Application Audience tag.
 
-JWT claims used: `sub`, `email`, `iss`, `aud`, `exp`, `iat`, `type` (`app` for users, `service-token` for service tokens), `groups` (IDP group memberships for RBAC).
+JWT claims used: `sub`, `email`, `iss`, `aud`, `exp`, `iat`, `type` (`app` for users, `service-token` for service tokens).
+
+**Group memberships for RBAC** are not included in the Access JWT for self-hosted apps. Instead, after JWT validation, the Worker calls the Cloudflare Access get-identity endpoint (`https://<team>.cloudflareaccess.com/cdn-cgi/access/get-identity`) using the validated JWT as a cookie. Groups are extracted from three possible locations in the response (checked in order): `custom.groups` (custom OIDC claims, e.g. Authentik), `oidc_fields.groups` (OIDC passthrough), and `groups` (SCIM-synced groups). Both string arrays and `{id, name}` object arrays are handled.
 
 ### Access Application Setup
 
@@ -609,7 +611,7 @@ RBAC is opt-in via environment variables. When no RBAC variables are set, all au
 | `RBAC_OPERATOR_GROUPS` | Comma-separated IDP group names that map to `operator` |
 | `RBAC_VIEWER_GROUPS`   | Comma-separated IDP group names that map to `viewer`   |
 
-Group memberships are extracted from the `groups` claim in the Cloudflare Access JWT (via the OIDC groups scope). The highest matching role wins -- if a user is in both an operator group and an admin group, they get `admin`.
+Group memberships are extracted from the Cloudflare Access get-identity endpoint response (not from the JWT directly -- self-hosted Access apps do not include groups in the JWT). The Worker checks three possible locations: `custom.groups` (custom OIDC claims), `oidc_fields.groups` (OIDC passthrough), and `groups` (SCIM-synced). The highest matching role wins -- if a user is in both an operator group and an admin group, they get `admin`.
 
 The `X-Admin-Key` header always resolves to the `admin` role regardless of RBAC configuration, ensuring CLI and automation access is not affected.
 

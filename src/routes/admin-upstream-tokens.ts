@@ -76,6 +76,7 @@ adminUpstreamTokensApp.get('/:id', async (c) => {
 	const result = await stub.getUpstreamToken(params.id);
 
 	if (!result) {
+		console.log(JSON.stringify({ breadcrumb: 'admin-get-upstream-token-not-found', id: params.id }));
 		return jsonError(c, 404, 'Upstream token not found');
 	}
 

@@ -46,17 +46,21 @@ export async function validateCfToken(token: string): Promise<ValidationWarning 
 		if (!res.ok) {
 			const body: any = await res.json().catch(() => ({}));
 			const detail = body?.errors?.[0]?.message ?? `HTTP ${res.status}`;
+			console.log(JSON.stringify({ breadcrumb: 'validate-cf-token-failed', status: res.status, detail }));
 			return { code: 422, message: `Token validation failed: ${detail}` };
 		}
 
 		const body = await res.json<{ success?: boolean }>().catch(() => ({ success: false }));
 		if (!body.success) {
+			console.log(JSON.stringify({ breadcrumb: 'validate-cf-token-not-success' }));
 			return { code: 422, message: 'Token validation failed: CF API returned success=false' };
 		}
 
+		console.log(JSON.stringify({ breadcrumb: 'validate-cf-token-ok' }));
 		return null;
 	} catch (e: any) {
 		const msg = e?.name === 'TimeoutError' ? 'validation request timed out' : (e?.message ?? 'unknown error');
+		console.log(JSON.stringify({ breadcrumb: 'validate-cf-token-error', error: msg }));
 		return { code: 422, message: `Token validation failed: ${msg}` };
 	}
 }
@@ -88,12 +92,15 @@ export async function validateR2Credentials(
 		});
 
 		if (!res.ok) {
+			console.log(JSON.stringify({ breadcrumb: 'validate-r2-creds-failed', endpoint, status: res.status }));
 			return { code: 422, message: `R2 credential validation failed: ListBuckets returned HTTP ${res.status}` };
 		}
 
+		console.log(JSON.stringify({ breadcrumb: 'validate-r2-creds-ok', endpoint }));
 		return null;
 	} catch (e: any) {
 		const msg = e?.name === 'TimeoutError' ? 'validation request timed out' : (e?.message ?? 'unknown error');
+		console.log(JSON.stringify({ breadcrumb: 'validate-r2-creds-error', endpoint, error: msg }));
 		return { code: 422, message: `R2 credential validation failed: ${msg}` };
 	}
 }

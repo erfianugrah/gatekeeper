@@ -22,7 +22,12 @@ export interface S3Event {
 }
 
 async function ensureTables(db: D1Database): Promise<void> {
-	await db.batch([db.prepare(S3_EVENTS_TABLE_SQL), db.prepare(S3_EVENTS_INDEX_CRED_SQL), db.prepare(S3_EVENTS_INDEX_BUCKET_SQL)]);
+	try {
+		await db.batch([db.prepare(S3_EVENTS_TABLE_SQL), db.prepare(S3_EVENTS_INDEX_CRED_SQL), db.prepare(S3_EVENTS_INDEX_BUCKET_SQL)]);
+	} catch (e: any) {
+		console.log(JSON.stringify({ breadcrumb: 's3-analytics-ensure-tables-failed', error: e.message }));
+		throw e;
+	}
 }
 
 /**

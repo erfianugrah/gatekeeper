@@ -28,6 +28,24 @@ adminApp.onError((err, c) => {
 // Authentication — sets adminRole in context
 adminApp.use('*', adminAuth);
 
+// ─── /admin/me — current user identity + role ──────────────────────────────
+
+adminApp.get('/me', (c) => {
+	const identity = c.get('accessIdentity');
+	const role = c.get('adminRole') ?? 'admin';
+
+	return c.json({
+		success: true,
+		result: {
+			email: identity?.email ?? null,
+			role,
+			groups: identity?.groups ?? [],
+			authMethod: identity ? 'access' : 'api-key',
+			logoutUrl: c.env.CF_ACCESS_TEAM_NAME ? `https://${c.env.CF_ACCESS_TEAM_NAME}.cloudflareaccess.com/cdn-cgi/access/logout` : null,
+		},
+	});
+});
+
 // RBAC — per-sub-app role requirements
 // Keys and S3 creds: viewer for reads, operator for writes
 adminApp.use('/keys/*', requireRoleByMethod('viewer', 'operator'));

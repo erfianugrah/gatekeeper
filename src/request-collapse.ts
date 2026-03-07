@@ -58,13 +58,16 @@ export class RequestCollapser<T> {
 			// setTimeout is unreliable across request boundaries in Workers.
 			if (flight.settledAt !== null && Date.now() - flight.settledAt > this.graceMs) {
 				// Stale — expired past grace window. Clean up and fall through to create a new flight.
+				console.log(JSON.stringify({ breadcrumb: 'collapse-stale-evict', flightId }));
 				this.inflight.delete(key);
 			} else {
 				try {
 					const result = await flight.promise;
+					console.log(JSON.stringify({ breadcrumb: 'collapse-follower', flightId }));
 					return { result, collapsed: true, flightId };
 				} catch {
 					// Leader failed — remove the broken entry and create a new flight below
+					console.log(JSON.stringify({ breadcrumb: 'collapse-leader-failed', flightId }));
 					this.inflight.delete(key);
 				}
 			}

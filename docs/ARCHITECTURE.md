@@ -105,7 +105,8 @@ Static assets for the dashboard SPA are served via Workers Static Assets with SP
 Cloudflare Access handles **identity** (who are you?) via JWT validation. The IAM engine handles **authorization** (what can you do?) via policy documents attached to API keys or S3 credentials. These are deliberately decoupled:
 
 - Machine clients authenticate via API key (purge) or AWS Sig V4 (S3) and skip Access entirely.
-- Human users authenticate via Access and receive implicit admin authorization.
+- Human users authenticate via Access. When RBAC is configured, their role (admin/operator/viewer) is derived from IdP group memberships fetched via the Cloudflare Access get-identity endpoint. When RBAC is not configured, all authenticated users receive the admin role (backward compatible).
+- The `/admin/me` endpoint returns the current user's email, role, groups, auth method, and logout URL.
 - This separation means the gateway does not depend on Access for machine-to-machine traffic -- only for the dashboard and admin routes.
 
 ### Single Durable Object as Aggregate Root
@@ -413,6 +414,39 @@ Example log entry:
 
 Fields include route, HTTP method, zone/bucket context, purge type or S3 operation, token cost, key/credential ID, collapse status, rate-limit state, upstream status, final response status, and latency.
 
+### Breadcrumb Logging
+
+Every significant decision point emits a structured breadcrumb log. These are designed to let operators debug auth failures, IdP misconfigurations, upstream resolution, and request flow without reading source code.
+
+Format:
+
+```json
+{ "breadcrumb": "iam-authorize-ok", "keyId": "gw_abc...", "zoneId": "abc123...", "action": "purge:host" }
+```
+
+The `breadcrumb` field is always a kebab-case string prefixed with the module area. Context fields vary per breadcrumb.
+
+Breadcrumbs are organized by subsystem:
+
+| Module             | Breadcrumb Prefix               | Decision Points                                                             |
+| ------------------ | ------------------------------- | --------------------------------------------------------------------------- |
+| Durable Object     | `do-*`                          | Init, bucket rebuild, per-key/account rate limiting, upstream fetch, 429    |
+| IAM (purge keys)   | `iam-*`                         | Not found, revoked, expired, zone mismatch, policy denied, authorized       |
+| Credential Manager | `credential-*`                  | Not found, revoked, expired, policy denied, authorized, cache miss, corrupt |
+| Auth (CF Access)   | `access-*`                      | JWT source, validation, groups extraction, RBAC role resolution             |
+| Auth (admin)       | `auth-admin-*`                  | Method selection, RBAC enforcement, role check                              |
+| Request Collapsing | `collapse-*`                    | Stale eviction, follower joined, leader failed                              |
+| Upstream Tokens    | `upstream-token-*`              | Cache hit, exact match, wildcard match, not found                           |
+| Upstream R2        | `upstream-r2-*`                 | Cache hit, exact match, wildcard match, not found, list-buckets             |
+| Config Registry    | `config-*`                      | Resolved config with per-key source (registry/env/default)                  |
+| Config Cache       | `config-cache-*`                | Isolate-level cache miss                                                    |
+| Admin Routes       | `admin-*`, `validate-*`         | Resource not found (404), credential validation probes                      |
+| Admin Schemas      | `parse-*`                       | Query/path parameter validation failures                                    |
+| Analytics          | `analytics-*`, `s3-analytics-*` | ensureTables failures, not-configured                                       |
+| Policy Engine      | `policy-*`                      | Condition depth exceeded, invalid regex                                     |
+
+Pure crypto modules (`sig-v4-verify.ts`, `sig-v4-sign.ts`) do not emit breadcrumbs -- the calling layer logs all outcomes.
+
 ### D1 Analytics
 
 Purge and S3 events are persisted to a D1 database (`gatekeeper-analytics`) for queryable history. The admin API exposes event listing (with filters for status, type, zone, time range) and summary aggregation (counts, status breakdowns, average latency).
@@ -448,7 +482,8 @@ src/
   policy-types.ts                    PolicyDocument, Statement, Condition, RequestContext
   request-fields.ts                  extractRequestFields() -- client_ip, country, ASN, time
   policy-engine.ts                   evaluatePolicy(), validatePolicy()
-  auth-access.ts                     Cloudflare Access JWT validation (~80 lines, no deps)
+  auth-access.ts                     Cloudflare Access JWT validation + get-identity groups
+  auth-admin.ts                      Admin auth middleware: Access JWT or X-Admin-Key, RBAC
   iam.ts                             IamManager: createKey, authorize, authorizeFromBody
   token-bucket.ts                    Token bucket (lazy refill, no I/O)
   analytics.ts                       D1 analytics for purge (events, summary, retention)
@@ -482,7 +517,7 @@ cli/
     upstream-tokens.ts               gk upstream-tokens {create,list,get,delete,bulk-delete}
     upstream-r2.ts                   gk upstream-r2 {create,list,get,delete,bulk-delete}
     config.ts                        gk config {get,set,reset}
-test/                                30 test files (634 tests, with 1 CLI test in cli/)
+test/                                31 test files (664 tests, with 1 CLI test in cli/)
   helpers.ts                         Test factories, upstream token registration, mock helpers
   s3-helpers.ts                      R2 upstream registration, test constants
   policy-helpers.ts                  Shared policy test helpers
@@ -567,13 +602,16 @@ Reference values from `src/constants.ts`:
 
 From `wrangler.jsonc`:
 
-| Binding               | Type              | Purpose                                        |
-| --------------------- | ----------------- | ---------------------------------------------- |
-| `GATEKEEPER`          | Durable Object    | Single DO instance for all gateway state       |
-| `ANALYTICS_DB`        | D1 Database       | Purge and S3 analytics event storage           |
-| `ASSETS`              | Static Assets     | Dashboard SPA files                            |
-| `ADMIN_KEY`           | Secret            | Admin API authentication                       |
-| `CF_ACCESS_TEAM_NAME` | Secret (optional) | Cloudflare Access team name for JWT validation |
-| `CF_ACCESS_AUD`       | Secret (optional) | Cloudflare Access audience tag                 |
+| Binding                | Type              | Purpose                                        |
+| ---------------------- | ----------------- | ---------------------------------------------- |
+| `GATEKEEPER`           | Durable Object    | Single DO instance for all gateway state       |
+| `ANALYTICS_DB`         | D1 Database       | Purge and S3 analytics event storage           |
+| `ASSETS`               | Static Assets     | Dashboard SPA files                            |
+| `ADMIN_KEY`            | Secret            | Admin API authentication                       |
+| `CF_ACCESS_TEAM_NAME`  | Secret (optional) | Cloudflare Access team name for JWT validation |
+| `CF_ACCESS_AUD`        | Secret (optional) | Cloudflare Access audience tag                 |
+| `RBAC_ADMIN_GROUPS`    | Secret (optional) | Comma-separated IdP groups mapped to admin     |
+| `RBAC_OPERATOR_GROUPS` | Secret (optional) | Comma-separated IdP groups mapped to operator  |
+| `RBAC_VIEWER_GROUPS`   | Secret (optional) | Comma-separated IdP groups mapped to viewer    |
 
 Cron trigger: `0 3 * * *` (daily at 03:00 UTC) for analytics retention cleanup.

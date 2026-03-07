@@ -403,6 +403,7 @@ export function parseQueryParams<T>(c: ParseContext, schema: z.ZodType<T>): T | 
 			code: 400,
 			message: `${issue.path.join('.')}: ${issue.message}`,
 		}));
+		console.log(JSON.stringify({ breadcrumb: 'parse-query-params-failed', errors: errors.map((e) => e.message) }));
 		return c.json({ success: false, errors }, 400);
 	}
 
@@ -422,6 +423,7 @@ export function parseParams<T>(c: ParseContext, schema: z.ZodType<T>): T | Respo
 			code: 400,
 			message: `${issue.path.join('.')}: ${issue.message}`,
 		}));
+		console.log(JSON.stringify({ breadcrumb: 'parse-params-failed', errors: errors.map((e) => e.message) }));
 		return c.json({ success: false, errors }, 400);
 	}
 

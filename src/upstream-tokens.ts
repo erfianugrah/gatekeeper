@@ -173,6 +173,7 @@ export class UpstreamTokenManager {
 		// Check cache first
 		const cached = this.resolveCache.get(zoneId);
 		if (cached && Date.now() - cached.cachedAt < this.cacheTtlMs) {
+			console.log(JSON.stringify({ breadcrumb: 'upstream-token-cache-hit', zoneId }));
 			return cached.token;
 		}
 
@@ -186,6 +187,7 @@ export class UpstreamTokenManager {
 			const zones = row.zone_ids.split(',');
 			if (zones.includes(zoneId)) {
 				this.resolveCache.set(zoneId, { token: row.token, cachedAt: Date.now() });
+				console.log(JSON.stringify({ breadcrumb: 'upstream-token-exact-match', zoneId, tokenId: row.id }));
 				return row.token;
 			}
 			if (zones.includes('*') && !wildcardToken) {
@@ -195,9 +197,11 @@ export class UpstreamTokenManager {
 
 		if (wildcardToken) {
 			this.resolveCache.set(zoneId, { token: wildcardToken, cachedAt: Date.now() });
+			console.log(JSON.stringify({ breadcrumb: 'upstream-token-wildcard-match', zoneId }));
 			return wildcardToken;
 		}
 
+		console.log(JSON.stringify({ breadcrumb: 'upstream-token-not-found', zoneId, totalTokens: rows.length }));
 		return null;
 	}
 

@@ -550,6 +550,20 @@ export async function resetConfigKey(key: string): Promise<{ config: GatewayConf
 	});
 }
 
+// ─── Identity / Session ──────────────────────────────────────────────
+
+export interface MeResponse {
+	email: string | null;
+	role: string;
+	groups: string[];
+	authMethod: 'access' | 'api-key';
+	logoutUrl: string | null;
+}
+
+export async function getMe(): Promise<MeResponse> {
+	return apiFetch<MeResponse>('/admin/me');
+}
+
 // ─── Health ──────────────────────────────────────────────────────────
 
 export async function healthCheck(): Promise<{ ok: boolean }> {

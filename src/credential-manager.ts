@@ -126,6 +126,7 @@ export abstract class CredentialManager<T extends BaseCredential, TCached extend
 	protected authorizeWithContexts(id: string, contexts: RequestContext[], formatDenied?: (ctx: RequestContext) => string): AuthResult {
 		const cached = this.getCachedOrLoad(id);
 		if (!cached) {
+			console.log(JSON.stringify({ breadcrumb: 'credential-authorize-not-found', id }));
 			return { authorized: false, error: this.invalidCredentialMessage() };
 		}
 
@@ -133,10 +134,12 @@ export abstract class CredentialManager<T extends BaseCredential, TCached extend
 		const { resolvedPolicy } = cached;
 
 		if (entity.revoked) {
+			console.log(JSON.stringify({ breadcrumb: 'credential-authorize-revoked', id }));
 			return { authorized: false, error: this.revokedMessage() };
 		}
 
 		if (entity.expires_at && entity.expires_at < Date.now()) {
+			console.log(JSON.stringify({ breadcrumb: 'credential-authorize-expired', id, expiresAt: entity.expires_at }));
 			return { authorized: false, error: this.expiredMessage() };
 		}
 
@@ -148,6 +151,7 @@ export abstract class CredentialManager<T extends BaseCredential, TCached extend
 					denied.push(formatter(ctx));
 				}
 			}
+			console.log(JSON.stringify({ breadcrumb: 'credential-authorize-policy-denied', id, denied }));
 			return {
 				authorized: false,
 				error: this.deniedMessage(denied),
@@ -155,6 +159,7 @@ export abstract class CredentialManager<T extends BaseCredential, TCached extend
 			};
 		}
 
+		console.log(JSON.stringify({ breadcrumb: 'credential-authorize-ok', id, actions: contexts.map((c) => c.action) }));
 		return { authorized: true };
 	}
 
@@ -182,6 +187,7 @@ export abstract class CredentialManager<T extends BaseCredential, TCached extend
 		const loaded = this.loadFromSql(id);
 		if (!loaded) {
 			this.cache.delete(id);
+			console.log(JSON.stringify({ breadcrumb: 'credential-cache-miss-not-found', id }));
 			return null;
 		}
 
@@ -190,6 +196,7 @@ export abstract class CredentialManager<T extends BaseCredential, TCached extend
 			resolvedPolicy = JSON.parse(loaded.policy) as PolicyDocument;
 		} catch {
 			// Corrupt policy JSON — deny everything
+			console.log(JSON.stringify({ breadcrumb: 'credential-corrupt-policy', id }));
 			resolvedPolicy = { version: POLICY_VERSION, statements: [] };
 		}
 

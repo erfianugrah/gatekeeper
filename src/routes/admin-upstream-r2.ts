@@ -78,6 +78,7 @@ adminUpstreamR2App.get('/:id', async (c) => {
 	const result = await stub.getUpstreamR2(params.id);
 
 	if (!result) {
+		console.log(JSON.stringify({ breadcrumb: 'admin-get-upstream-r2-not-found', id: params.id }));
 		return jsonError(c, 404, 'Upstream R2 endpoint not found');
 	}
 

@@ -120,6 +120,7 @@ adminKeysApp.get('/:id', async (c) => {
 	const result = await stub.getKey(params.id);
 
 	if (!result || (zoneId && result.key.zone_id !== zoneId)) {
+		console.log(JSON.stringify({ breadcrumb: 'admin-get-key-not-found', keyId: params.id }));
 		return jsonError(c, 404, 'Key not found');
 	}
 

@@ -216,9 +216,31 @@ const seenSections = new Set<string>();
             }
           </nav>
 
-          <!-- Footer -->
-          <div class="border-t border-border px-4 py-3">
-            <div class="text-xs text-muted-foreground">Gatekeeper</div>
+          <!-- User / Footer -->
+          <div class="border-t border-border px-4 py-3 space-y-2">
+            <div id="user-info" class="hidden">
+              <div class="flex items-center justify-between gap-2">
+                <div class="min-w-0 flex-1">
+                  <div id="user-email" class="truncate text-xs font-medium text-foreground"></div>
+                  <div class="flex items-center gap-1.5">
+                    <span id="user-role" class="text-[10px] uppercase tracking-wider text-muted-foreground"></span>
+                  </div>
+                </div>
+                <a
+                  id="logout-btn"
+                  href="#"
+                  class="flex-shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  title="Sign out"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                  </svg>
+                </a>
+              </div>
+            </div>
+            <div class="text-[10px] text-muted-foreground/50">Gatekeeper</div>
           </div>
         </div>
       </aside>
@@ -339,6 +361,41 @@ const seenSections = new Set<string>();
 
         checkHealth();
         setInterval(checkHealth, 30_000);
+      })();
+    </script>
+
+    <!-- User identity -->
+    <script>
+      (async function () {
+        const userInfo = document.getElementById("user-info");
+        const userEmail = document.getElementById("user-email");
+        const userRole = document.getElementById("user-role");
+        const logoutBtn = document.getElementById("logout-btn");
+        if (!userInfo || !userEmail || !userRole || !logoutBtn) return;
+
+        try {
+          const adminKey = localStorage.getItem("adminKey");
+          const headers: Record<string, string> = { "Content-Type": "application/json" };
+          if (adminKey) headers["X-Admin-Key"] = adminKey;
+
+          const res = await fetch("/admin/me", { credentials: "include", headers });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (!data.success || !data.result) return;
+
+          const me = data.result;
+          userEmail.textContent = me.email ?? "API Key";
+          userRole.textContent = me.role ?? "";
+          userInfo.classList.remove("hidden");
+
+          if (me.logoutUrl) {
+            logoutBtn.setAttribute("href", me.logoutUrl);
+          } else {
+            logoutBtn.classList.add("hidden");
+          }
+        } catch {
+          // Silently fail — user just won't see identity
+        }
       })();
     </script>
 

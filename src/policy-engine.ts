@@ -96,7 +96,10 @@ const MAX_CONDITION_DEPTH = 20;
  * Evaluate a condition (leaf or compound) against request fields.
  */
 function evaluateCondition(cond: Condition, fields: Record<string, string | boolean>, depth = 0): boolean {
-	if (depth > MAX_CONDITION_DEPTH) return false; // exceed depth → deny
+	if (depth > MAX_CONDITION_DEPTH) {
+		console.log(JSON.stringify({ breadcrumb: 'policy-condition-depth-exceeded', depth }));
+		return false;
+	}
 	if (isLeafCondition(cond)) return evaluateLeaf(cond, fields);
 	if (isAnyCondition(cond)) return cond.any.some((c) => evaluateCondition(c, fields, depth + 1));
 	if (isAllCondition(cond)) return cond.all.every((c) => evaluateCondition(c, fields, depth + 1));
@@ -175,6 +178,7 @@ function evalRegex(fieldValue: string | boolean, pattern: ConditionValue, negate
 		return negate ? !result : result;
 	} catch {
 		// Invalid regex — condition fails (should have been caught at validation time)
+		console.log(JSON.stringify({ breadcrumb: 'policy-invalid-regex', pattern }));
 		return false;
 	}
 }

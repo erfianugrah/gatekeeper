@@ -80,12 +80,14 @@ export class ConfigManager {
 	getConfig(env: Env): GatewayConfig {
 		const registry = this.loadRegistry();
 		const result: Record<string, number> = {};
+		const sources: Record<string, string> = {};
 		const envRecord = env as unknown as Record<string, unknown>;
 
 		for (const [key, hardDefault] of Object.entries(CONFIG_DEFAULTS)) {
 			// 1. Registry value (highest priority)
 			if (registry.has(key)) {
 				result[key] = registry.get(key)!;
+				sources[key] = 'registry';
 				continue;
 			}
 
@@ -97,6 +99,7 @@ export class ConfigManager {
 					const parsed = Number(envVal);
 					if (!isNaN(parsed) && parsed > 0) {
 						result[key] = parsed;
+						sources[key] = 'env';
 						continue;
 					}
 				}
@@ -104,6 +107,12 @@ export class ConfigManager {
 
 			// 3. Hardcoded default
 			result[key] = hardDefault;
+			sources[key] = 'default';
+		}
+
+		// Only log when registry overrides are present — avoids noise on every request
+		if (registry.size > 0) {
+			console.log(JSON.stringify({ breadcrumb: 'config-resolved', sources }));
 		}
 
 		return result as unknown as GatewayConfig;

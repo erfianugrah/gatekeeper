@@ -182,6 +182,7 @@ export class UpstreamR2Manager {
 	resolveForBucket(bucket: string): R2Credentials | null {
 		const cached = this.resolveCache.get(bucket);
 		if (cached && Date.now() - cached.cachedAt < this.cacheTtlMs) {
+			console.log(JSON.stringify({ breadcrumb: 'upstream-r2-cache-hit', bucket }));
 			return cached.creds;
 		}
 
@@ -198,6 +199,7 @@ export class UpstreamR2Manager {
 			};
 			if (buckets.includes(bucket)) {
 				this.resolveCache.set(bucket, { creds, cachedAt: Date.now() });
+				console.log(JSON.stringify({ breadcrumb: 'upstream-r2-exact-match', bucket, endpointId: row.id }));
 				return creds;
 			}
 			if (buckets.includes('*') && !wildcardCreds) {
@@ -207,9 +209,11 @@ export class UpstreamR2Manager {
 
 		if (wildcardCreds) {
 			this.resolveCache.set(bucket, { creds: wildcardCreds, cachedAt: Date.now() });
+			console.log(JSON.stringify({ breadcrumb: 'upstream-r2-wildcard-match', bucket }));
 			return wildcardCreds;
 		}
 
+		console.log(JSON.stringify({ breadcrumb: 'upstream-r2-not-found', bucket, totalEndpoints: rows.length }));
 		return null;
 	}
 
@@ -219,16 +223,21 @@ export class UpstreamR2Manager {
 	 */
 	resolveForListBuckets(): R2Credentials | null {
 		const rows = queryAll<UpstreamR2Row>(this.sql, 'SELECT * FROM upstream_r2 ORDER BY created_at DESC');
-		if (rows.length === 0) return null;
+		if (rows.length === 0) {
+			console.log(JSON.stringify({ breadcrumb: 'upstream-r2-list-buckets-none' }));
+			return null;
+		}
 
 		// Prefer wildcard (newest first, consistent with resolveForBucket)
 		for (const row of rows) {
 			if (row.bucket_names.split(',').includes('*')) {
+				console.log(JSON.stringify({ breadcrumb: 'upstream-r2-list-buckets-wildcard', endpointId: row.id }));
 				return { accessKeyId: row.access_key_id, secretAccessKey: row.secret_access_key, endpoint: row.endpoint };
 			}
 		}
 		// Fallback to newest registered
 		const row = rows[0];
+		console.log(JSON.stringify({ breadcrumb: 'upstream-r2-list-buckets-fallback', endpointId: row.id }));
 		return { accessKeyId: row.access_key_id, secretAccessKey: row.secret_access_key, endpoint: row.endpoint };
 	}
 
