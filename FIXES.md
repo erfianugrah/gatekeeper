@@ -589,4 +589,38 @@ Status legend: `[ ]` = open, `[x]` = done, `[-]` = won't fix / by design.
 
 ---
 
+---
+
+## Round 5 — Structural Improvements
+
+### 5.1 `[DONE]` Split AnalyticsPage.tsx (880 → ~350 lines)
+
+- **Files**: `dashboard/src/components/AnalyticsPage.tsx`, new `dashboard/src/components/analytics/` directory
+- **Problem**: Single 880-line component with mixed concerns (types, helpers, badges, skeleton, detail rows).
+- **Fix**: Extracted 5 sub-modules: `analytics-types.ts`, `analytics-helpers.ts`, `analytics-badges.tsx`, `EventDetailRow.tsx`, `EventsTableSkeleton.tsx`. Main file reduced to ~350 lines of table/filter orchestration.
+
+### 5.2 `[DONE]` Comprehensive Zod validation — all routes
+
+- **Files**: `src/routes/admin-schemas.ts` (182 → ~470 lines), all 7 route files
+- **Problem**: Only 4 "create" POST routes used Zod. All other input parsing (query params, URL params, bulk bodies, config updates, purge body, analytics queries) used manual `typeof`/`isNaN`/`Array.isArray` checks or no validation at all.
+- **Fix**: Added 13 new Zod schemas covering every input surface: `purgeBodySchema`, `bulkBodySchema(idField)`, `purgeAnalyticsEventsQuerySchema`, `purgeAnalyticsSummaryQuerySchema`, `s3AnalyticsEventsQuerySchema`, `s3AnalyticsSummaryQuerySchema`, `listKeysQuerySchema`, `listS3CredentialsQuerySchema`, `deleteQuerySchema`, `setConfigBodySchema`, `configKeyParamSchema`, `idParamSchema`, `zoneIdParamSchema`. Added `parseQueryParams()`, `parseParams()`, and Zod-based `parseBulkBody()` helpers. Removed old manual `parseBulkBody` from `admin-helpers.ts`. Schemas serve as single source of truth for OpenAPI spec, dashboard forms, and TypeScript types via `z.infer`.
+
+### 5.3 `[DONE]` Generic CredentialManager<T> base class
+
+- **Files**: new `src/credential-manager.ts`, refactored `src/iam.ts` and `src/s3/iam.ts`
+- **Problem**: `IamManager` and `S3CredentialManager` had ~200 lines of duplicated logic: identical `bulkRevoke`/`bulkDelete`/`bulkInspect`, `getCachedOrLoad`, and `authorizeWithContexts` patterns.
+- **Fix**: Extracted `CredentialManager<T extends BaseCredential, TCached extends CachedEntry>` base class with shared implementations. Both managers now extend it, keeping only domain-specific methods (`createKey`/`authorize` for IAM, `createCredential`/`getSecretForAuth` for S3). Net reduction: ~150 lines.
+
+### 5.4 `[DONE]` jsonError() Hono helper
+
+- **Files**: `src/routes/admin-schemas.ts`, all route files
+- **Problem**: The pattern `c.json({ success: false, errors: [{ code: N, message: '...' }] }, N)` was repeated 25+ times across route handlers.
+- **Fix**: Added `jsonError(c, status, message)` helper. Replaced all single-error occurrences across 8 route files. Multi-error validation responses (Zod issue arrays, policy errors, auth denied with extras) remain custom.
+
+### 5.5 `[DONE]` Isolate-level config caching
+
+- **Files**: new `src/config-cache.ts`, `src/routes/purge.ts`, `src/routes/admin-config.ts`
+- **Problem**: Every purge request called `stub.getConfig()` — a DO RPC — to get rate limit config that changes rarely (only via admin PUT/DELETE).
+- **Fix**: Created `src/config-cache.ts` with `getCachedConfig(stub)` (30s TTL) and `invalidateConfigCache()`. Purge route uses cached config; admin config routes call `invalidateConfigCache()` after mutations. Test helper `__testClearInflightCache()` also invalidates the config cache.
+
 _Last updated: 2026-03-07_

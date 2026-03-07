@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { queryEvents, querySummary } from '../analytics';
+import { purgeAnalyticsEventsQuerySchema, purgeAnalyticsSummaryQuerySchema, jsonError, parseQueryParams } from './admin-schemas';
 import type { AnalyticsQuery } from '../analytics';
 import type { HonoEnv } from '../types';
 
@@ -11,30 +12,21 @@ export const adminAnalyticsApp = new Hono<HonoEnv>();
 
 adminAnalyticsApp.get('/events', async (c) => {
 	if (!c.env.ANALYTICS_DB) {
-		return c.json({ success: false, errors: [{ code: 503, message: 'Analytics not configured' }] }, 503);
+		return jsonError(c, 503, 'Analytics not configured');
 	}
 
-	const sinceRaw = c.req.query('since') ? Number(c.req.query('since')) : undefined;
-	const untilRaw = c.req.query('until') ? Number(c.req.query('until')) : undefined;
-	const limitRaw = c.req.query('limit') ? Number(c.req.query('limit')) : undefined;
+	const query = parseQueryParams(c, purgeAnalyticsEventsQuerySchema);
+	if (query instanceof Response) return query;
 
-	if (
-		(sinceRaw !== undefined && isNaN(sinceRaw)) ||
-		(untilRaw !== undefined && isNaN(untilRaw)) ||
-		(limitRaw !== undefined && isNaN(limitRaw))
-	) {
-		return c.json({ success: false, errors: [{ code: 400, message: 'since, until, and limit must be valid numbers' }] }, 400);
-	}
-
-	const query: AnalyticsQuery = {
-		zone_id: c.req.query('zone_id') || undefined,
-		key_id: c.req.query('key_id') || undefined,
-		since: sinceRaw,
-		until: untilRaw,
-		limit: limitRaw,
+	const analyticsQuery: AnalyticsQuery = {
+		zone_id: query.zone_id,
+		key_id: query.key_id,
+		since: query.since,
+		until: query.until,
+		limit: query.limit,
 	};
 
-	const events = await queryEvents(c.env.ANALYTICS_DB, query);
+	const events = await queryEvents(c.env.ANALYTICS_DB, analyticsQuery);
 
 	console.log(
 		JSON.stringify({
@@ -52,24 +44,20 @@ adminAnalyticsApp.get('/events', async (c) => {
 
 adminAnalyticsApp.get('/summary', async (c) => {
 	if (!c.env.ANALYTICS_DB) {
-		return c.json({ success: false, errors: [{ code: 503, message: 'Analytics not configured' }] }, 503);
+		return jsonError(c, 503, 'Analytics not configured');
 	}
 
-	const sinceRaw = c.req.query('since') ? Number(c.req.query('since')) : undefined;
-	const untilRaw = c.req.query('until') ? Number(c.req.query('until')) : undefined;
+	const query = parseQueryParams(c, purgeAnalyticsSummaryQuerySchema);
+	if (query instanceof Response) return query;
 
-	if ((sinceRaw !== undefined && isNaN(sinceRaw)) || (untilRaw !== undefined && isNaN(untilRaw))) {
-		return c.json({ success: false, errors: [{ code: 400, message: 'since and until must be valid numbers' }] }, 400);
-	}
-
-	const query: AnalyticsQuery = {
-		zone_id: c.req.query('zone_id') || undefined,
-		key_id: c.req.query('key_id') || undefined,
-		since: sinceRaw,
-		until: untilRaw,
+	const analyticsQuery: AnalyticsQuery = {
+		zone_id: query.zone_id,
+		key_id: query.key_id,
+		since: query.since,
+		until: query.until,
 	};
 
-	const summary = await querySummary(c.env.ANALYTICS_DB, query);
+	const summary = await querySummary(c.env.ANALYTICS_DB, analyticsQuery);
 
 	console.log(
 		JSON.stringify({

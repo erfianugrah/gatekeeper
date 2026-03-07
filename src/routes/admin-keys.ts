@@ -1,7 +1,18 @@
 import { Hono } from 'hono';
 import { validatePolicy } from '../policy-engine';
 import { getStub } from '../do-stub';
-import { parseBulkBody, resolveCreatedBy } from './admin-helpers';
+import { resolveCreatedBy } from './admin-helpers';
+import {
+	createKeySchema,
+	listKeysQuerySchema,
+	deleteQuerySchema,
+	idParamSchema,
+	jsonError,
+	parseJsonBody,
+	parseQueryParams,
+	parseParams,
+	parseBulkBody,
+} from './admin-schemas';
 import type { CreateKeyRequest, HonoEnv } from '../types';
 import type { GatewayConfig } from '../config-registry';
 import type { PolicyDocument } from '../policy-types';
@@ -18,37 +29,11 @@ adminKeysApp.post('/', async (c) => {
 		ts: new Date().toISOString(),
 	};
 
-	let raw: Record<string, unknown>;
-	try {
-		raw = await c.req.json<Record<string, unknown>>();
-	} catch {
-		log.status = 400;
-		log.error = 'invalid_json';
-		console.log(JSON.stringify(log));
-		return c.json({ success: false, errors: [{ code: 400, message: 'Invalid JSON body' }] }, 400);
-	}
+	const parsed = await parseJsonBody(c, createKeySchema, log);
+	if (parsed instanceof Response) return parsed;
 
-	if (!raw.name || typeof raw.name !== 'string') {
-		log.status = 400;
-		log.error = 'missing_name';
-		console.log(JSON.stringify(log));
-		return c.json({ success: false, errors: [{ code: 400, message: 'Required field: name (string)' }] }, 400);
-	}
-	if (raw.zone_id !== undefined && typeof raw.zone_id !== 'string') {
-		log.status = 400;
-		log.error = 'invalid_zone_id';
-		console.log(JSON.stringify(log));
-		return c.json({ success: false, errors: [{ code: 400, message: 'zone_id must be a string if provided' }] }, 400);
-	}
-
-	if (!raw.policy || typeof raw.policy !== 'object') {
-		log.status = 400;
-		log.error = 'missing_policy';
-		console.log(JSON.stringify(log));
-		return c.json({ success: false, errors: [{ code: 400, message: 'Required field: policy (object with version + statements)' }] }, 400);
-	}
-
-	const policyErrors = validatePolicy(raw.policy);
+	// Deep policy validation (recursion depth, regex safety, etc.) beyond Zod's structural check
+	const policyErrors = validatePolicy(parsed.policy);
 	if (policyErrors.length > 0) {
 		log.status = 400;
 		log.error = 'invalid_policy';
@@ -66,35 +51,9 @@ adminKeysApp.post('/', async (c) => {
 		);
 	}
 
-	if (raw.expires_in_days !== undefined) {
-		if (typeof raw.expires_in_days !== 'number' || raw.expires_in_days <= 0 || !isFinite(raw.expires_in_days)) {
-			log.status = 400;
-			log.error = 'invalid_expires_in_days';
-			console.log(JSON.stringify(log));
-			return c.json({ success: false, errors: [{ code: 400, message: 'expires_in_days must be a positive finite number' }] }, 400);
-		}
-	}
-
 	const stub = getStub(c.env);
 
-	const rateLimit =
-		raw.rate_limit != null && typeof raw.rate_limit === 'object'
-			? validateRateLimitFields(raw.rate_limit as Record<string, unknown>)
-			: undefined;
-	if (rateLimit === 'invalid') {
-		log.status = 400;
-		log.error = 'invalid_rate_limit';
-		console.log(JSON.stringify(log));
-		return c.json(
-			{
-				success: false,
-				errors: [
-					{ code: 400, message: 'rate_limit fields must be positive finite numbers (bulk_rate, bulk_bucket, single_rate, single_bucket)' },
-				],
-			},
-			400,
-		);
-	}
+	const rateLimit = parsed.rate_limit ? validateRateLimitFields(parsed.rate_limit) : undefined;
 	if (rateLimit) {
 		const gwConfig = await stub.getConfig();
 		const rateLimitError = validateRateLimits(rateLimit, gwConfig);
@@ -102,17 +61,17 @@ adminKeysApp.post('/', async (c) => {
 			log.status = 400;
 			log.error = 'rate_limit_exceeds_account';
 			console.log(JSON.stringify(log));
-			return c.json({ success: false, errors: [{ code: 400, message: rateLimitError }] }, 400);
+			return jsonError(c, 400, rateLimitError);
 		}
 	}
 
 	const identity = c.get('accessIdentity');
 	const req: CreateKeyRequest = {
-		name: raw.name as string,
-		zone_id: typeof raw.zone_id === 'string' ? raw.zone_id : undefined,
-		policy: raw.policy as PolicyDocument,
-		created_by: resolveCreatedBy(identity, raw.created_by),
-		expires_in_days: typeof raw.expires_in_days === 'number' ? raw.expires_in_days : undefined,
+		name: parsed.name,
+		zone_id: parsed.zone_id,
+		policy: parsed.policy as PolicyDocument,
+		created_by: resolveCreatedBy(identity, parsed.created_by),
+		expires_in_days: parsed.expires_in_days,
 		rate_limit: rateLimit,
 	};
 
@@ -131,20 +90,17 @@ adminKeysApp.post('/', async (c) => {
 // ─── List keys ──────────────────────────────────────────────────────────────
 
 adminKeysApp.get('/', async (c) => {
-	const zoneId = c.req.query('zone_id') || undefined;
-
-	const statusFilter = c.req.query('status') as 'active' | 'revoked' | undefined;
-	const validFilters = ['active', 'revoked'];
-	const filter = statusFilter && validFilters.includes(statusFilter) ? statusFilter : undefined;
+	const query = parseQueryParams(c, listKeysQuerySchema);
+	if (query instanceof Response) return query;
 
 	const stub = getStub(c.env);
-	const keys = await stub.listKeys(zoneId, filter);
+	const keys = await stub.listKeys(query.zone_id, query.status);
 
 	console.log(
 		JSON.stringify({
 			route: 'admin.listKeys',
-			zoneId: zoneId ?? 'all',
-			filter: filter ?? 'all',
+			zoneId: query.zone_id ?? 'all',
+			filter: query.status ?? 'all',
 			count: keys.length,
 			ts: new Date().toISOString(),
 		}),
@@ -156,13 +112,15 @@ adminKeysApp.get('/', async (c) => {
 // ─── Get key ────────────────────────────────────────────────────────────────
 
 adminKeysApp.get('/:id', async (c) => {
+	const params = parseParams(c, idParamSchema);
+	if (params instanceof Response) return params;
+
 	const zoneId = c.req.query('zone_id') || undefined;
-	const keyId = c.req.param('id');
 	const stub = getStub(c.env);
-	const result = await stub.getKey(keyId);
+	const result = await stub.getKey(params.id);
 
 	if (!result || (zoneId && result.key.zone_id !== zoneId)) {
-		return c.json({ success: false, errors: [{ code: 404, message: 'Key not found' }] }, 404);
+		return jsonError(c, 404, 'Key not found');
 	}
 
 	return c.json({ success: true, result });
@@ -171,17 +129,21 @@ adminKeysApp.get('/:id', async (c) => {
 // ─── Revoke / delete key ────────────────────────────────────────────────────
 
 adminKeysApp.delete('/:id', async (c) => {
-	const zoneId = c.req.query('zone_id') || undefined;
-	const permanent = c.req.query('permanent') === 'true';
-	const keyId = c.req.param('id');
+	const params = parseParams(c, idParamSchema);
+	if (params instanceof Response) return params;
+
+	const query = parseQueryParams(c, deleteQuerySchema);
+	if (query instanceof Response) return query;
+
+	const keyId = params.id;
 	const stub = getStub(c.env);
 
 	const existing = await stub.getKey(keyId);
-	if (!existing || (zoneId && existing.key.zone_id !== zoneId)) {
-		return c.json({ success: false, errors: [{ code: 404, message: 'Key not found' }] }, 404);
+	if (!existing || (query.zone_id && existing.key.zone_id !== query.zone_id)) {
+		return jsonError(c, 404, 'Key not found');
 	}
 
-	if (permanent) {
+	if (query.permanent) {
 		const deleted = await stub.deleteKey(keyId);
 
 		console.log(
@@ -195,7 +157,7 @@ adminKeysApp.delete('/:id', async (c) => {
 		);
 
 		if (!deleted) {
-			return c.json({ success: false, errors: [{ code: 404, message: 'Key not found' }] }, 404);
+			return jsonError(c, 404, 'Key not found');
 		}
 
 		return c.json({ success: true, result: { deleted: true } });
@@ -214,7 +176,7 @@ adminKeysApp.delete('/:id', async (c) => {
 	);
 
 	if (!revoked) {
-		return c.json({ success: false, errors: [{ code: 404, message: 'Key not found or already revoked' }] }, 404);
+		return jsonError(c, 404, 'Key not found or already revoked');
 	}
 
 	return c.json({ success: true, result: { revoked: true } });
@@ -225,7 +187,7 @@ adminKeysApp.delete('/:id', async (c) => {
 adminKeysApp.post('/bulk-revoke', async (c) => {
 	const log: Record<string, unknown> = { route: 'admin.bulkRevokeKeys', ts: new Date().toISOString() };
 
-	const body = await parseBulkBody(c, 'ids');
+	const body = await parseBulkBody(c, 'ids', log);
 	if (body instanceof Response) return body;
 
 	const { ids, dryRun } = body;
@@ -252,7 +214,7 @@ adminKeysApp.post('/bulk-revoke', async (c) => {
 adminKeysApp.post('/bulk-delete', async (c) => {
 	const log: Record<string, unknown> = { route: 'admin.bulkDeleteKeys', ts: new Date().toISOString() };
 
-	const body = await parseBulkBody(c, 'ids');
+	const body = await parseBulkBody(c, 'ids', log);
 	if (body instanceof Response) return body;
 
 	const { ids, dryRun } = body;
@@ -276,22 +238,17 @@ adminKeysApp.post('/bulk-delete', async (c) => {
 
 // ─── Private helpers ────────────────────────────────────────────────────────
 
-/** Validate and extract rate_limit fields from raw input. Returns parsed object, undefined, or 'invalid'. */
-function validateRateLimitFields(raw: Record<string, unknown>): CreateKeyRequest['rate_limit'] | undefined | 'invalid' {
+/** Extract rate_limit fields that have values. Returns undefined if all fields are null/undefined. */
+function validateRateLimitFields(raw: NonNullable<CreateKeyRequest['rate_limit']>): CreateKeyRequest['rate_limit'] | undefined {
 	const fields = ['bulk_rate', 'bulk_bucket', 'single_rate', 'single_bucket'] as const;
-	const result: Record<string, number | null> = {};
+	const result: Record<string, number | undefined> = {};
 	let hasAny = false;
 	for (const field of fields) {
 		const val = raw[field];
-		if (val === undefined || val === null) {
-			result[field] = null;
-			continue;
+		if (val != null) {
+			result[field] = val;
+			hasAny = true;
 		}
-		if (typeof val !== 'number' || val <= 0 || !isFinite(val)) {
-			return 'invalid';
-		}
-		result[field] = val;
-		hasAny = true;
 	}
 	if (!hasAny) return undefined;
 	return result as unknown as CreateKeyRequest['rate_limit'];

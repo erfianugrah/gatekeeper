@@ -6,6 +6,7 @@ import { adminS3App } from './admin-s3';
 import { adminUpstreamTokensApp } from './admin-upstream-tokens';
 import { adminUpstreamR2App } from './admin-upstream-r2';
 import { adminConfigApp } from './admin-config';
+import { jsonError } from './admin-schemas';
 import type { HonoEnv } from '../types';
 
 // ─── Admin compositor ───────────────────────────────────────────────────────
@@ -21,7 +22,7 @@ export const adminApp = new Hono<HonoEnv>();
 /** Global error handler — catches unhandled throws and returns structured JSON. */
 adminApp.onError((err, c) => {
 	console.error(JSON.stringify({ route: 'admin', error: err.message, ts: new Date().toISOString() }));
-	return c.json({ success: false, errors: [{ code: 500, message: 'Internal server error' }] }, 500);
+	return jsonError(c, 500, 'Internal server error');
 });
 
 // Authentication — sets adminRole in context

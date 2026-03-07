@@ -3,7 +3,9 @@ import { RequestCollapser } from '../request-collapse';
 import { logPurgeEvent } from '../analytics';
 import { getStub } from '../do-stub';
 import { extractRequestFields } from '../request-fields';
-import { ZONE_ID_RE, BEARER_PREFIX, MAX_LOG_VALUE_LENGTH, AUDIT_CREATED_BY_API_KEY } from '../constants';
+import { BEARER_PREFIX, MAX_LOG_VALUE_LENGTH, AUDIT_CREATED_BY_API_KEY } from '../constants';
+import { getCachedConfig, invalidateConfigCache } from '../config-cache';
+import { purgeBodySchema, zoneIdParamSchema, jsonError } from './admin-schemas';
 import type { PurgeEvent } from '../analytics';
 import type { PurgeBody, ParsedPurgeRequest, PurgeResult, HonoEnv } from '../types';
 
@@ -17,6 +19,7 @@ const isolateCollapser = new RequestCollapser<PurgeResult>();
  */
 export function __testClearInflightCache() {
 	isolateCollapser.__testClear();
+	invalidateConfigCache();
 }
 
 // ─── Route ──────────────────────────────────────────────────────────────────
@@ -35,13 +38,14 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 			ts: new Date().toISOString(),
 		};
 
-		// Validate zone ID format
-		if (!ZONE_ID_RE.test(zoneId)) {
+		// Validate zone ID format via Zod
+		const paramResult = zoneIdParamSchema.safeParse({ zoneId });
+		if (!paramResult.success) {
 			log.status = 400;
 			log.error = 'invalid_zone_id';
 			log.durationMs = Date.now() - start;
 			console.log(JSON.stringify(log));
-			return c.json({ success: false, errors: [{ code: 400, message: 'Invalid zone ID format' }] }, 400);
+			return jsonError(c, 400, 'Invalid zone ID format');
 		}
 
 		// Check auth header presence early
@@ -51,29 +55,43 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 			log.error = 'missing_auth';
 			log.durationMs = Date.now() - start;
 			console.log(JSON.stringify(log));
-			return c.json({ success: false, errors: [{ code: 401, message: 'Missing Authorization: Bearer <key>' }] }, 401);
+			return jsonError(c, 401, 'Missing Authorization: Bearer <key>');
 		}
 		const keyId = authHeader.slice(BEARER_PREFIX.length).trim();
 		log.keyId = keyId.slice(0, 12) + '...';
 
-		// Parse body
+		// Parse and validate body via Zod
 		let bodyText: string;
 		let body: PurgeBody;
 		try {
 			bodyText = await c.req.text();
-			body = JSON.parse(bodyText);
+			const raw = JSON.parse(bodyText);
+			const bodyResult = purgeBodySchema.safeParse(raw);
+			if (!bodyResult.success) {
+				const errors = bodyResult.error.issues.map((issue) => ({
+					code: 400,
+					message: `${issue.path.join('.')}: ${issue.message}`,
+				}));
+				log.status = 400;
+				log.error = 'invalid_purge_body';
+				log.validationErrors = errors.map((e) => e.message);
+				log.durationMs = Date.now() - start;
+				console.log(JSON.stringify(log));
+				return c.json({ success: false, errors }, 400);
+			}
+			body = bodyResult.data as PurgeBody;
 		} catch {
 			log.status = 400;
 			log.error = 'invalid_json';
 			log.durationMs = Date.now() - start;
 			console.log(JSON.stringify(log));
-			return c.json({ success: false, errors: [{ code: 400, message: 'Invalid JSON body' }] }, 400);
+			return jsonError(c, 400, 'Invalid JSON body');
 		}
 
 		const stub = getStub(env);
 
-		// Resolve config from DO registry for max-ops limits
-		const gwConfig = await stub.getConfig();
+		// Resolve config from DO registry (isolate-cached with 30s TTL)
+		const gwConfig = await getCachedConfig(stub);
 
 		// Classify purge type
 		let parsed: ParsedPurgeRequest;
@@ -85,7 +103,7 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 			log.detail = e.message;
 			log.durationMs = Date.now() - start;
 			console.log(JSON.stringify(log));
-			return c.json({ success: false, errors: [{ code: 400, message: e.message }] }, 400);
+			return jsonError(c, 400, e.message);
 		}
 
 		log.purgeType = parsed.type;
@@ -124,7 +142,7 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 			log.error = 'no_upstream_token';
 			log.durationMs = Date.now() - start;
 			console.log(JSON.stringify(log));
-			return c.json({ success: false, errors: [{ code: 502, message: `No upstream API token registered for zone ${zoneId}` }] }, 502);
+			return jsonError(c, 502, `No upstream API token registered for zone ${zoneId}`);
 		}
 
 		// ── Isolate-level request collapsing ────────────────────────────────
@@ -180,7 +198,7 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 		});
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'purge', error: e.message, ts: new Date().toISOString() }));
-		return c.json({ success: false, errors: [{ code: 500, message: 'Internal server error' }] }, 500);
+		return jsonError(c, 500, 'Internal server error');
 	}
 });
 

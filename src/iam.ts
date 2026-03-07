@@ -1,34 +1,17 @@
-import { evaluatePolicy } from './policy-engine';
+import { CredentialManager } from './credential-manager';
 import { queryAll } from './sql';
-import { MS_PER_DAY, DEFAULT_CACHE_TTL_MS } from './constants';
+import { MS_PER_DAY } from './constants';
 import { generateHexId } from './crypto';
-import type {
-	ApiKey,
-	CachedKey,
-	CreateKeyRequest,
-	AuthResult,
-	PurgeBody,
-	BulkItemResult,
-	BulkResult,
-	BulkInspectItem,
-	BulkDryRunResult,
-} from './types';
+import { evaluatePolicy } from './policy-engine';
+
+import type { ApiKey, CachedKey, CreateKeyRequest, AuthResult, PurgeBody } from './types';
 import { POLICY_VERSION } from './policy-types';
 import type { PolicyDocument, RequestContext } from './policy-types';
 
 /** Key prefix for all keys. */
 const KEY_PREFIX = 'gw_';
 
-export class IamManager {
-	private sql: SqlStorage;
-	private cache: Map<string, CachedKey> = new Map();
-	private cacheTtlMs: number;
-
-	constructor(sql: SqlStorage, cacheTtlMs: number = DEFAULT_CACHE_TTL_MS) {
-		this.sql = sql;
-		this.cacheTtlMs = cacheTtlMs;
-	}
-
+export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 	/** Create tables if they don't exist. Call inside blockConcurrencyWhile. */
 	initTables(): void {
 		this.sql.exec(`
@@ -152,80 +135,25 @@ export class IamManager {
 
 	/** Soft-revoke a key. */
 	revokeKey(id: string): boolean {
-		const result = this.sql.exec('UPDATE api_keys SET revoked = 1 WHERE id = ? AND revoked = 0', id);
-		this.cache.delete(id);
-		return result.rowsWritten > 0;
+		return this.revokeById(id);
 	}
 
 	/** Permanently delete a key. Returns true if the row existed and was removed. */
 	deleteKey(id: string): boolean {
-		const result = this.sql.exec('DELETE FROM api_keys WHERE id = ?', id);
-		this.cache.delete(id);
-		return result.rowsWritten > 0;
-	}
-
-	// ─── Bulk operations ────────────────────────────────────────────────
-
-	/** Bulk soft-revoke keys. Returns per-item status. */
-	bulkRevoke(ids: string[]): BulkResult {
-		const results: BulkItemResult[] = [];
-		for (const id of ids) {
-			const existing = this.getKey(id);
-			if (!existing) {
-				results.push({ id, status: 'not_found' });
-			} else if (existing.key.revoked) {
-				results.push({ id, status: 'already_revoked' });
-			} else {
-				this.revokeKey(id);
-				results.push({ id, status: 'revoked' });
-			}
-		}
-		return { processed: results.length, results };
-	}
-
-	/** Bulk hard-delete keys. Returns per-item status. */
-	bulkDelete(ids: string[]): BulkResult {
-		const results: BulkItemResult[] = [];
-		for (const id of ids) {
-			const deleted = this.deleteKey(id);
-			results.push({ id, status: deleted ? 'deleted' : 'not_found' });
-		}
-		return { processed: results.length, results };
-	}
-
-	/** Inspect keys without modifying — for dry-run preview. */
-	bulkInspect(ids: string[], wouldBecome: string): BulkDryRunResult {
-		const items: BulkInspectItem[] = [];
-		for (const id of ids) {
-			const existing = this.getKey(id);
-			if (!existing) {
-				items.push({ id, current_status: 'not_found', would_become: 'not_found' });
-			} else {
-				const key = existing.key;
-				let currentStatus: BulkInspectItem['current_status'];
-				if (key.revoked) {
-					currentStatus = 'revoked';
-				} else if (key.expires_at && key.expires_at < Date.now()) {
-					currentStatus = 'expired';
-				} else {
-					currentStatus = 'active';
-				}
-				items.push({ id, current_status: currentStatus, would_become: wouldBecome });
-			}
-		}
-		return { dry_run: true, would_process: items.length, items };
+		return this.deleteById(id);
 	}
 
 	// ─── Authorization ──────────────────────────────────────────────────
 
 	/** Evaluate the key's policy against request contexts. */
 	authorize(keyId: string, zoneId: string, contexts: RequestContext[]): AuthResult {
+		// Zone-scoping check is IamManager-specific — must happen before generic auth
 		const cached = this.getCachedOrLoad(keyId);
 		if (!cached) {
 			return { authorized: false, error: 'Invalid API key' };
 		}
 
-		const { key, resolvedPolicy } = cached;
+		const key = cached.key;
 
 		if (key.revoked) {
 			return { authorized: false, error: 'API key has been revoked' };
@@ -240,10 +168,10 @@ export class IamManager {
 			return { authorized: false, error: 'API key is not authorized for this zone' };
 		}
 
-		if (!evaluatePolicy(resolvedPolicy, contexts)) {
+		if (!evaluatePolicy(cached.resolvedPolicy, contexts)) {
 			const denied: string[] = [];
 			for (const ctx of contexts) {
-				if (!evaluatePolicy(resolvedPolicy, [ctx])) {
+				if (!evaluatePolicy(cached.resolvedPolicy, [ctx])) {
 					denied.push(formatDeniedContext(ctx));
 				}
 			}
@@ -266,35 +194,49 @@ export class IamManager {
 		return this.authorize(keyId, zoneId, contexts);
 	}
 
-	// ─── Private helpers ────────────────────────────────────────────────
+	// ─── Protected overrides ────────────────────────────────────────────
 
-	private getCachedOrLoad(keyId: string): CachedKey | null {
-		const cached = this.cache.get(keyId);
-		if (cached && Date.now() - cached.cachedAt < this.cacheTtlMs) {
-			return cached;
-		}
+	protected revokeById(id: string): boolean {
+		const result = this.sql.exec('UPDATE api_keys SET revoked = 1 WHERE id = ? AND revoked = 0', id);
+		this.cache.delete(id);
+		return result.rowsWritten > 0;
+	}
 
-		const loaded = this.getKey(keyId);
-		if (!loaded) {
-			this.cache.delete(keyId);
-			return null;
-		}
+	protected deleteById(id: string): boolean {
+		const result = this.sql.exec('DELETE FROM api_keys WHERE id = ?', id);
+		this.cache.delete(id);
+		return result.rowsWritten > 0;
+	}
 
-		let resolvedPolicy: PolicyDocument;
-		try {
-			resolvedPolicy = JSON.parse(loaded.key.policy) as PolicyDocument;
-		} catch {
-			// Corrupt policy JSON — deny everything
-			resolvedPolicy = { version: POLICY_VERSION, statements: [] };
-		}
+	protected getById(id: string): { entity: ApiKey } | null {
+		const result = this.getKey(id);
+		return result ? { entity: result.key } : null;
+	}
 
-		const entry: CachedKey = {
-			key: loaded.key,
-			resolvedPolicy,
-			cachedAt: Date.now(),
-		};
-		this.cache.set(keyId, entry);
-		return entry;
+	protected loadFromSql(id: string): ApiKey | null {
+		const rows = queryAll<ApiKey>(this.sql, 'SELECT * FROM api_keys WHERE id = ?', id);
+		return rows.length > 0 ? rows[0] : null;
+	}
+
+	protected getEntityFromCache(cached: CachedKey): ApiKey {
+		return cached.key;
+	}
+
+	protected buildCacheEntry(entity: ApiKey, resolvedPolicy: PolicyDocument, cachedAt: number): CachedKey {
+		return { key: entity, resolvedPolicy, cachedAt };
+	}
+
+	protected invalidCredentialMessage(): string {
+		return 'Invalid API key';
+	}
+	protected revokedMessage(): string {
+		return 'API key has been revoked';
+	}
+	protected expiredMessage(): string {
+		return 'API key has expired';
+	}
+	protected deniedMessage(denied: string[]): string {
+		return `Key does not have scope for: ${denied.join(', ')}`;
 	}
 
 	private generateKeyId(): string {
