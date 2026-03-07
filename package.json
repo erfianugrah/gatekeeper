@@ -21,7 +21,8 @@
 		"ship": "npm run preflight && npm run deploy",
 		"cf-typegen": "wrangler types",
 		"cli": "node --env-file=.env --import tsx cli/index.ts",
-		"smoke": "node --env-file=.env --import tsx cli/smoke-test.ts"
+		"smoke": "node --env-file=.env --import tsx cli/smoke-test.ts",
+		"openapi": "tsx scripts/generate-openapi.ts"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.12.19",
@@ -30,7 +31,8 @@
 		"tsx": "^4.21.0",
 		"typescript": "^5.5.2",
 		"vitest": "~3.2.0",
-		"wrangler": "^4.70.0"
+		"wrangler": "^4.70.0",
+		"zod-openapi": "^5.4.6"
 	},
 	"dependencies": {
 		"aws4fetch": "^1.0.20",

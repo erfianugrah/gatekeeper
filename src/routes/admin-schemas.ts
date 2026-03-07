@@ -469,3 +469,219 @@ export async function parseBulkBody(
 	const data = result.data as Record<string, unknown>;
 	return { ids: data[idField] as string[], dryRun: data.dry_run === true };
 }
+
+// ─── Response / entity schemas (for OpenAPI spec generation) ────────────────
+
+/** Single API error item. */
+export const apiErrorSchema = z
+	.object({
+		code: z.number().int(),
+		message: z.string(),
+	})
+	.meta({ id: 'ApiError', description: 'A single error entry' });
+
+/** Standard error envelope used by all error responses. */
+export const errorEnvelopeSchema = z
+	.object({
+		success: z.literal(false),
+		errors: z.array(apiErrorSchema),
+	})
+	.meta({ id: 'ErrorEnvelope', description: 'Cloudflare API-style error response' });
+
+/** Health check response. */
+export const healthResponseSchema = z.object({ ok: z.literal(true) }).meta({ id: 'HealthResponse' });
+
+// ─── Entity schemas ─────────────────────────────────────────────────────────
+
+/** API key entity as returned from the admin API. */
+export const apiKeySchema = z
+	.object({
+		id: z.string(),
+		name: z.string(),
+		zone_id: z.string().nullable(),
+		created_at: z.number(),
+		expires_at: z.number().nullable(),
+		revoked: z.number(),
+		policy: z.string().meta({ description: 'JSON-serialized PolicyDocument' }),
+		created_by: z.string().nullable(),
+		bulk_rate: z.number().nullable(),
+		bulk_bucket: z.number().nullable(),
+		single_rate: z.number().nullable(),
+		single_bucket: z.number().nullable(),
+	})
+	.meta({ id: 'ApiKey', description: 'A purge API key' });
+
+/** S3 credential entity as returned from the admin API. */
+export const s3CredentialSchema = z
+	.object({
+		access_key_id: z.string(),
+		secret_access_key: z.string(),
+		name: z.string(),
+		created_at: z.number(),
+		expires_at: z.number().nullable(),
+		revoked: z.number(),
+		policy: z.string().meta({ description: 'JSON-serialized PolicyDocument' }),
+		created_by: z.string().nullable(),
+	})
+	.meta({ id: 'S3Credential', description: 'An S3-compatible credential' });
+
+/** Upstream Cloudflare API token entity. */
+export const upstreamTokenSchema = z
+	.object({
+		id: z.string(),
+		name: z.string(),
+		zone_ids: z.string().meta({ description: 'Comma-separated zone IDs or "*"' }),
+		token_preview: z.string().meta({ description: 'First 4 + last 4 chars of the token' }),
+		created_at: z.number(),
+		created_by: z.string().nullable(),
+	})
+	.meta({ id: 'UpstreamToken', description: 'A registered upstream Cloudflare API token' });
+
+/** Upstream R2 endpoint entity. */
+export const upstreamR2Schema = z
+	.object({
+		id: z.string(),
+		name: z.string(),
+		bucket_names: z.string().meta({ description: 'Comma-separated bucket names or "*"' }),
+		access_key_preview: z.string(),
+		endpoint: z.string(),
+		created_at: z.number(),
+		created_by: z.string().nullable(),
+	})
+	.meta({ id: 'UpstreamR2', description: 'A registered upstream R2 endpoint' });
+
+// ─── Bulk operation response schemas ────────────────────────────────────────
+
+export const bulkItemResultSchema = z
+	.object({
+		id: z.string(),
+		status: z.enum(['revoked', 'already_revoked', 'deleted', 'not_found']),
+	})
+	.meta({ id: 'BulkItemResult' });
+
+export const bulkResultSchema = z
+	.object({
+		processed: z.number().int(),
+		results: z.array(bulkItemResultSchema),
+	})
+	.meta({ id: 'BulkResult', description: 'Result of a bulk operation' });
+
+export const bulkInspectItemSchema = z
+	.object({
+		id: z.string(),
+		current_status: z.enum(['active', 'revoked', 'expired', 'not_found']),
+		would_become: z.string(),
+	})
+	.meta({ id: 'BulkInspectItem' });
+
+export const bulkDryRunResultSchema = z
+	.object({
+		dry_run: z.literal(true),
+		would_process: z.number().int(),
+		items: z.array(bulkInspectItemSchema),
+	})
+	.meta({ id: 'BulkDryRunResult', description: 'Preview of a dry-run bulk operation' });
+
+// ─── Analytics response schemas ─────────────────────────────────────────────
+
+/** Purge event row from D1. */
+export const purgeEventSchema = z
+	.object({
+		key_id: z.string(),
+		zone_id: z.string(),
+		purge_type: z.string(),
+		purge_target: z.string().nullable(),
+		tokens: z.number(),
+		status: z.number(),
+		collapsed: z.union([z.string(), z.literal(false)]),
+		upstream_status: z.number().nullable(),
+		duration_ms: z.number(),
+		created_at: z.number(),
+		response_detail: z.string().nullable(),
+		created_by: z.string().nullable(),
+		flight_id: z.string(),
+	})
+	.meta({ id: 'PurgeEvent', description: 'A single purge analytics event' });
+
+/** Purge analytics summary. */
+export const analyticsSummarySchema = z
+	.object({
+		total_requests: z.number(),
+		total_urls_purged: z.number(),
+		by_status: z.record(z.string(), z.number()),
+		by_purge_type: z.record(z.string(), z.number()),
+		collapsed_count: z.number(),
+		avg_duration_ms: z.number(),
+	})
+	.meta({ id: 'AnalyticsSummary', description: 'Aggregate purge analytics' });
+
+/** S3 event row from D1. */
+export const s3EventSchema = z
+	.object({
+		credential_id: z.string(),
+		operation: z.string(),
+		bucket: z.string().nullable(),
+		key: z.string().nullable(),
+		status: z.number(),
+		duration_ms: z.number(),
+		created_at: z.number(),
+		response_detail: z.string().nullable(),
+		created_by: z.string().nullable(),
+	})
+	.meta({ id: 'S3Event', description: 'A single S3 proxy analytics event' });
+
+/** S3 analytics summary. */
+export const s3AnalyticsSummarySchema = z
+	.object({
+		total_requests: z.number(),
+		by_status: z.record(z.string(), z.number()),
+		by_operation: z.record(z.string(), z.number()),
+		by_bucket: z.record(z.string(), z.number()),
+		avg_duration_ms: z.number(),
+	})
+	.meta({ id: 'S3AnalyticsSummary', description: 'Aggregate S3 proxy analytics' });
+
+// ─── Config response schemas ────────────────────────────────────────────────
+
+/** All 10 config values. */
+export const gatewayConfigSchema = z
+	.object({
+		bulk_rate: z.number(),
+		bulk_bucket_size: z.number(),
+		bulk_max_ops: z.number(),
+		single_rate: z.number(),
+		single_bucket_size: z.number(),
+		single_max_ops: z.number(),
+		key_cache_ttl_ms: z.number(),
+		retention_days: z.number(),
+		s3_rps: z.number(),
+		s3_burst: z.number(),
+	})
+	.meta({ id: 'GatewayConfig', description: 'Resolved gateway configuration' });
+
+export const configOverrideSchema = z
+	.object({
+		key: z.string(),
+		value: z.string(),
+		updated_at: z.number(),
+		updated_by: z.string().nullable(),
+	})
+	.meta({ id: 'ConfigOverride', description: 'A single config override entry' });
+
+/** GET /admin/config response result. */
+export const configResponseSchema = z
+	.object({
+		config: gatewayConfigSchema,
+		overrides: z.array(configOverrideSchema),
+		defaults: z.record(z.string(), z.number()),
+	})
+	.meta({ id: 'ConfigResponse', description: 'Full config response with overrides and defaults' });
+
+// ─── Upstream validation warning ────────────────────────────────────────────
+
+export const validationWarningSchema = z
+	.object({
+		type: z.string(),
+		message: z.string(),
+	})
+	.meta({ id: 'ValidationWarning', description: 'Warning from upstream credential validation' });

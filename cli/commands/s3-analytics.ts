@@ -1,5 +1,5 @@
 import { defineCommand } from 'citty';
-import { resolveConfig, resolveZoneId, request, assertOk } from '../client.js';
+import { resolveConfig, request, assertOk } from '../client.js';
 import {
 	success,
 	info,
@@ -17,21 +17,29 @@ import {
 	symbols,
 	parseTime,
 } from '../ui.js';
-import { zoneArgs } from '../shared-args.js';
+import { baseArgs } from '../shared-args.js';
 
-const globalArgs = zoneArgs;
+// S3 analytics are not zone-scoped, so we use baseArgs (no --zone-id).
 
-// --- analytics events ---
+// --- s3-analytics events ---
 const events = defineCommand({
 	meta: {
 		name: 'events',
-		description: 'Query recent purge events',
+		description: 'Query recent S3 proxy events',
 	},
 	args: {
-		...globalArgs,
-		'key-id': {
+		...baseArgs,
+		'credential-id': {
 			type: 'string',
-			description: 'Filter by API key ID',
+			description: 'Filter by S3 credential (access_key_id)',
+		},
+		bucket: {
+			type: 'string',
+			description: 'Filter by bucket name',
+		},
+		operation: {
+			type: 'string',
+			description: 'Filter by S3 operation (e.g. GetObject, PutObject)',
 		},
 		since: {
 			type: 'string',
@@ -48,17 +56,20 @@ const events = defineCommand({
 	},
 	async run({ args }) {
 		const config = resolveConfig(args);
-		const zoneId = resolveZoneId(args);
 
-		const params = new URLSearchParams({ zone_id: zoneId });
-		if (args['key-id']) params.set('key_id', args['key-id']);
+		const params = new URLSearchParams();
+		if (args['credential-id']) params.set('credential_id', args['credential-id']);
+		if (args.bucket) params.set('bucket', args.bucket);
+		if (args.operation) params.set('operation', args.operation);
 		if (args.since) params.set('since', String(parseTime(args.since)));
 		if (args.until) params.set('until', String(parseTime(args.until)));
 		if (args.limit) params.set('limit', args.limit);
 
-		const { status, data, durationMs } = await request(config, 'GET', `/admin/analytics/events?${params}`, {
+		const qs = params.toString();
+		const path = qs ? `/admin/s3/analytics/events?${qs}` : '/admin/s3/analytics/events';
+		const { status, data, durationMs } = await request(config, 'GET', path, {
 			auth: 'admin',
-			label: 'Fetching events...',
+			label: 'Fetching S3 events...',
 		});
 
 		if (args.json) {
@@ -71,7 +82,7 @@ const events = defineCommand({
 		const result = (data as Record<string, unknown>).result as Record<string, unknown>[];
 
 		if (result.length === 0) {
-			info(`No events found ${dim(`(${formatDuration(durationMs)})`)}`);
+			info(`No S3 events found ${dim(`(${formatDuration(durationMs)})`)}`);
 			return;
 		}
 
@@ -82,37 +93,44 @@ const events = defineCommand({
 		const rows = result.map((e) => {
 			const statusCode = e.status as number;
 			const statusColor = statusCode >= 400 ? red : statusCode >= 300 ? yellow : green;
-			const collapsed = e.collapsed ? cyan(String(e.collapsed)) : dim('-');
 			const ts = new Date(e.created_at as number).toISOString().slice(0, 19).replace('T', ' ');
-			const keyShort = (e.key_id as string).slice(0, 16) + '...';
+			const credShort = (e.credential_id as string).slice(0, 16) + '...';
 
 			return [
 				ts,
 				statusColor(String(statusCode)),
-				e.purge_type as string,
-				String(e.tokens ?? e.cost ?? '-'),
-				collapsed,
+				cyan(e.operation as string),
+				e.bucket ? String(e.bucket) : dim('-'),
+				e.key ? gray(String(e.key).slice(0, 30)) : dim('-'),
 				dim(String(e.duration_ms) + 'ms'),
-				gray(keyShort),
+				gray(credShort),
 			];
 		});
 
-		table(['Time', 'Status', 'Type', 'Tokens', 'Collapsed', 'Duration', 'Key'], rows);
+		table(['Time', 'Status', 'Operation', 'Bucket', 'Key', 'Duration', 'Credential'], rows);
 		console.error('');
 	},
 });
 
-// --- analytics summary ---
+// --- s3-analytics summary ---
 const summary = defineCommand({
 	meta: {
 		name: 'summary',
-		description: 'Get aggregated analytics summary for a zone',
+		description: 'Get aggregated S3 proxy analytics summary',
 	},
 	args: {
-		...globalArgs,
-		'key-id': {
+		...baseArgs,
+		'credential-id': {
 			type: 'string',
-			description: 'Filter by API key ID',
+			description: 'Filter by S3 credential (access_key_id)',
+		},
+		bucket: {
+			type: 'string',
+			description: 'Filter by bucket name',
+		},
+		operation: {
+			type: 'string',
+			description: 'Filter by S3 operation',
 		},
 		since: {
 			type: 'string',
@@ -125,16 +143,19 @@ const summary = defineCommand({
 	},
 	async run({ args }) {
 		const config = resolveConfig(args);
-		const zoneId = resolveZoneId(args);
 
-		const params = new URLSearchParams({ zone_id: zoneId });
-		if (args['key-id']) params.set('key_id', args['key-id']);
+		const params = new URLSearchParams();
+		if (args['credential-id']) params.set('credential_id', args['credential-id']);
+		if (args.bucket) params.set('bucket', args.bucket);
+		if (args.operation) params.set('operation', args.operation);
 		if (args.since) params.set('since', String(parseTime(args.since)));
 		if (args.until) params.set('until', String(parseTime(args.until)));
 
-		const { status, data, durationMs } = await request(config, 'GET', `/admin/analytics/summary?${params}`, {
+		const qs = params.toString();
+		const path = qs ? `/admin/s3/analytics/summary?${qs}` : '/admin/s3/analytics/summary';
+		const { status, data, durationMs } = await request(config, 'GET', path, {
 			auth: 'admin',
-			label: 'Fetching summary...',
+			label: 'Fetching S3 summary...',
 		});
 
 		if (args.json) {
@@ -147,12 +168,10 @@ const summary = defineCommand({
 		const s = (data as Record<string, unknown>).result as Record<string, unknown>;
 
 		console.error('');
-		success(`Analytics summary ${dim(`(${formatDuration(durationMs)})`)}`);
+		success(`S3 analytics summary ${dim(`(${formatDuration(durationMs)})`)}`);
 		console.error('');
 
 		label('Total requests', bold(String(s.total_requests)));
-		label('URLs purged', bold(String(s.total_urls_purged)));
-		label('Collapsed', bold(String(s.collapsed_count)));
 		label('Avg duration', bold(String(s.avg_duration_ms) + 'ms'));
 
 		// Status breakdown
@@ -166,13 +185,23 @@ const summary = defineCommand({
 			}
 		}
 
-		// Purge type breakdown
-		const byType = s.by_purge_type as Record<string, number>;
-		if (Object.keys(byType).length > 0) {
+		// Operation breakdown
+		const byOp = s.by_operation as Record<string, number>;
+		if (Object.keys(byOp).length > 0) {
 			console.error('');
-			info('By purge type:');
-			for (const [type, count] of Object.entries(byType)) {
-				console.error(`  ${symbols.bullet} ${cyan(type)} ${dim('x')}${count}`);
+			info('By operation:');
+			for (const [op, count] of Object.entries(byOp)) {
+				console.error(`  ${symbols.bullet} ${cyan(op)} ${dim('x')}${count}`);
+			}
+		}
+
+		// Bucket breakdown
+		const byBucket = s.by_bucket as Record<string, number>;
+		if (Object.keys(byBucket).length > 0) {
+			console.error('');
+			info('By bucket:');
+			for (const [bucket, count] of Object.entries(byBucket)) {
+				console.error(`  ${symbols.bullet} ${bold(bucket)} ${dim('x')}${count}`);
 			}
 		}
 
@@ -180,8 +209,8 @@ const summary = defineCommand({
 	},
 });
 
-// --- analytics (parent) ---
+// --- s3-analytics (parent) ---
 export default defineCommand({
-	meta: { name: 'analytics', description: 'View purge analytics' },
+	meta: { name: 's3-analytics', description: 'View S3 proxy analytics' },
 	subCommands: { events, summary },
 });

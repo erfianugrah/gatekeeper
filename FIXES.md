@@ -623,4 +623,40 @@ Status legend: `[ ]` = open, `[x]` = done, `[-]` = won't fix / by design.
 - **Problem**: Every purge request called `stub.getConfig()` — a DO RPC — to get rate limit config that changes rarely (only via admin PUT/DELETE).
 - **Fix**: Created `src/config-cache.ts` with `getCachedConfig(stub)` (30s TTL) and `invalidateConfigCache()`. Purge route uses cached config; admin config routes call `invalidateConfigCache()` after mutations. Test helper `__testClearInflightCache()` also invalidates the config cache.
 
+---
+
+## Round 6 — OpenAPI Generation, CLI Completion, Documentation
+
+### 6.1 `[DONE]` Zod-to-OpenAPI spec generation
+
+- **Files**: new `scripts/generate-openapi.ts`, new `openapi.json`, modified `src/routes/admin-schemas.ts`, `package.json`
+- **Problem**: Hand-written `openapi.yaml` (2,657 lines) was stale and inaccurate vs the actual API — missing `validate` field on upstream registration, wrong `required` on `zone_id`, missing `flight_id` in purge body, missing `s3_rps`/`s3_burst` config keys, etc.
+- **Fix**: Added 20+ response/entity Zod schemas with `.meta({ id: '...' })` to `admin-schemas.ts` for OpenAPI component registration. Created `scripts/generate-openapi.ts` using `zod-openapi` (v5.4.6, dev dependency) that generates `openapi.json` (OpenAPI 3.1.0, 23 paths, 20 component schemas). Added `npm run openapi` script. Deleted stale `openapi.yaml`. JSON output avoids YAML serialization issues with `z.unknown()` producing empty `{}`.
+
+### 6.2 `[DONE]` S3 analytics CLI command
+
+- **Files**: new `cli/commands/s3-analytics.ts`, modified `cli/index.ts`
+- **Problem**: The CLI covered 30 of 32 API endpoints — the two S3 analytics endpoints (`GET /admin/s3/analytics/events` and `GET /admin/s3/analytics/summary`) had no CLI commands.
+- **Fix**: Created `cli/commands/s3-analytics.ts` with `events` and `summary` subcommands, matching the existing `analytics` command pattern. Registered in `cli/index.ts`. All 32 endpoints now have CLI coverage (9 commands total).
+
+### 6.3 `[DONE]` DRY `parseTime` extraction
+
+- **Files**: modified `cli/ui.ts`, `cli/commands/analytics.ts`, `cli/commands/s3-analytics.ts`
+- **Problem**: `parseTime()` (relative time string → Date conversion) was duplicated identically in `analytics.ts` and `s3-analytics.ts`.
+- **Fix**: Extracted to shared `cli/ui.ts`. Both command files now import from there. Added 4 unit tests for `parseTime` in `cli/cli.test.ts`.
+
+### 6.4 `[DONE]` Documentation overhaul — README + 7 doc files
+
+- **Files**: rewritten `README.md`, new `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/API.md`, `docs/GUIDE.md`, `docs/CLI.md`, `docs/DEPLOYMENT.md`, `docs/CONTRIBUTING.md`
+- **Problem**: Monolithic 1,592-line README covered everything (architecture, security, API, CLI, deployment, contributing) in a single file, making it hard to navigate and maintain.
+- **Fix**: Modularized into 8 focused documents:
+  - `README.md` (~70 lines): Overview, quick-start, doc links table, tech stack, license
+  - `docs/ARCHITECTURE.md`: System design, Mermaid diagram, 9 bounded contexts, DO design, rate limiting, dashboard, observability, project layout
+  - `docs/SECURITY.md`: Auth tiers, Cloudflare Access, full IAM policy engine (concepts, actions, resources, 16 operators, condition fields, compound conditions, auth flow diagram, 11 policy examples, regex safety), RBAC, security headers
+  - `docs/API.md`: All 32 endpoints organized by 10 tags with request/response examples, error codes, rate limit headers
+  - `docs/GUIDE.md`: Cookbook with CLI + API side-by-side examples for every operation
+  - `docs/CLI.md`: Full CLI reference for 9 commands with flags, examples, env vars
+  - `docs/DEPLOYMENT.md`: Wrangler config, D1 setup, secrets, local dev, deploying, custom domains
+  - `docs/CONTRIBUTING.md`: Dev setup, code style, test architecture, adding endpoints/CLI commands
+
 _Last updated: 2026-03-07_

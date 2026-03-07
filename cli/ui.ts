@@ -351,3 +351,25 @@ export async function confirmAction(message: string): Promise<boolean> {
 		});
 	});
 }
+
+// --- Time parsing ───────────────────────────────────────────────────────────
+
+/**
+ * Parse a time string: supports ISO 8601 or unix milliseconds/seconds.
+ * Exits the process on invalid input.
+ */
+export function parseTime(input: string): number {
+	const asNum = Number(input);
+	if (!isNaN(asNum) && asNum > 1_000_000_000_000) {
+		return asNum; // already unix ms
+	}
+	if (!isNaN(asNum) && asNum > 1_000_000_000) {
+		return asNum * 1000; // unix seconds -> ms
+	}
+	const date = new Date(input);
+	if (isNaN(date.getTime())) {
+		error(`Invalid time format: "${input}". Use ISO 8601 or unix ms.`);
+		process.exit(1);
+	}
+	return date.getTime();
+}

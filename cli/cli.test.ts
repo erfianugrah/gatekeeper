@@ -2,7 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { formatDuration, parsePolicy, formatApiError, formatKey, formatPolicy, table, printJson, formatRateLimit } from './ui.js';
+import {
+	formatDuration,
+	parsePolicy,
+	formatApiError,
+	formatKey,
+	formatPolicy,
+	table,
+	printJson,
+	formatRateLimit,
+	parseTime,
+} from './ui.js';
 import { resolveConfig, resolveZoneId, assertOk, request } from './client.js';
 import type { ClientConfig } from './client.js';
 
@@ -566,5 +576,36 @@ describe('formatRateLimit', () => {
 		const headers = new Headers();
 		formatRateLimit(headers);
 		expect(console.error).not.toHaveBeenCalled();
+	});
+});
+
+// ---------- parseTime ----------
+
+describe('parseTime', () => {
+	beforeEach(() => {
+		vi.spyOn(process, 'exit').mockImplementation((() => {}) as never);
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it('passes through unix milliseconds', () => {
+		expect(parseTime('1700000000000')).toBe(1700000000000);
+	});
+
+	it('converts unix seconds to milliseconds', () => {
+		expect(parseTime('1700000000')).toBe(1700000000000);
+	});
+
+	it('parses ISO 8601 date string', () => {
+		const result = parseTime('2025-01-15T12:00:00Z');
+		expect(result).toBe(new Date('2025-01-15T12:00:00Z').getTime());
+	});
+
+	it('exits on invalid time format', () => {
+		parseTime('not-a-date');
+		expect(process.exit).toHaveBeenCalledWith(1);
 	});
 });

@@ -1,0 +1,4021 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Gatekeeper",
+    "description": "API gateway on Cloudflare Workers with AWS IAM-style policy authorization. Fronts Cloudflare's cache purge API and S3-compatible R2 storage with per-key/credential policies, token-bucket rate limiting, request collapsing, and D1-backed analytics.",
+    "version": "4.0.0",
+    "contact": {
+      "name": "Erfi Anugrah"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://gate.erfi.io",
+      "description": "Production"
+    }
+  ],
+  "security": [],
+  "tags": [
+    {
+      "name": "System",
+      "description": "Health and status endpoints"
+    },
+    {
+      "name": "Purge",
+      "description": "Cloudflare cache purge via gateway keys"
+    },
+    {
+      "name": "Keys",
+      "description": "CRUD for purge API keys with IAM policies"
+    },
+    {
+      "name": "Analytics",
+      "description": "Purge analytics events and summaries"
+    },
+    {
+      "name": "S3Credentials",
+      "description": "CRUD for S3-compatible credentials with IAM policies"
+    },
+    {
+      "name": "S3Analytics",
+      "description": "S3 proxy analytics events and summaries"
+    },
+    {
+      "name": "S3Proxy",
+      "description": "S3-compatible proxy to Cloudflare R2 storage"
+    },
+    {
+      "name": "UpstreamTokens",
+      "description": "Manage upstream Cloudflare API tokens for cache purge"
+    },
+    {
+      "name": "UpstreamR2",
+      "description": "Manage upstream R2 endpoints for S3 proxy"
+    },
+    {
+      "name": "Config",
+      "description": "Gateway configuration management"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "operationId": "getHealth",
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/zones/{zoneId}/purge_cache": {
+      "post": {
+        "tags": [
+          "Purge"
+        ],
+        "operationId": "purgeCache",
+        "summary": "Purge Cloudflare cache",
+        "description": "Proxies to the Cloudflare cache purge API with IAM policy authorization, token-bucket rate limiting, and request collapsing. The request body must contain exactly one purge type.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "zoneId",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "files": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "url": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "headers": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "url"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "hosts": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "tags": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "prefixes": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "purge_everything": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Purge result (proxied from Cloudflare)",
+            "headers": {
+              "X-Ratelimit-Remaining": {
+                "description": "Remaining rate-limit tokens",
+                "schema": {
+                  "description": "Remaining rate-limit tokens",
+                  "type": "string"
+                }
+              },
+              "X-Ratelimit-Reset": {
+                "description": "Seconds until bucket refill",
+                "schema": {
+                  "description": "Seconds until bucket refill",
+                  "type": "string"
+                }
+              },
+              "X-Ratelimit-Bucket-Size": {
+                "description": "Bucket capacity",
+                "schema": {
+                  "description": "Bucket capacity",
+                  "type": "string"
+                }
+              },
+              "X-Ratelimit-Rate": {
+                "description": "Refill rate (tokens/sec)",
+                "schema": {
+                  "description": "Refill rate (tokens/sec)",
+                  "type": "string"
+                }
+              },
+              "X-Purge-Flight-Id": {
+                "description": "Stable ID linking collapsed requests",
+                "schema": {
+                  "description": "Stable ID linking collapsed requests",
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "errors": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ApiError"
+                      }
+                    },
+                    "messages": {
+                      "type": "array",
+                      "items": {}
+                    },
+                    "result": {}
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Policy denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/keys": {
+      "post": {
+        "tags": [
+          "Keys"
+        ],
+        "operationId": "createKey",
+        "summary": "Create a purge API key",
+        "description": "Creates a new API key with an attached IAM policy document.",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "zone_id": {
+                    "type": "string"
+                  },
+                  "policy": {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "string",
+                        "const": "2025-01-01"
+                      },
+                      "statements": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "effect": {
+                              "type": "string",
+                              "enum": [
+                                "allow",
+                                "deny"
+                              ]
+                            },
+                            "actions": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "resources": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "conditions": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/components/schemas/__schema0"
+                              }
+                            }
+                          },
+                          "required": [
+                            "effect",
+                            "actions",
+                            "resources"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "statements"
+                    ]
+                  },
+                  "expires_in_days": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "created_by": {
+                    "type": "string"
+                  },
+                  "rate_limit": {
+                    "type": "object",
+                    "properties": {
+                      "bulk_rate": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "bulk_bucket": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "single_rate": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "single_bucket": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "name",
+                  "policy"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Key created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "$ref": "#/components/schemas/ApiKey"
+                        }
+                      },
+                      "required": [
+                        "key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden (role)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Keys"
+        ],
+        "operationId": "listKeys",
+        "summary": "List purge API keys",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "zone_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "revoked"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ApiKey"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/keys/{id}": {
+      "get": {
+        "tags": [
+          "Keys"
+        ],
+        "operationId": "getKey",
+        "summary": "Get a specific key",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "zone_id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Key details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "$ref": "#/components/schemas/ApiKey"
+                        }
+                      },
+                      "required": [
+                        "key"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Key not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Keys"
+        ],
+        "operationId": "deleteKey",
+        "summary": "Revoke or permanently delete a key",
+        "description": "Soft-revokes by default. Pass `permanent=true` to hard-delete.",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "permanent",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "zone_id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Key revoked or deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "type": "object",
+                          "properties": {
+                            "revoked": {
+                              "type": "boolean",
+                              "const": true
+                            }
+                          },
+                          "required": [
+                            "revoked"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "type": "object",
+                          "properties": {
+                            "deleted": {
+                              "type": "boolean",
+                              "const": true
+                            }
+                          },
+                          "required": [
+                            "deleted"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Key not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/keys/bulk-revoke": {
+      "post": {
+        "tags": [
+          "Keys"
+        ],
+        "operationId": "bulkRevokeKeys",
+        "summary": "Bulk revoke keys",
+        "description": "Revoke multiple keys in one request. Supports dry_run preview.",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ids": {
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "confirm_count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "dry_run": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "ids",
+                  "confirm_count"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bulk result or dry-run preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "$ref": "#/components/schemas/BulkResult"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "$ref": "#/components/schemas/BulkDryRunResult"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/keys/bulk-delete": {
+      "post": {
+        "tags": [
+          "Keys"
+        ],
+        "operationId": "bulkDeleteKeys",
+        "summary": "Bulk delete keys",
+        "description": "Permanently delete multiple keys. Supports dry_run preview.",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ids": {
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "confirm_count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "dry_run": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "ids",
+                  "confirm_count"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bulk result or dry-run preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "$ref": "#/components/schemas/BulkResult"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "$ref": "#/components/schemas/BulkDryRunResult"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/analytics/events": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "operationId": "getPurgeAnalyticsEvents",
+        "summary": "Query purge analytics events",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          },
+          {
+            "in": "query",
+            "name": "zone_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key_id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of purge events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PurgeEvent"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Analytics not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/analytics/summary": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "operationId": "getPurgeAnalyticsSummary",
+        "summary": "Query purge analytics summary",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "zone_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key_id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Purge analytics summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "$ref": "#/components/schemas/AnalyticsSummary"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Analytics not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/s3/credentials": {
+      "post": {
+        "tags": [
+          "S3Credentials"
+        ],
+        "operationId": "createS3Credential",
+        "summary": "Create an S3 credential",
+        "description": "Creates a new S3-compatible credential with an IAM policy. Returns the secret_access_key only once.",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "policy": {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "string",
+                        "const": "2025-01-01"
+                      },
+                      "statements": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "effect": {
+                              "type": "string",
+                              "enum": [
+                                "allow",
+                                "deny"
+                              ]
+                            },
+                            "actions": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "resources": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              }
+                            },
+                            "conditions": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/components/schemas/__schema0"
+                              }
+                            }
+                          },
+                          "required": [
+                            "effect",
+                            "actions",
+                            "resources"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "statements"
+                    ]
+                  },
+                  "expires_in_days": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "created_by": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "policy"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Credential created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "credential": {
+                          "$ref": "#/components/schemas/S3Credential"
+                        }
+                      },
+                      "required": [
+                        "credential"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "S3Credentials"
+        ],
+        "operationId": "listS3Credentials",
+        "summary": "List S3 credentials",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "revoked"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/S3Credential"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/s3/credentials/{id}": {
+      "get": {
+        "tags": [
+          "S3Credentials"
+        ],
+        "operationId": "getS3Credential",
+        "summary": "Get a specific S3 credential",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credential details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "credential": {
+                          "$ref": "#/components/schemas/S3Credential"
+                        }
+                      },
+                      "required": [
+                        "credential"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Credential not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "S3Credentials"
+        ],
+        "operationId": "deleteS3Credential",
+        "summary": "Revoke or permanently delete an S3 credential",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "permanent",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "zone_id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credential revoked or deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "type": "object",
+                          "properties": {
+                            "revoked": {
+                              "type": "boolean",
+                              "const": true
+                            }
+                          },
+                          "required": [
+                            "revoked"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "type": "object",
+                          "properties": {
+                            "deleted": {
+                              "type": "boolean",
+                              "const": true
+                            }
+                          },
+                          "required": [
+                            "deleted"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Credential not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/s3/credentials/bulk-revoke": {
+      "post": {
+        "tags": [
+          "S3Credentials"
+        ],
+        "operationId": "bulkRevokeS3Credentials",
+        "summary": "Bulk revoke S3 credentials",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "access_key_ids": {
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "confirm_count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "dry_run": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "access_key_ids",
+                  "confirm_count"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bulk result or dry-run preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "$ref": "#/components/schemas/BulkResult"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "$ref": "#/components/schemas/BulkDryRunResult"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/s3/credentials/bulk-delete": {
+      "post": {
+        "tags": [
+          "S3Credentials"
+        ],
+        "operationId": "bulkDeleteS3Credentials",
+        "summary": "Bulk delete S3 credentials",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "access_key_ids": {
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "confirm_count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "dry_run": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "access_key_ids",
+                  "confirm_count"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bulk result or dry-run preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "$ref": "#/components/schemas/BulkResult"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "$ref": "#/components/schemas/BulkDryRunResult"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/s3/analytics/events": {
+      "get": {
+        "tags": [
+          "S3Analytics"
+        ],
+        "operationId": "getS3AnalyticsEvents",
+        "summary": "Query S3 proxy analytics events",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          },
+          {
+            "in": "query",
+            "name": "credential_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bucket",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "operation",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of S3 events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/S3Event"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Analytics not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/s3/analytics/summary": {
+      "get": {
+        "tags": [
+          "S3Analytics"
+        ],
+        "operationId": "getS3AnalyticsSummary",
+        "summary": "Query S3 proxy analytics summary",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "credential_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bucket",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "operation",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "S3 analytics summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "$ref": "#/components/schemas/S3AnalyticsSummary"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Analytics not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/upstream-tokens": {
+      "post": {
+        "tags": [
+          "UpstreamTokens"
+        ],
+        "operationId": "createUpstreamToken",
+        "summary": "Register an upstream Cloudflare API token",
+        "description": "Registers a Cloudflare API token for proxying purge requests. Optionally validates the token against the Cloudflare API when `validate: true`.",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "token": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "zone_ids": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "created_by": {
+                    "type": "string"
+                  },
+                  "validate": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "token",
+                  "zone_ids"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "$ref": "#/components/schemas/UpstreamToken"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ValidationWarning"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "UpstreamTokens"
+        ],
+        "operationId": "listUpstreamTokens",
+        "summary": "List upstream tokens",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of tokens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/UpstreamToken"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/upstream-tokens/{id}": {
+      "get": {
+        "tags": [
+          "UpstreamTokens"
+        ],
+        "operationId": "getUpstreamToken",
+        "summary": "Get a specific upstream token",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "$ref": "#/components/schemas/UpstreamToken"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Token not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "UpstreamTokens"
+        ],
+        "operationId": "deleteUpstreamToken",
+        "summary": "Delete an upstream token",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "deleted": {
+                          "type": "boolean",
+                          "const": true
+                        }
+                      },
+                      "required": [
+                        "deleted"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Token not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/upstream-tokens/bulk-delete": {
+      "post": {
+        "tags": [
+          "UpstreamTokens"
+        ],
+        "operationId": "bulkDeleteUpstreamTokens",
+        "summary": "Bulk delete upstream tokens",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ids": {
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "confirm_count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "dry_run": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "ids",
+                  "confirm_count"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bulk result or dry-run preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "$ref": "#/components/schemas/BulkResult"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "$ref": "#/components/schemas/BulkDryRunResult"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/upstream-r2": {
+      "post": {
+        "tags": [
+          "UpstreamR2"
+        ],
+        "operationId": "createUpstreamR2",
+        "summary": "Register an upstream R2 endpoint",
+        "description": "Registers an R2 endpoint with credentials for S3 proxy forwarding. Optionally validates connectivity when `validate: true`.",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "access_key_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "secret_access_key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "endpoint": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "bucket_names": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "created_by": {
+                    "type": "string"
+                  },
+                  "validate": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "access_key_id",
+                  "secret_access_key",
+                  "endpoint",
+                  "bucket_names"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "R2 endpoint registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "$ref": "#/components/schemas/UpstreamR2"
+                    },
+                    "warnings": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ValidationWarning"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "UpstreamR2"
+        ],
+        "operationId": "listUpstreamR2",
+        "summary": "List upstream R2 endpoints",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of R2 endpoints",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/UpstreamR2"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/upstream-r2/{id}": {
+      "get": {
+        "tags": [
+          "UpstreamR2"
+        ],
+        "operationId": "getUpstreamR2",
+        "summary": "Get a specific upstream R2 endpoint",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "R2 endpoint details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "$ref": "#/components/schemas/UpstreamR2"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "R2 endpoint not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "UpstreamR2"
+        ],
+        "operationId": "deleteUpstreamR2",
+        "summary": "Delete an upstream R2 endpoint",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "R2 endpoint deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "deleted": {
+                          "type": "boolean",
+                          "const": true
+                        }
+                      },
+                      "required": [
+                        "deleted"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "R2 endpoint not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/upstream-r2/bulk-delete": {
+      "post": {
+        "tags": [
+          "UpstreamR2"
+        ],
+        "operationId": "bulkDeleteUpstreamR2",
+        "summary": "Bulk delete upstream R2 endpoints",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ids": {
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "confirm_count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "dry_run": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "ids",
+                  "confirm_count"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bulk result or dry-run preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "$ref": "#/components/schemas/BulkResult"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "success": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "result": {
+                          "$ref": "#/components/schemas/BulkDryRunResult"
+                        }
+                      },
+                      "required": [
+                        "success",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/config": {
+      "get": {
+        "tags": [
+          "Config"
+        ],
+        "operationId": "getConfig",
+        "summary": "Get gateway configuration",
+        "description": "Returns resolved config values, admin overrides, and hardcoded defaults.",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "$ref": "#/components/schemas/ConfigResponse"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Config"
+        ],
+        "operationId": "setConfig",
+        "summary": "Update gateway configuration",
+        "description": "Sets one or more config overrides. Values must be positive finite numbers.",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Config updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "config": {
+                          "$ref": "#/components/schemas/GatewayConfig"
+                        }
+                      },
+                      "required": [
+                        "config"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/config/{key}": {
+      "delete": {
+        "tags": [
+          "Config"
+        ],
+        "operationId": "resetConfigKey",
+        "summary": "Reset a config key to default",
+        "description": "Removes an admin override, reverting the key to its env/default value.",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Config key reset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "config": {
+                          "$ref": "#/components/schemas/GatewayConfig"
+                        }
+                      },
+                      "required": [
+                        "config"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No override found for key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/s3/{path}": {
+      "get": {
+        "tags": [
+          "S3Proxy"
+        ],
+        "operationId": "s3Get",
+        "summary": "S3 GET operations",
+        "description": "Handles GetObject, ListObjectsV2, ListBuckets, and other S3 GET operations. Authenticates via AWS Sig V4, evaluates IAM policies, then proxies to R2.",
+        "security": [
+          {
+            "S3SigV4Auth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "schema": {
+              "type": "string",
+              "description": "S3 path (bucket/key)"
+            },
+            "required": true,
+            "description": "S3 path (bucket/key)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "S3 response (proxied from R2)"
+          },
+          "403": {
+            "description": "Access denied by IAM policy (S3 XML error)"
+          },
+          "404": {
+            "description": "Object or bucket not found (S3 XML error)"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "S3Proxy"
+        ],
+        "operationId": "s3Put",
+        "summary": "S3 PUT operations",
+        "description": "Handles PutObject, CopyObject, CreateBucket, and other S3 PUT operations.",
+        "security": [
+          {
+            "S3SigV4Auth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "S3 response (proxied from R2)"
+          },
+          "403": {
+            "description": "Access denied by IAM policy"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "S3Proxy"
+        ],
+        "operationId": "s3Post",
+        "summary": "S3 POST operations",
+        "description": "Handles DeleteObjects (batch), CompleteMultipartUpload, and other S3 POST operations.",
+        "security": [
+          {
+            "S3SigV4Auth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "S3 response (proxied from R2)"
+          },
+          "403": {
+            "description": "Access denied by IAM policy"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "S3Proxy"
+        ],
+        "operationId": "s3Delete",
+        "summary": "S3 DELETE operations",
+        "description": "Handles DeleteObject, DeleteBucket, AbortMultipartUpload, and other S3 DELETE operations.",
+        "security": [
+          {
+            "S3SigV4Auth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "S3 response (proxied from R2)"
+          },
+          "403": {
+            "description": "Access denied by IAM policy"
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "S3Proxy"
+        ],
+        "operationId": "s3Head",
+        "summary": "S3 HEAD operations",
+        "description": "Handles HeadObject and HeadBucket.",
+        "security": [
+          {
+            "S3SigV4Auth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "S3 response headers (proxied from R2)"
+          },
+          "404": {
+            "description": "Object or bucket not found"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "__schema0": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1
+              },
+              "operator": {
+                "type": "string",
+                "enum": [
+                  "eq",
+                  "ne",
+                  "contains",
+                  "not_contains",
+                  "starts_with",
+                  "ends_with",
+                  "matches",
+                  "not_matches",
+                  "in",
+                  "not_in",
+                  "wildcard",
+                  "exists",
+                  "not_exists",
+                  "lt",
+                  "gt",
+                  "lte",
+                  "gte"
+                ]
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "field",
+              "operator",
+              "value"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "any": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/__schema0"
+                }
+              }
+            },
+            "required": [
+              "any"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "all": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/__schema0"
+                }
+              }
+            },
+            "required": [
+              "all"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "not": {
+                "$ref": "#/components/schemas/__schema0"
+              }
+            },
+            "required": [
+              "not"
+            ]
+          }
+        ]
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false
+      },
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "A single error entry"
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "const": false
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        },
+        "required": [
+          "success",
+          "errors"
+        ],
+        "additionalProperties": false,
+        "description": "Cloudflare API-style error response"
+      },
+      "ApiKey": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "zone_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "number"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revoked": {
+            "type": "number"
+          },
+          "policy": {
+            "type": "string",
+            "description": "JSON-serialized PolicyDocument"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bulk_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bulk_bucket": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "single_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "single_bucket": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "zone_id",
+          "created_at",
+          "expires_at",
+          "revoked",
+          "policy",
+          "created_by",
+          "bulk_rate",
+          "bulk_bucket",
+          "single_rate",
+          "single_bucket"
+        ],
+        "additionalProperties": false,
+        "description": "A purge API key"
+      },
+      "BulkResult": {
+        "type": "object",
+        "properties": {
+          "processed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkItemResult"
+            }
+          }
+        },
+        "required": [
+          "processed",
+          "results"
+        ],
+        "additionalProperties": false,
+        "description": "Result of a bulk operation"
+      },
+      "BulkItemResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "revoked",
+              "already_revoked",
+              "deleted",
+              "not_found"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "BulkDryRunResult": {
+        "type": "object",
+        "properties": {
+          "dry_run": {
+            "type": "boolean",
+            "const": true
+          },
+          "would_process": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkInspectItem"
+            }
+          }
+        },
+        "required": [
+          "dry_run",
+          "would_process",
+          "items"
+        ],
+        "additionalProperties": false,
+        "description": "Preview of a dry-run bulk operation"
+      },
+      "BulkInspectItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "current_status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "revoked",
+              "expired",
+              "not_found"
+            ]
+          },
+          "would_become": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "current_status",
+          "would_become"
+        ],
+        "additionalProperties": false
+      },
+      "PurgeEvent": {
+        "type": "object",
+        "properties": {
+          "key_id": {
+            "type": "string"
+          },
+          "zone_id": {
+            "type": "string"
+          },
+          "purge_type": {
+            "type": "string"
+          },
+          "purge_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tokens": {
+            "type": "number"
+          },
+          "status": {
+            "type": "number"
+          },
+          "collapsed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean",
+                "const": false
+              }
+            ]
+          },
+          "upstream_status": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "duration_ms": {
+            "type": "number"
+          },
+          "created_at": {
+            "type": "number"
+          },
+          "response_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flight_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_id",
+          "zone_id",
+          "purge_type",
+          "purge_target",
+          "tokens",
+          "status",
+          "collapsed",
+          "upstream_status",
+          "duration_ms",
+          "created_at",
+          "response_detail",
+          "created_by",
+          "flight_id"
+        ],
+        "additionalProperties": false,
+        "description": "A single purge analytics event"
+      },
+      "AnalyticsSummary": {
+        "type": "object",
+        "properties": {
+          "total_requests": {
+            "type": "number"
+          },
+          "total_urls_purged": {
+            "type": "number"
+          },
+          "by_status": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "by_purge_type": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "collapsed_count": {
+            "type": "number"
+          },
+          "avg_duration_ms": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "total_requests",
+          "total_urls_purged",
+          "by_status",
+          "by_purge_type",
+          "collapsed_count",
+          "avg_duration_ms"
+        ],
+        "additionalProperties": false,
+        "description": "Aggregate purge analytics"
+      },
+      "S3Credential": {
+        "type": "object",
+        "properties": {
+          "access_key_id": {
+            "type": "string"
+          },
+          "secret_access_key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "number"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revoked": {
+            "type": "number"
+          },
+          "policy": {
+            "type": "string",
+            "description": "JSON-serialized PolicyDocument"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "access_key_id",
+          "secret_access_key",
+          "name",
+          "created_at",
+          "expires_at",
+          "revoked",
+          "policy",
+          "created_by"
+        ],
+        "additionalProperties": false,
+        "description": "An S3-compatible credential"
+      },
+      "S3Event": {
+        "type": "object",
+        "properties": {
+          "credential_id": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "bucket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "number"
+          },
+          "duration_ms": {
+            "type": "number"
+          },
+          "created_at": {
+            "type": "number"
+          },
+          "response_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "credential_id",
+          "operation",
+          "bucket",
+          "key",
+          "status",
+          "duration_ms",
+          "created_at",
+          "response_detail",
+          "created_by"
+        ],
+        "additionalProperties": false,
+        "description": "A single S3 proxy analytics event"
+      },
+      "S3AnalyticsSummary": {
+        "type": "object",
+        "properties": {
+          "total_requests": {
+            "type": "number"
+          },
+          "by_status": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "by_operation": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "by_bucket": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "avg_duration_ms": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "total_requests",
+          "by_status",
+          "by_operation",
+          "by_bucket",
+          "avg_duration_ms"
+        ],
+        "additionalProperties": false,
+        "description": "Aggregate S3 proxy analytics"
+      },
+      "UpstreamToken": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "zone_ids": {
+            "type": "string",
+            "description": "Comma-separated zone IDs or \"*\""
+          },
+          "token_preview": {
+            "type": "string",
+            "description": "First 4 + last 4 chars of the token"
+          },
+          "created_at": {
+            "type": "number"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "zone_ids",
+          "token_preview",
+          "created_at",
+          "created_by"
+        ],
+        "additionalProperties": false,
+        "description": "A registered upstream Cloudflare API token"
+      },
+      "ValidationWarning": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "Warning from upstream credential validation"
+      },
+      "UpstreamR2": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "bucket_names": {
+            "type": "string",
+            "description": "Comma-separated bucket names or \"*\""
+          },
+          "access_key_preview": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "number"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "bucket_names",
+          "access_key_preview",
+          "endpoint",
+          "created_at",
+          "created_by"
+        ],
+        "additionalProperties": false,
+        "description": "A registered upstream R2 endpoint"
+      },
+      "ConfigResponse": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/GatewayConfig"
+          },
+          "overrides": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigOverride"
+            }
+          },
+          "defaults": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "config",
+          "overrides",
+          "defaults"
+        ],
+        "additionalProperties": false,
+        "description": "Full config response with overrides and defaults"
+      },
+      "GatewayConfig": {
+        "type": "object",
+        "properties": {
+          "bulk_rate": {
+            "type": "number"
+          },
+          "bulk_bucket_size": {
+            "type": "number"
+          },
+          "bulk_max_ops": {
+            "type": "number"
+          },
+          "single_rate": {
+            "type": "number"
+          },
+          "single_bucket_size": {
+            "type": "number"
+          },
+          "single_max_ops": {
+            "type": "number"
+          },
+          "key_cache_ttl_ms": {
+            "type": "number"
+          },
+          "retention_days": {
+            "type": "number"
+          },
+          "s3_rps": {
+            "type": "number"
+          },
+          "s3_burst": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "bulk_rate",
+          "bulk_bucket_size",
+          "bulk_max_ops",
+          "single_rate",
+          "single_bucket_size",
+          "single_max_ops",
+          "key_cache_ttl_ms",
+          "retention_days",
+          "s3_rps",
+          "s3_burst"
+        ],
+        "additionalProperties": false,
+        "description": "Resolved gateway configuration"
+      },
+      "ConfigOverride": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "number"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "updated_at",
+          "updated_by"
+        ],
+        "additionalProperties": false,
+        "description": "A single config override entry"
+      }
+    },
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Gateway API key (prefix `gw_`). Issued via POST /admin/keys."
+      },
+      "AdminKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Admin-Key",
+        "description": "Shared admin secret for CLI and automation."
+      },
+      "CloudflareAccess": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Cf-Access-Jwt-Assertion",
+        "description": "Cloudflare Access JWT for browser-based dashboard users."
+      },
+      "S3SigV4Auth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "AWS Signature Version 4 authentication for S3-compatible clients."
+      }
+    }
+  }
+}
