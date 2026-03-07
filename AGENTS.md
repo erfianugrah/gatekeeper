@@ -22,7 +22,12 @@ For all limits and quotas, retrieve from the product's `/platform/limits/` page.
 | `npx vitest run test/iam.test.ts`                        | Run a single worker test file                      |
 | `npx vitest run -c vitest.cli.config.ts cli/cli.test.ts` | Run a single CLI test file                         |
 | `npx vitest run -t "test name"`                          | Run a single test by name                          |
-| `npm run build:cli`                                      | Build the CLI                                      |
+| `npm run typecheck`                                      | Type-check worker + CLI (no emit)                  |
+| `npm run lint`                                           | Check formatting (Prettier)                        |
+| `npm run lint:fix`                                       | Auto-fix formatting                                |
+| `npm run build`                                          | Build dashboard + CLI                              |
+| `npm run build:cli`                                      | Build the CLI only                                 |
+| `npm run preflight`                                      | typecheck + lint + test + build (run before PR)    |
 | `npm run cli -- <command>`                               | Run the CLI locally (uses tsx + .env)              |
 
 Run `wrangler types` after changing bindings in wrangler.jsonc.
