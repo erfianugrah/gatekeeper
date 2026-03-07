@@ -5,7 +5,13 @@
 // ─── XML error responses ────────────────────────────────────────────────────
 
 /** Build an S3-compatible XML error response. */
-export function s3XmlError(code: string, message: string, status: number, requestId?: string): Response {
+export function s3XmlError(
+	code: string,
+	message: string,
+	status: number,
+	requestId?: string,
+	extraHeaders?: Record<string, string>,
+): Response {
 	const rid = requestId || crypto.randomUUID();
 	const xml = [
 		'<?xml version="1.0" encoding="UTF-8"?>',
@@ -21,6 +27,7 @@ export function s3XmlError(code: string, message: string, status: number, reques
 		headers: {
 			'Content-Type': 'application/xml',
 			'x-amz-request-id': rid,
+			...extraHeaders,
 		},
 	});
 }

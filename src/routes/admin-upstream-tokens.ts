@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getStub } from '../do-stub';
-import { parseBulkBody, resolveCreatedBy } from './admin-helpers';
+import { parseBulkBody, resolveCreatedBy, validateCfToken } from './admin-helpers';
+import type { ValidationWarning } from './admin-helpers';
 import type { HonoEnv } from '../types';
 
 // ─── Admin: Upstream CF API Token Management ────────────────────────────────
@@ -57,6 +58,18 @@ adminUpstreamTokensApp.post('/', async (c) => {
 		);
 	}
 
+	// Optional validation: probe the CF API to check if the token works
+	const warnings: ValidationWarning[] = [];
+	if (raw.validate === true) {
+		const warning = await validateCfToken(raw.token);
+		if (warning) {
+			warnings.push(warning);
+			log.validationFailed = true;
+		} else {
+			log.validated = true;
+		}
+	}
+
 	const identity = c.get('accessIdentity');
 	const stub = getStub(c.env);
 	const result = await stub.createUpstreamToken({
@@ -71,7 +84,7 @@ adminUpstreamTokensApp.post('/', async (c) => {
 	log.zoneIds = raw.zone_ids;
 	console.log(JSON.stringify(log));
 
-	return c.json({ success: true, result: result.token });
+	return c.json({ success: true, result: result.token, ...(warnings.length > 0 && { warnings }) });
 });
 
 // ─── List ───────────────────────────────────────────────────────────────────

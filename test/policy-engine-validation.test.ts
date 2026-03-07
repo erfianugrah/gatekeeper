@@ -72,6 +72,36 @@ describe('validatePolicy', () => {
 		expect(errors.some((e) => e.message.includes('catastrophic'))).toBe(true);
 	});
 
+	it('nested quantifiers rejected', () => {
+		const errors = validatePolicy({
+			version: '2025-01-01',
+			statements: [
+				{
+					effect: 'allow',
+					actions: ['*'],
+					resources: ['*'],
+					conditions: [{ field: 'tag', operator: 'matches', value: 'a++' }],
+				},
+			],
+		});
+		expect(errors.some((e) => e.message.includes('nested quantifiers'))).toBe(true);
+	});
+
+	it('safe regex patterns accepted', () => {
+		const errors = validatePolicy({
+			version: '2025-01-01',
+			statements: [
+				{
+					effect: 'allow',
+					actions: ['*'],
+					resources: ['*'],
+					conditions: [{ field: 'tag', operator: 'matches', value: '^release-v[0-9]+\\.[0-9]+$' }],
+				},
+			],
+		});
+		expect(errors.length).toBe(0);
+	});
+
 	it('invalid regex syntax', () => {
 		const errors = validatePolicy({
 			version: '2025-01-01',

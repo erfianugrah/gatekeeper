@@ -12,6 +12,8 @@ export const CONFIG_DEFAULTS: Record<string, number> = {
 	single_max_ops: 500,
 	key_cache_ttl_ms: 60_000,
 	retention_days: 30,
+	s3_rps: 100,
+	s3_burst: 200,
 };
 
 /** The full resolved config object. */
@@ -24,6 +26,10 @@ export interface GatewayConfig {
 	single_max_ops: number;
 	key_cache_ttl_ms: number;
 	retention_days: number;
+	/** S3 proxy: account-level requests per second. */
+	s3_rps: number;
+	/** S3 proxy: account-level burst capacity. */
+	s3_burst: number;
 }
 
 /** A single override entry from the registry (for admin display). */
@@ -44,6 +50,8 @@ const ENV_TO_CONFIG: Record<string, string> = {
 	SINGLE_MAX_OPS: 'single_max_ops',
 	KEY_CACHE_TTL_MS: 'key_cache_ttl_ms',
 	RETENTION_DAYS: 'retention_days',
+	S3_RPS: 's3_rps',
+	S3_BURST: 's3_burst',
 };
 
 // ─── ConfigManager ──────────────────────────────────────────────────────────

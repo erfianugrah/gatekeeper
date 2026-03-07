@@ -1,6 +1,6 @@
-import { SELF } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
-import { adminHeaders, ADMIN_KEY } from './helpers';
+import { SELF, fetchMock } from 'cloudflare:test';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { adminHeaders, ADMIN_KEY, UPSTREAM_HOST } from './helpers';
 
 // --- Tests ---
 
@@ -335,5 +335,91 @@ describe('Upstream tokens — created_by', () => {
 		expect(res.status).toBe(200);
 		const data = await res.json<any>();
 		expect(data.result.created_by).toBe('unverified:test@example.com');
+	});
+});
+
+// --- Upstream token validation (6.1) ---
+
+describe('Upstream tokens — validate on registration', () => {
+	beforeAll(() => {
+		fetchMock.activate();
+		fetchMock.disableNetConnect();
+	});
+
+	afterEach(() => {
+		fetchMock.assertNoPendingInterceptors();
+	});
+
+	it('validate: true with valid token -> 200 with no warnings', async () => {
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: '/client/v4/user/tokens/verify' })
+			.reply(200, JSON.stringify({ success: true, result: { status: 'active' } }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'validate-good',
+				token: 'cf-valid-token-1234567890abcdef1234567890abcdef',
+				zone_ids: ['*'],
+				validate: true,
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.result.id).toMatch(/^upt_/);
+		expect(data.warnings).toBeUndefined();
+	});
+
+	it('validate: true with invalid token -> 200 with warnings (still registered)', async () => {
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: '/client/v4/user/tokens/verify' })
+			.reply(403, JSON.stringify({ success: false, errors: [{ code: 6003, message: 'Invalid request headers' }] }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'validate-bad',
+				token: 'cf-invalid-token-1234567890abcdef1234567890abcdef',
+				zone_ids: ['*'],
+				validate: true,
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		// Token is still registered despite validation failure
+		expect(data.result.id).toMatch(/^upt_/);
+		expect(data.result.name).toBe('validate-bad');
+		// Warnings array present
+		expect(data.warnings).toBeDefined();
+		expect(data.warnings).toHaveLength(1);
+		expect(data.warnings[0].code).toBe(422);
+		expect(data.warnings[0].message).toMatch(/Token validation failed/);
+	});
+
+	it('validate not set -> no validation probe, no warnings', async () => {
+		// No fetchMock intercept — if validation fires, it would fail with disableNetConnect
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'no-validate',
+				token: 'cf-no-validate-1234567890abcdef1234567890abcdef',
+				zone_ids: ['*'],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.warnings).toBeUndefined();
 	});
 });

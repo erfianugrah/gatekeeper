@@ -1,9 +1,26 @@
 import { env } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
+import {
+	wildcardPolicy as _wildcardPolicy,
+	hostPolicy as _hostPolicy,
+	tagPolicy as _tagPolicy,
+	urlPrefixPolicy as _urlPrefixPolicy,
+	prefixPolicy as _prefixPolicy,
+	purgeEverythingPolicy as _purgeEverythingPolicy,
+} from './helpers';
 import type { CreateKeyRequest } from '../src/types';
 import type { PolicyDocument } from '../src/policy-types';
 
+// IAM tests use a dedicated zone ID (different from the purge/e2e test ZONE_ID)
 const ZONE_ID = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1';
+
+// Bind shared policy factories to the local ZONE_ID
+const wildcardPolicy = (zoneId = ZONE_ID): PolicyDocument => _wildcardPolicy(zoneId);
+const hostPolicy = (host: string): PolicyDocument => _hostPolicy(host, ZONE_ID);
+const tagPolicy = (tag: string): PolicyDocument => _tagPolicy(tag, ZONE_ID);
+const urlPrefixPolicy = (prefix: string): PolicyDocument => _urlPrefixPolicy(prefix, ZONE_ID);
+const prefixPolicy = (prefix: string): PolicyDocument => _prefixPolicy(prefix, ZONE_ID);
+const purgeEverythingPolicy = (): PolicyDocument => _purgeEverythingPolicy(ZONE_ID);
 
 function getStub() {
 	const id = env.GATEKEEPER.idFromName('account');
@@ -24,88 +41,6 @@ async function createKeyWithPolicy(
 		...opts,
 	};
 	return stub.createKey(req);
-}
-
-/** Allow-all policy for a given zone. */
-function wildcardPolicy(zoneId = ZONE_ID): PolicyDocument {
-	return {
-		version: '2025-01-01',
-		statements: [{ effect: 'allow', actions: ['purge:*'], resources: [`zone:${zoneId}`] }],
-	};
-}
-
-/** Policy that allows a specific host. */
-function hostPolicy(host: string): PolicyDocument {
-	return {
-		version: '2025-01-01',
-		statements: [
-			{
-				effect: 'allow',
-				actions: ['purge:host'],
-				resources: [`zone:${ZONE_ID}`],
-				conditions: [{ field: 'host', operator: 'eq', value: host }],
-			},
-		],
-	};
-}
-
-/** Policy that allows a specific tag. */
-function tagPolicy(tag: string): PolicyDocument {
-	return {
-		version: '2025-01-01',
-		statements: [
-			{
-				effect: 'allow',
-				actions: ['purge:tag'],
-				resources: [`zone:${ZONE_ID}`],
-				conditions: [{ field: 'tag', operator: 'eq', value: tag }],
-			},
-		],
-	};
-}
-
-/** Policy that allows URLs starting with a prefix. */
-function urlPrefixPolicy(prefix: string): PolicyDocument {
-	return {
-		version: '2025-01-01',
-		statements: [
-			{
-				effect: 'allow',
-				actions: ['purge:url'],
-				resources: [`zone:${ZONE_ID}`],
-				conditions: [{ field: 'url', operator: 'starts_with', value: prefix }],
-			},
-		],
-	};
-}
-
-/** Policy that allows prefix purges starting with a value. */
-function prefixPolicy(prefix: string): PolicyDocument {
-	return {
-		version: '2025-01-01',
-		statements: [
-			{
-				effect: 'allow',
-				actions: ['purge:prefix'],
-				resources: [`zone:${ZONE_ID}`],
-				conditions: [{ field: 'prefix', operator: 'starts_with', value: prefix }],
-			},
-		],
-	};
-}
-
-/** Policy that allows purge_everything. */
-function purgeEverythingPolicy(): PolicyDocument {
-	return {
-		version: '2025-01-01',
-		statements: [
-			{
-				effect: 'allow',
-				actions: ['purge:everything'],
-				resources: [`zone:${ZONE_ID}`],
-			},
-		],
-	};
 }
 
 // --- Tests ---

@@ -92,10 +92,7 @@ adminConfigApp.put('/', async (c) => {
 	const updatedBy = identity?.email ?? undefined;
 
 	const stub = getStub(c.env);
-	await stub.setConfig(updates, updatedBy);
-
-	// Return the newly resolved config
-	const config = await stub.getConfig();
+	const config = await stub.setConfig(updates, updatedBy);
 
 	log.status = 200;
 	log.updatedKeys = Object.keys(updates);
@@ -124,7 +121,7 @@ adminConfigApp.delete('/:key', async (c) => {
 	}
 
 	const stub = getStub(c.env);
-	const deleted = await stub.resetConfigKey(key);
+	const { deleted, config } = await stub.resetConfigKey(key);
 
 	log.status = deleted ? 200 : 404;
 	log.deleted = deleted;
@@ -134,6 +131,5 @@ adminConfigApp.delete('/:key', async (c) => {
 		return c.json({ success: false, errors: [{ code: 404, message: `No override found for key: ${key}` }] }, 404);
 	}
 
-	const config = await stub.getConfig();
 	return c.json({ success: true, result: { config } });
 });

@@ -161,6 +161,11 @@ export class UpstreamTokenManager {
 	 * Resolve the upstream CF API token for a given zone ID.
 	 * Returns the token string if a matching active upstream token is found, null otherwise.
 	 * Checks zone-specific tokens first, then wildcard tokens.
+	 *
+	 * NOTE: A wildcard token (`zone_ids: "*"`) catches all zones that don't have an explicit
+	 * token. If the wildcard token's CF account doesn't own the zone, the upstream request
+	 * will fail with a 403 from the CF API. Only use wildcard tokens when the account owns
+	 * all zones served by this gateway.
 	 */
 	resolveTokenForZone(zoneId: string): string | null {
 		// Check cache first

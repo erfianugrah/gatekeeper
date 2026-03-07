@@ -1,5 +1,6 @@
 import { SELF, fetchMock } from 'cloudflare:test';
 import { __testClearInflightCache } from '../src/index';
+import type { PolicyDocument } from '../src/policy-types';
 
 export const ZONE_ID = 'aaaa1111bbbb2222cccc3333dddd4444';
 export const ADMIN_KEY = 'test-admin-secret-key-12345';
@@ -95,69 +96,85 @@ export function mockUpstream500() {
 
 // ─── Policy factories ───────────────────────────────────────────────────────
 
-/** Allow-all policy for the test zone. */
-export function wildcardPolicy() {
+const POLICY_VERSION = '2025-01-01' as const;
+
+/** Allow-all policy for a zone. Defaults to the test ZONE_ID. */
+export function wildcardPolicy(zoneId = ZONE_ID): PolicyDocument {
 	return {
-		version: '2025-01-01',
-		statements: [{ effect: 'allow', actions: ['purge:*'], resources: [`zone:${ZONE_ID}`] }],
+		version: POLICY_VERSION,
+		statements: [{ effect: 'allow', actions: ['purge:*'], resources: [`zone:${zoneId}`] }],
 	};
 }
 
-/** Host-scoped policy. */
-export function hostPolicy(host: string) {
+/** Host-scoped policy. Defaults to the test ZONE_ID. */
+export function hostPolicy(host: string, zoneId = ZONE_ID): PolicyDocument {
 	return {
-		version: '2025-01-01',
+		version: POLICY_VERSION,
 		statements: [
 			{
 				effect: 'allow',
 				actions: ['purge:host'],
-				resources: [`zone:${ZONE_ID}`],
+				resources: [`zone:${zoneId}`],
 				conditions: [{ field: 'host', operator: 'eq', value: host }],
 			},
 		],
 	};
 }
 
-/** URL prefix policy. */
-export function urlPrefixPolicy(prefix: string) {
+/** URL prefix policy. Defaults to the test ZONE_ID. */
+export function urlPrefixPolicy(prefix: string, zoneId = ZONE_ID): PolicyDocument {
 	return {
-		version: '2025-01-01',
+		version: POLICY_VERSION,
 		statements: [
 			{
 				effect: 'allow',
 				actions: ['purge:url'],
-				resources: [`zone:${ZONE_ID}`],
+				resources: [`zone:${zoneId}`],
 				conditions: [{ field: 'url', operator: 'starts_with', value: prefix }],
 			},
 		],
 	};
 }
 
-/** Tag policy. */
-export function tagPolicy(tag: string) {
+/** Tag policy. Defaults to the test ZONE_ID. */
+export function tagPolicy(tag: string, zoneId = ZONE_ID): PolicyDocument {
 	return {
-		version: '2025-01-01',
+		version: POLICY_VERSION,
 		statements: [
 			{
 				effect: 'allow',
 				actions: ['purge:tag'],
-				resources: [`zone:${ZONE_ID}`],
+				resources: [`zone:${zoneId}`],
 				conditions: [{ field: 'tag', operator: 'eq', value: tag }],
 			},
 		],
 	};
 }
 
-/** Prefix purge policy. */
-export function prefixPolicy(prefix: string) {
+/** Prefix purge policy. Defaults to the test ZONE_ID. */
+export function prefixPolicy(prefix: string, zoneId = ZONE_ID): PolicyDocument {
 	return {
-		version: '2025-01-01',
+		version: POLICY_VERSION,
 		statements: [
 			{
 				effect: 'allow',
 				actions: ['purge:prefix'],
-				resources: [`zone:${ZONE_ID}`],
+				resources: [`zone:${zoneId}`],
 				conditions: [{ field: 'prefix', operator: 'starts_with', value: prefix }],
+			},
+		],
+	};
+}
+
+/** Purge-everything policy. Defaults to the test ZONE_ID. */
+export function purgeEverythingPolicy(zoneId = ZONE_ID): PolicyDocument {
+	return {
+		version: POLICY_VERSION,
+		statements: [
+			{
+				effect: 'allow',
+				actions: ['purge:everything'],
+				resources: [`zone:${zoneId}`],
 			},
 		],
 	};

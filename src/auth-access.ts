@@ -12,6 +12,8 @@ export interface AccessIdentity {
 	email: string;
 	sub: string;
 	type: string; // "app" for users, "service-token" for service tokens
+	/** IDP group memberships from the JWT (via OIDC groups scope). Empty if not present. */
+	groups: string[];
 }
 
 interface JWKSResponse {
@@ -31,6 +33,8 @@ interface JWTPayload {
 	exp: number;
 	iat: number;
 	type: string;
+	/** IDP group memberships (via OIDC groups scope). May be absent. */
+	groups?: string[];
 }
 
 // ─── JWKS cache ─────────────────────────────────────────────────────
@@ -186,5 +190,6 @@ export async function validateAccessJwt(request: Request, teamName: string, aud:
 		email: jwt.payload.email,
 		sub: jwt.payload.sub,
 		type: jwt.payload.type ?? 'app',
+		groups: Array.isArray(jwt.payload.groups) ? jwt.payload.groups : [],
 	};
 }

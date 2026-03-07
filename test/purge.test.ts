@@ -273,6 +273,26 @@ describe('Purge — client-side rate limiting', () => {
 		expect(data.success).toBe(false);
 		expect(data.errors[0].code).toBe(429);
 	});
+
+	it('multi-file purge consumes N tokens from single bucket', async () => {
+		const keyId = await createKeyWithPolicy(urlPrefixPolicy('https://example.com/'));
+
+		// Drain the single bucket completely, then the 30-URL purge should be rejected
+		const stub = env.GATEKEEPER.get(env.GATEKEEPER.idFromName('account'));
+		await stub.consume('single', 6000);
+
+		// A 30-URL purge should fail — the bucket is drained and costs 30 tokens
+		const urls = Array.from({ length: 30 }, (_, i) => `https://example.com/page-${i}.html`);
+		const res = await SELF.fetch(`http://localhost/v1/zones/${ZONE_ID}/purge_cache`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ files: urls }),
+		});
+		expect(res.status).toBe(429);
+		const data = await res.json<any>();
+		expect(data.errors[0].code).toBe(429);
+		expect(res.headers.get('Ratelimit')).toMatch(/purge-single/);
+	});
 });
 
 describe('Purge — per-key rate limiting', () => {

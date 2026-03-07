@@ -244,6 +244,19 @@ s3App.all('/*', async (c) => {
 		return s3XmlError('AccessDenied', authResult.error || 'Access Denied', 403);
 	}
 
+	// 3b. Account-level S3 rate limit check
+	const rlResult = await stub.consumeS3RateLimit();
+	if (!rlResult.allowed) {
+		log.status = 429;
+		log.error = 'rate_limited';
+		log.retryAfterSec = rlResult.retryAfterSec;
+		log.durationMs = Date.now() - start;
+		console.log(JSON.stringify(log));
+		return s3XmlError('SlowDown', 'Please reduce your request rate.', 429, undefined, {
+			'Retry-After': String(rlResult.retryAfterSec),
+		});
+	}
+
 	// 4. Resolve upstream R2 credentials for this bucket
 	let r2Creds: R2Credentials | null;
 	if (op.bucket) {

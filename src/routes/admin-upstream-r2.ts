@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getStub } from '../do-stub';
-import { parseBulkBody, resolveCreatedBy } from './admin-helpers';
+import { parseBulkBody, resolveCreatedBy, validateR2Credentials } from './admin-helpers';
+import type { ValidationWarning } from './admin-helpers';
 import type { HonoEnv } from '../types';
 
 // ─── Admin: Upstream R2 Endpoint Management ─────────────────────────────────
@@ -69,6 +70,18 @@ adminUpstreamR2App.post('/', async (c) => {
 		);
 	}
 
+	// Optional validation: probe R2 with ListBuckets to check credentials
+	const warnings: ValidationWarning[] = [];
+	if (raw.validate === true) {
+		const warning = await validateR2Credentials(raw.access_key_id as string, raw.secret_access_key as string, raw.endpoint as string);
+		if (warning) {
+			warnings.push(warning);
+			log.validationFailed = true;
+		} else {
+			log.validated = true;
+		}
+	}
+
 	const identity = c.get('accessIdentity');
 	const stub = getStub(c.env);
 	const result = await stub.createUpstreamR2({
@@ -85,7 +98,7 @@ adminUpstreamR2App.post('/', async (c) => {
 	log.bucketNames = raw.bucket_names;
 	console.log(JSON.stringify(log));
 
-	return c.json({ success: true, result: result.endpoint });
+	return c.json({ success: true, result: result.endpoint, ...(warnings.length > 0 && { warnings }) });
 });
 
 // ─── List ───────────────────────────────────────────────────────────────────

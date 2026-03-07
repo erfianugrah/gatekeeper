@@ -299,6 +299,33 @@ const VALID_OPERATORS = new Set<string>([
 /** Patterns known to cause catastrophic backtracking. */
 const DANGEROUS_REGEX = /(\([^)]*[+*][^)]*\))[+*]|\(\?[<=!]/;
 
+/**
+ * Additional ReDoS heuristics — catch nested quantifiers and overlapping alternations
+ * that DANGEROUS_REGEX misses.
+ */
+const NESTED_QUANTIFIER = /[+*?]\{?\d*,?\d*\}?\s*[+*?]/;
+
+/** Probe string for runtime ReDoS detection — crafted to trigger backtracking. */
+const REDOS_PROBE = 'a'.repeat(32) + '!';
+
+/** Max time (ms) for a regex probe test. Patterns exceeding this are rejected. */
+const REGEX_PROBE_TIMEOUT_MS = 5;
+
+/**
+ * Test a regex pattern against an adversarial input to detect slow backtracking at validation time.
+ * Returns true if the pattern is safe (fast), false if it exceeds the time budget.
+ */
+function probeRegex(pattern: string): boolean {
+	try {
+		const re = new RegExp(pattern);
+		const start = performance.now();
+		re.test(REDOS_PROBE);
+		return performance.now() - start < REGEX_PROBE_TIMEOUT_MS;
+	} catch {
+		return false;
+	}
+}
+
 function validateCondition(cond: unknown, path: string, errors: PolicyValidationError[], depth = 0): void {
 	if (depth > MAX_CONDITION_DEPTH) {
 		errors.push({ path, message: `Condition nesting exceeds maximum depth of ${MAX_CONDITION_DEPTH}` });
@@ -399,14 +426,25 @@ function validateCondition(cond: unknown, path: string, errors: PolicyValidation
 		const pattern = c.value as string;
 		if (pattern.length > MAX_REGEX_LENGTH) {
 			errors.push({ path: `${path}.value`, message: `Regex pattern exceeds max length of ${MAX_REGEX_LENGTH} characters` });
+			return; // Skip further checks — already too long
 		}
 		if (DANGEROUS_REGEX.test(pattern)) {
 			errors.push({ path: `${path}.value`, message: 'Regex pattern contains potentially catastrophic backtracking constructs' });
+			return;
+		}
+		if (NESTED_QUANTIFIER.test(pattern)) {
+			errors.push({ path: `${path}.value`, message: 'Regex pattern contains nested quantifiers that may cause excessive backtracking' });
+			return;
 		}
 		try {
 			new RegExp(pattern);
 		} catch (e: any) {
 			errors.push({ path: `${path}.value`, message: `Invalid regex: ${e.message}` });
+			return;
+		}
+		// Runtime probe — catch patterns that bypass static checks
+		if (!probeRegex(pattern)) {
+			errors.push({ path: `${path}.value`, message: 'Regex pattern is too slow — possible ReDoS' });
 		}
 	}
 }

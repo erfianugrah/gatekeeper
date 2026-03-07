@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { adminAuth } from '../auth-admin';
+import { adminAuth, requireRole, requireRoleByMethod } from '../auth-admin';
 import { adminKeysApp } from './admin-keys';
 import { adminAnalyticsApp } from './admin-analytics';
 import { adminS3App } from './admin-s3';
@@ -9,7 +9,12 @@ import { adminConfigApp } from './admin-config';
 import type { HonoEnv } from '../types';
 
 // ─── Admin compositor ───────────────────────────────────────────────────────
-// Thin shell that mounts auth middleware and delegates to domain sub-apps.
+// Thin shell that mounts auth + RBAC middleware and delegates to domain sub-apps.
+//
+// Role requirements:
+//   viewer:   GET on any route (analytics, list/get resources, config)
+//   operator: viewer + write access to keys and S3 credentials
+//   admin:    operator + upstream tokens, upstream R2, config writes
 
 export const adminApp = new Hono<HonoEnv>();
 
@@ -19,7 +24,27 @@ adminApp.onError((err, c) => {
 	return c.json({ success: false, errors: [{ code: 500, message: 'Internal server error' }] }, 500);
 });
 
+// Authentication — sets adminRole in context
 adminApp.use('*', adminAuth);
+
+// RBAC — per-sub-app role requirements
+// Keys and S3 creds: viewer for reads, operator for writes
+adminApp.use('/keys/*', requireRoleByMethod('viewer', 'operator'));
+adminApp.use('/keys', requireRoleByMethod('viewer', 'operator'));
+adminApp.use('/analytics/*', requireRole('viewer'));
+adminApp.use('/s3/*', requireRoleByMethod('viewer', 'operator'));
+adminApp.use('/s3', requireRoleByMethod('viewer', 'operator'));
+
+// Upstream tokens and R2 — admin only (these hold secrets)
+adminApp.use('/upstream-tokens/*', requireRole('admin'));
+adminApp.use('/upstream-tokens', requireRole('admin'));
+adminApp.use('/upstream-r2/*', requireRole('admin'));
+adminApp.use('/upstream-r2', requireRole('admin'));
+
+// Config — viewer for reads, admin for writes
+adminApp.use('/config/*', requireRoleByMethod('viewer', 'admin'));
+adminApp.use('/config', requireRoleByMethod('viewer', 'admin'));
+
 adminApp.route('/keys', adminKeysApp);
 adminApp.route('/analytics', adminAnalyticsApp);
 adminApp.route('/s3', adminS3App);

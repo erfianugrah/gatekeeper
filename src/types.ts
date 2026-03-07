@@ -3,11 +3,16 @@ import type { AccessIdentity } from './auth-access';
 
 // --- Hono env ───────────────────────────────────────────────────────────────
 
+/** Admin role hierarchy: admin > operator > viewer. */
+export type AdminRole = 'admin' | 'operator' | 'viewer';
+
 type HonoEnv = {
 	Bindings: Env;
 	Variables: {
 		/** Set when authenticated via Cloudflare Access JWT (dashboard SSO). */
 		accessIdentity?: AccessIdentity;
+		/** Resolved RBAC role for the current admin request. */
+		adminRole?: AdminRole;
 	};
 };
 
