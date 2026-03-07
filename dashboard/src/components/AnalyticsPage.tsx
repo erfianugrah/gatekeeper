@@ -1,395 +1,30 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronRight, Clock, Cloud, Copy, Download, HardDrive, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { ChevronRight, Clock, Copy, Download, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { usePagination } from '@/hooks/use-pagination';
 import { TablePagination } from '@/components/TablePagination';
 import { getEvents, getS3Events } from '@/lib/api';
-import type { PurgeEvent, S3Event } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { T } from '@/lib/typography';
-
-// ─── Unified event type ─────────────────────────────────────────────
-
-type UnifiedEvent = {
-	id: number;
-	source: 'purge' | 's3';
-	status: number;
-	duration_ms: number;
-	created_at: number;
-	raw: PurgeEvent | S3Event;
-	key_id?: string;
-	zone_id?: string;
-	purge_type?: string;
-	purge_target?: string | null;
-	tokens?: number;
-	collapsed?: string | null;
-	upstream_status?: number | null;
-	flight_id?: string | null;
-	credential_id?: string;
-	operation?: string;
-	bucket?: string | null;
-	s3_key?: string | null;
-};
-
-/** A flight group: one leader event with zero or more collapsed followers. */
-interface FlightGroup {
-	/** The leader event (collapsed=null) or the first event if no clear leader. */
-	leader: UnifiedEvent;
-	/** Collapsed followers that piggy-backed on this flight. */
-	followers: UnifiedEvent[];
-	/** Sort key — use the leader's created_at for ordering. */
-	sortKey: number;
-}
-
-function fromPurge(ev: PurgeEvent): UnifiedEvent {
-	return {
-		id: ev.id,
-		source: 'purge',
-		status: ev.status,
-		duration_ms: ev.duration_ms,
-		created_at: ev.created_at,
-		raw: ev,
-		key_id: ev.key_id,
-		zone_id: ev.zone_id,
-		purge_type: ev.purge_type,
-		purge_target: ev.purge_target,
-		tokens: ev.tokens,
-		collapsed: ev.collapsed,
-		upstream_status: ev.upstream_status,
-		flight_id: ev.flight_id,
-	};
-}
-
-/**
- * Group events by flight_id. Events with the same flight_id are grouped together,
- * with the leader (collapsed=null) as the parent. S3 events and purge events
- * without a flight_id are treated as standalone groups.
- */
-function groupByFlight(events: UnifiedEvent[]): FlightGroup[] {
-	const flightMap = new Map<string, UnifiedEvent[]>();
-	const standalone: FlightGroup[] = [];
-
-	for (const ev of events) {
-		if (ev.source === 'purge' && ev.flight_id) {
-			const group = flightMap.get(ev.flight_id);
-			if (group) group.push(ev);
-			else flightMap.set(ev.flight_id, [ev]);
-		} else {
-			standalone.push({ leader: ev, followers: [], sortKey: ev.created_at });
-		}
-	}
-
-	const groups: FlightGroup[] = [...standalone];
-
-	for (const [, members] of flightMap) {
-		// Find the leader (collapsed=null) — if multiple non-collapsed, pick the earliest
-		const leaderIdx = members.findIndex((e) => !e.collapsed);
-		const leader = leaderIdx >= 0 ? members[leaderIdx] : members[0];
-		const followers = members.filter((e) => e !== leader);
-		// Sort followers by created_at ascending
-		followers.sort((a, b) => a.created_at - b.created_at);
-		groups.push({ leader, followers, sortKey: leader.created_at });
-	}
-
-	return groups;
-}
-
-/** Offset to avoid ID collisions between purge events and S3 events in the unified view. */
-const S3_EVENT_ID_OFFSET = 1_000_000_000;
-
-function fromS3(ev: S3Event): UnifiedEvent {
-	return {
-		id: ev.id + S3_EVENT_ID_OFFSET,
-		source: 's3',
-		status: ev.status,
-		duration_ms: ev.duration_ms,
-		created_at: ev.created_at,
-		raw: ev,
-		credential_id: ev.credential_id,
-		operation: ev.operation,
-		bucket: ev.bucket,
-		s3_key: ev.key,
-	};
-}
-
-// ─── Sort types ─────────────────────────────────────────────────────
-
-type SortField = 'created_at' | 'status' | 'duration_ms' | 'source';
-type SortDir = 'asc' | 'desc';
-
-// ─── Helpers ────────────────────────────────────────────────────────
-
-function formatTime(epoch: number): string {
-	const d = new Date(epoch);
-	return d.toLocaleString('en-US', {
-		month: 'short',
-		day: 'numeric',
-		hour: '2-digit',
-		minute: '2-digit',
-		second: '2-digit',
-		hour12: false,
-	});
-}
-
-function formatTimeISO(epoch: number): string {
-	return new Date(epoch).toISOString();
-}
-
-function truncateId(id: string, len = 10): string {
-	return id.length > len ? `${id.slice(0, len)}...` : id;
-}
-
-function purgeTypeBadgeClass(type?: string): string {
-	switch (type) {
-		case 'url':
-			return 'bg-lv-purple/20 text-lv-purple border-lv-purple/30';
-		case 'host':
-			return 'bg-lv-cyan/20 text-lv-cyan border-lv-cyan/30';
-		case 'tag':
-			return 'bg-lv-green/20 text-lv-green border-lv-green/30';
-		case 'prefix':
-			return 'bg-lv-peach/20 text-lv-peach border-lv-peach/30';
-		case 'everything':
-			return 'bg-lv-red-bright/20 text-lv-red-bright border-lv-red-bright/30';
-		default:
-			return 'bg-muted/20 text-muted-foreground border-muted/30';
-	}
-}
-
-function statusBadge(status: number): React.ReactNode {
-	const tip = statusTooltip(status);
-	let badge: React.ReactNode;
-	if (status >= 200 && status < 300) {
-		badge = <Badge className="bg-lv-green/20 text-lv-green border-lv-green/30">{status}</Badge>;
-	} else if (status === 429) {
-		badge = <Badge className="bg-lv-peach/20 text-lv-peach border-lv-peach/30">{status}</Badge>;
-	} else if (status === 403) {
-		badge = <Badge className="bg-lv-red-bright/20 text-lv-red-bright border-lv-red-bright/30">{status}</Badge>;
-	} else if (status >= 400) {
-		badge = <Badge className="bg-lv-red/20 text-lv-red border-lv-red/30">{status}</Badge>;
-	} else {
-		badge = <Badge variant="secondary">{status}</Badge>;
-	}
-	return <WithTooltip tip={tip}>{badge}</WithTooltip>;
-}
-
-function sourceBadge(source: 'purge' | 's3'): React.ReactNode {
-	const tip = SOURCE_TOOLTIPS[source] ?? source;
-	if (source === 'purge') {
-		return (
-			<WithTooltip tip={tip}>
-				<Badge className="bg-lv-purple/20 text-lv-purple border-lv-purple/30 gap-1">
-					<Cloud className="h-3 w-3" />
-					Purge
-				</Badge>
-			</WithTooltip>
-		);
-	}
-	return (
-		<WithTooltip tip={tip}>
-			<Badge className="bg-lv-cyan/20 text-lv-cyan border-lv-cyan/30 gap-1">
-				<HardDrive className="h-3 w-3" />
-				S3
-			</Badge>
-		</WithTooltip>
-	);
-}
-
-// ─── Tooltip descriptions ───────────────────────────────────────────
-
-const PURGE_TYPE_TOOLTIPS: Record<string, string> = {
-	url: 'Purge by exact URL (single-file rate class)',
-	host: 'Purge all cached content for a hostname',
-	tag: 'Purge by Cache-Tag header value',
-	prefix: 'Purge by URL prefix (path-based)',
-	everything: 'Purge all cached content for the zone',
-};
-
-const COLLAPSED_TOOLTIPS: Record<string, string> = {
-	isolate: 'Deduplicated — an identical request was already in-flight within the same V8 isolate',
-	do: 'Deduplicated — an identical request was already in-flight within the Durable Object',
-};
-
-const SOURCE_TOOLTIPS: Record<string, string> = {
-	purge: 'Cloudflare cache purge request',
-	s3: 'S3/R2 object storage request',
-};
-
-function statusTooltip(status: number): string {
-	if (status >= 200 && status < 300) return `${status} — Success`;
-	if (status === 401) return '401 — Unauthorized (invalid or missing API key)';
-	if (status === 403) return '403 — Forbidden (policy denied the request)';
-	if (status === 429) return '429 — Rate limited (token bucket exhausted)';
-	if (status >= 400 && status < 500) return `${status} — Client error`;
-	if (status >= 500) return `${status} — Server error`;
-	return String(status);
-}
-
-/** Wrap a node in a tooltip. */
-function WithTooltip({ tip, children }: { tip: string; children: React.ReactNode }) {
-	return (
-		<Tooltip>
-			<TooltipTrigger asChild>{children}</TooltipTrigger>
-			<TooltipContent>
-				<p className="text-xs font-data max-w-[300px]">{tip}</p>
-			</TooltipContent>
-		</Tooltip>
-	);
-}
-
-const LIMIT_OPTIONS = [50, 100, 500] as const;
-type TabFilter = 'all' | 'purge' | 's3';
-type StatusFilter = 'all' | '2xx' | '4xx' | '5xx';
-
-// ─── Detail row (expanded) ──────────────────────────────────────────
-
-type FieldType = 'id' | 'string' | 'number' | 'status' | 'duration' | 'timestamp' | 'null' | 'operation';
-
-interface DetailField {
-	key: string;
-	value: string | number | null | undefined;
-	type: FieldType;
-}
-
-function coloredValue(field: DetailField): React.ReactNode {
-	const { value, type } = field;
-
-	if (value === null || value === undefined) {
-		return <span className="italic text-muted-foreground/40">null</span>;
-	}
-
-	switch (type) {
-		case 'id':
-			return <span className="text-lv-cyan">{String(value)}</span>;
-		case 'status': {
-			const n = Number(value);
-			if (n >= 200 && n < 300) return <span className="text-lv-green font-semibold">{n}</span>;
-			if (n === 429) return <span className="text-lv-peach font-semibold">{n}</span>;
-			if (n >= 400) return <span className="text-lv-red font-semibold">{n}</span>;
-			return <span className="font-semibold">{n}</span>;
-		}
-		case 'duration':
-			return (
-				<span className="text-lv-peach">
-					{value} <span className="text-muted-foreground">ms</span>
-				</span>
-			);
-		case 'number':
-			return <span className="text-lv-purple">{String(value)}</span>;
-		case 'timestamp':
-			return <span className="text-lv-blue">{String(value)}</span>;
-		case 'operation':
-			return <span className="text-lv-green font-medium">{String(value)}</span>;
-		default:
-			return <span className="text-foreground">{String(value)}</span>;
-	}
-}
-
-function DetailRow({ event }: { event: UnifiedEvent }) {
-	const raw = event.raw;
-	const fields: DetailField[] =
-		event.source === 'purge'
-			? [
-					{ key: 'id', value: (raw as PurgeEvent).id, type: 'number' },
-					{ key: 'key_id', value: event.key_id, type: 'id' },
-					{ key: 'zone_id', value: event.zone_id, type: 'id' },
-					{ key: 'purge_type', value: event.purge_type, type: 'operation' },
-					{ key: 'purge_target', value: event.purge_target, type: 'string' },
-					{ key: 'tokens', value: event.tokens, type: 'number' },
-					{ key: 'status', value: event.status, type: 'status' },
-					{ key: 'upstream_status', value: event.upstream_status, type: 'status' },
-					{ key: 'collapsed', value: event.collapsed, type: 'string' },
-					{ key: 'flight_id', value: event.flight_id, type: 'id' },
-					{ key: 'duration_ms', value: event.duration_ms, type: 'duration' },
-					{ key: 'created_by', value: (raw as PurgeEvent).created_by, type: 'id' },
-					{ key: 'response_detail', value: (raw as PurgeEvent).response_detail, type: 'string' },
-					{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
-				]
-			: [
-					{ key: 'id', value: (raw as S3Event).id, type: 'number' },
-					{ key: 'credential_id', value: event.credential_id, type: 'id' },
-					{ key: 'operation', value: event.operation, type: 'operation' },
-					{ key: 'bucket', value: event.bucket, type: 'string' },
-					{ key: 'key', value: event.s3_key, type: 'string' },
-					{ key: 'status', value: event.status, type: 'status' },
-					{ key: 'duration_ms', value: event.duration_ms, type: 'duration' },
-					{ key: 'created_by', value: (raw as S3Event).created_by, type: 'id' },
-					{ key: 'response_detail', value: (raw as S3Event).response_detail, type: 'string' },
-					{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
-				];
-
-	return (
-		<TableRow className="bg-muted/30 hover:bg-muted/40 border-b border-border/50">
-			<TableCell colSpan={7} className="px-6 py-3">
-				<div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 max-w-2xl">
-					{fields.map((field) => (
-						<div key={field.key} className="contents">
-							<span className="text-[11px] font-data text-muted-foreground/70 select-none">{field.key}</span>
-							<span className="text-[11px] font-data break-all select-all">{coloredValue(field)}</span>
-						</div>
-					))}
-				</div>
-			</TableCell>
-		</TableRow>
-	);
-}
-
-// ─── Loading Skeleton ───────────────────────────────────────────────
-
-function EventsTableSkeleton() {
-	return (
-		<div className="space-y-2">
-			{Array.from({ length: 8 }).map((_, i) => (
-				<Skeleton key={i} className="h-9 w-full" />
-			))}
-		</div>
-	);
-}
-
-// ─── Export helpers ──────────────────────────────────────────────────
-
-function exportToJson(events: UnifiedEvent[], filename: string) {
-	const raw = events.map((ev) => ev.raw);
-	const blob = new Blob([JSON.stringify(raw, null, 2)], { type: 'application/json' });
-	const url = URL.createObjectURL(blob);
-	const a = document.createElement('a');
-	a.href = url;
-	a.download = filename;
-	a.click();
-	URL.revokeObjectURL(url);
-}
-
-function copyToClipboard(events: UnifiedEvent[]) {
-	const raw = events.map((ev) => ev.raw);
-	navigator.clipboard.writeText(JSON.stringify(raw, null, 2));
-}
-
-// ─── Event text for search matching ─────────────────────────────────
-
-function eventSearchText(ev: UnifiedEvent): string {
-	const parts = [
-		ev.source,
-		String(ev.status),
-		ev.key_id ?? '',
-		ev.zone_id ?? '',
-		ev.credential_id ?? '',
-		ev.operation ?? '',
-		ev.bucket ?? '',
-		ev.s3_key ?? '',
-		ev.purge_type ?? '',
-		ev.purge_target ?? '',
-		ev.collapsed ?? '',
-		(ev.raw as any).created_by ?? '',
-		(ev.raw as any).response_detail ?? '',
-	];
-	return parts.join(' ').toLowerCase();
-}
+import { fromPurge, fromS3, groupByFlight, LIMIT_OPTIONS } from './analytics/analytics-types';
+import { formatTime, truncateId, eventSearchText, exportToJson, copyToClipboard } from './analytics/analytics-helpers';
+import {
+	WithTooltip,
+	PURGE_TYPE_TOOLTIPS,
+	COLLAPSED_TOOLTIPS,
+	purgeTypeBadgeClass,
+	statusBadge,
+	sourceBadge,
+} from './analytics/analytics-badges';
+import { EventDetailRow } from './analytics/EventDetailRow';
+import { EventsTableSkeleton } from './analytics/EventsTableSkeleton';
+import type { PurgeEvent, S3Event } from '@/lib/api';
+import type { UnifiedEvent, FlightGroup, SortField, SortDir, TabFilter, StatusFilter } from './analytics/analytics-types';
 
 // ─── Analytics Page ─────────────────────────────────────────────────
 
@@ -798,7 +433,7 @@ export function AnalyticsPage() {
 													<TableCell>{statusBadge(ev.status)}</TableCell>
 													<TableCell className={T.tableCellNumeric}>{ev.duration_ms.toFixed(0)} ms</TableCell>
 												</TableRow>
-												{isExpanded && <DetailRow key={`${rowKey}-detail`} event={ev} />}
+												{isExpanded && <EventDetailRow key={`${rowKey}-detail`} event={ev} />}
 												{/* Collapsed follower rows */}
 												{hasFollowers &&
 													isFlightExpanded &&
@@ -852,7 +487,7 @@ export function AnalyticsPage() {
 																		{follower.duration_ms.toFixed(0)} ms
 																	</TableCell>
 																</TableRow>
-																{fExpanded && <DetailRow key={`${fKey}-detail`} event={follower} />}
+																{fExpanded && <EventDetailRow key={`${fKey}-detail`} event={follower} />}
 															</>
 														);
 													})}

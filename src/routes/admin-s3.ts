@@ -1,12 +1,25 @@
 import { Hono } from 'hono';
 import { validatePolicy } from '../policy-engine';
 import { getStub } from '../do-stub';
-import { parseBulkBody, resolveCreatedBy } from './admin-helpers';
-import { queryS3Events, queryS3Summary } from '../s3/analytics';
-import type { S3AnalyticsQuery } from '../s3/analytics';
+import { resolveCreatedBy } from './admin-helpers';
+import {
+	createS3CredentialSchema,
+	listS3CredentialsQuerySchema,
+	deleteQuerySchema,
+	idParamSchema,
+	s3AnalyticsEventsQuerySchema,
+	s3AnalyticsSummaryQuerySchema,
+	jsonError,
+	parseJsonBody,
+	parseQueryParams,
+	parseParams,
+	parseBulkBody,
+} from './admin-schemas';
 import type { HonoEnv } from '../types';
 import type { PolicyDocument } from '../policy-types';
 import type { CreateS3CredentialRequest } from '../s3/types';
+import type { S3AnalyticsQuery } from '../s3/analytics';
+import { queryS3Events, queryS3Summary } from '../s3/analytics';
 
 // ─── Admin: S3 Credential Management ────────────────────────────────────────
 
@@ -20,31 +33,11 @@ adminS3App.post('/credentials', async (c) => {
 		ts: new Date().toISOString(),
 	};
 
-	let raw: Record<string, unknown>;
-	try {
-		raw = await c.req.json<Record<string, unknown>>();
-	} catch {
-		log.status = 400;
-		log.error = 'invalid_json';
-		console.log(JSON.stringify(log));
-		return c.json({ success: false, errors: [{ code: 400, message: 'Invalid JSON body' }] }, 400);
-	}
+	const parsed = await parseJsonBody(c, createS3CredentialSchema, log);
+	if (parsed instanceof Response) return parsed;
 
-	if (!raw.name || typeof raw.name !== 'string') {
-		log.status = 400;
-		log.error = 'missing_name';
-		console.log(JSON.stringify(log));
-		return c.json({ success: false, errors: [{ code: 400, message: 'Required field: name (string)' }] }, 400);
-	}
-
-	if (!raw.policy || typeof raw.policy !== 'object') {
-		log.status = 400;
-		log.error = 'missing_policy';
-		console.log(JSON.stringify(log));
-		return c.json({ success: false, errors: [{ code: 400, message: 'Required field: policy (object with version + statements)' }] }, 400);
-	}
-
-	const policyErrors = validatePolicy(raw.policy);
+	// Deep policy validation (recursion depth, regex safety, etc.) beyond Zod's structural check
+	const policyErrors = validatePolicy(parsed.policy);
 	if (policyErrors.length > 0) {
 		log.status = 400;
 		log.error = 'invalid_policy';
@@ -62,21 +55,12 @@ adminS3App.post('/credentials', async (c) => {
 		);
 	}
 
-	if (raw.expires_in_days !== undefined) {
-		if (typeof raw.expires_in_days !== 'number' || raw.expires_in_days <= 0 || !isFinite(raw.expires_in_days)) {
-			log.status = 400;
-			log.error = 'invalid_expires_in_days';
-			console.log(JSON.stringify(log));
-			return c.json({ success: false, errors: [{ code: 400, message: 'expires_in_days must be a positive finite number' }] }, 400);
-		}
-	}
-
 	const identity = c.get('accessIdentity');
 	const req: CreateS3CredentialRequest = {
-		name: raw.name as string,
-		policy: raw.policy as PolicyDocument,
-		created_by: resolveCreatedBy(identity, raw.created_by),
-		expires_in_days: typeof raw.expires_in_days === 'number' ? raw.expires_in_days : undefined,
+		name: parsed.name,
+		policy: parsed.policy as PolicyDocument,
+		created_by: resolveCreatedBy(identity, parsed.created_by),
+		expires_in_days: parsed.expires_in_days,
 	};
 
 	log.credentialName = req.name;
@@ -95,17 +79,16 @@ adminS3App.post('/credentials', async (c) => {
 // ─── List credentials ───────────────────────────────────────────────────────
 
 adminS3App.get('/credentials', async (c) => {
-	const statusFilter = c.req.query('status') as 'active' | 'revoked' | undefined;
-	const validFilters = ['active', 'revoked'];
-	const filter = statusFilter && validFilters.includes(statusFilter) ? statusFilter : undefined;
+	const query = parseQueryParams(c, listS3CredentialsQuerySchema);
+	if (query instanceof Response) return query;
 
 	const stub = getStub(c.env);
-	const credentials = await stub.listS3Credentials(filter);
+	const credentials = await stub.listS3Credentials(query.status);
 
 	console.log(
 		JSON.stringify({
 			route: 'admin.listS3Credentials',
-			filter: filter ?? 'all',
+			filter: query.status ?? 'all',
 			count: credentials.length,
 			ts: new Date().toISOString(),
 		}),
@@ -117,12 +100,14 @@ adminS3App.get('/credentials', async (c) => {
 // ─── Get credential ─────────────────────────────────────────────────────────
 
 adminS3App.get('/credentials/:id', async (c) => {
-	const accessKeyId = c.req.param('id');
+	const params = parseParams(c, idParamSchema);
+	if (params instanceof Response) return params;
+
 	const stub = getStub(c.env);
-	const result = await stub.getS3Credential(accessKeyId);
+	const result = await stub.getS3Credential(params.id);
 
 	if (!result) {
-		return c.json({ success: false, errors: [{ code: 404, message: 'Credential not found' }] }, 404);
+		return jsonError(c, 404, 'Credential not found');
 	}
 
 	return c.json({ success: true, result });
@@ -131,16 +116,21 @@ adminS3App.get('/credentials/:id', async (c) => {
 // ─── Revoke / delete credential ─────────────────────────────────────────────
 
 adminS3App.delete('/credentials/:id', async (c) => {
-	const accessKeyId = c.req.param('id');
-	const permanent = c.req.query('permanent') === 'true';
+	const params = parseParams(c, idParamSchema);
+	if (params instanceof Response) return params;
+
+	const query = parseQueryParams(c, deleteQuerySchema);
+	if (query instanceof Response) return query;
+
+	const accessKeyId = params.id;
 	const stub = getStub(c.env);
 
 	const existing = await stub.getS3Credential(accessKeyId);
 	if (!existing) {
-		return c.json({ success: false, errors: [{ code: 404, message: 'Credential not found' }] }, 404);
+		return jsonError(c, 404, 'Credential not found');
 	}
 
-	if (permanent) {
+	if (query.permanent) {
 		const deleted = await stub.deleteS3Credential(accessKeyId);
 
 		console.log(
@@ -153,7 +143,7 @@ adminS3App.delete('/credentials/:id', async (c) => {
 		);
 
 		if (!deleted) {
-			return c.json({ success: false, errors: [{ code: 404, message: 'Credential not found' }] }, 404);
+			return jsonError(c, 404, 'Credential not found');
 		}
 
 		return c.json({ success: true, result: { deleted: true } });
@@ -171,7 +161,7 @@ adminS3App.delete('/credentials/:id', async (c) => {
 	);
 
 	if (!revoked) {
-		return c.json({ success: false, errors: [{ code: 404, message: 'Credential not found or already revoked' }] }, 404);
+		return jsonError(c, 404, 'Credential not found or already revoked');
 	}
 
 	return c.json({ success: true, result: { revoked: true } });
@@ -182,7 +172,7 @@ adminS3App.delete('/credentials/:id', async (c) => {
 adminS3App.post('/credentials/bulk-revoke', async (c) => {
 	const log: Record<string, unknown> = { route: 'admin.bulkRevokeS3Credentials', ts: new Date().toISOString() };
 
-	const body = await parseBulkBody(c, 'access_key_ids');
+	const body = await parseBulkBody(c, 'access_key_ids', log);
 	if (body instanceof Response) return body;
 
 	const { ids, dryRun } = body;
@@ -209,7 +199,7 @@ adminS3App.post('/credentials/bulk-revoke', async (c) => {
 adminS3App.post('/credentials/bulk-delete', async (c) => {
 	const log: Record<string, unknown> = { route: 'admin.bulkDeleteS3Credentials', ts: new Date().toISOString() };
 
-	const body = await parseBulkBody(c, 'access_key_ids');
+	const body = await parseBulkBody(c, 'access_key_ids', log);
 	if (body instanceof Response) return body;
 
 	const { ids, dryRun } = body;
@@ -235,31 +225,22 @@ adminS3App.post('/credentials/bulk-delete', async (c) => {
 
 adminS3App.get('/analytics/events', async (c) => {
 	if (!c.env.ANALYTICS_DB) {
-		return c.json({ success: false, errors: [{ code: 503, message: 'Analytics not configured' }] }, 503);
+		return jsonError(c, 503, 'Analytics not configured');
 	}
 
-	const sinceRaw = c.req.query('since') ? Number(c.req.query('since')) : undefined;
-	const untilRaw = c.req.query('until') ? Number(c.req.query('until')) : undefined;
-	const limitRaw = c.req.query('limit') ? Number(c.req.query('limit')) : undefined;
+	const query = parseQueryParams(c, s3AnalyticsEventsQuerySchema);
+	if (query instanceof Response) return query;
 
-	if (
-		(sinceRaw !== undefined && isNaN(sinceRaw)) ||
-		(untilRaw !== undefined && isNaN(untilRaw)) ||
-		(limitRaw !== undefined && isNaN(limitRaw))
-	) {
-		return c.json({ success: false, errors: [{ code: 400, message: 'since, until, and limit must be valid numbers' }] }, 400);
-	}
-
-	const query: S3AnalyticsQuery = {
-		credential_id: c.req.query('credential_id') || undefined,
-		bucket: c.req.query('bucket') || undefined,
-		operation: c.req.query('operation') || undefined,
-		since: sinceRaw,
-		until: untilRaw,
-		limit: limitRaw,
+	const s3Query: S3AnalyticsQuery = {
+		credential_id: query.credential_id,
+		bucket: query.bucket,
+		operation: query.operation,
+		since: query.since,
+		until: query.until,
+		limit: query.limit,
 	};
 
-	const events = await queryS3Events(c.env.ANALYTICS_DB, query);
+	const events = await queryS3Events(c.env.ANALYTICS_DB, s3Query);
 
 	console.log(
 		JSON.stringify({
@@ -276,25 +257,21 @@ adminS3App.get('/analytics/events', async (c) => {
 
 adminS3App.get('/analytics/summary', async (c) => {
 	if (!c.env.ANALYTICS_DB) {
-		return c.json({ success: false, errors: [{ code: 503, message: 'Analytics not configured' }] }, 503);
+		return jsonError(c, 503, 'Analytics not configured');
 	}
 
-	const sinceRaw = c.req.query('since') ? Number(c.req.query('since')) : undefined;
-	const untilRaw = c.req.query('until') ? Number(c.req.query('until')) : undefined;
+	const query = parseQueryParams(c, s3AnalyticsSummaryQuerySchema);
+	if (query instanceof Response) return query;
 
-	if ((sinceRaw !== undefined && isNaN(sinceRaw)) || (untilRaw !== undefined && isNaN(untilRaw))) {
-		return c.json({ success: false, errors: [{ code: 400, message: 'since and until must be valid numbers' }] }, 400);
-	}
-
-	const query: S3AnalyticsQuery = {
-		credential_id: c.req.query('credential_id') || undefined,
-		bucket: c.req.query('bucket') || undefined,
-		operation: c.req.query('operation') || undefined,
-		since: sinceRaw,
-		until: untilRaw,
+	const s3Query: S3AnalyticsQuery = {
+		credential_id: query.credential_id,
+		bucket: query.bucket,
+		operation: query.operation,
+		since: query.since,
+		until: query.until,
 	};
 
-	const summary = await queryS3Summary(c.env.ANALYTICS_DB, query);
+	const summary = await queryS3Summary(c.env.ANALYTICS_DB, s3Query);
 
 	console.log(
 		JSON.stringify({

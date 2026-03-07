@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { getStub } from '../do-stub';
-import { parseBulkBody, resolveCreatedBy, validateCfToken } from './admin-helpers';
-import { ZONE_ID_RE } from '../constants';
+import { resolveCreatedBy, validateCfToken } from './admin-helpers';
+import { createUpstreamTokenSchema, idParamSchema, jsonError, parseJsonBody, parseParams, parseBulkBody } from './admin-schemas';
 import type { ValidationWarning } from './admin-helpers';
 import type { HonoEnv } from '../types';
 
@@ -17,51 +17,13 @@ adminUpstreamTokensApp.post('/', async (c) => {
 		ts: new Date().toISOString(),
 	};
 
-	let raw: Record<string, unknown>;
-	try {
-		raw = await c.req.json<Record<string, unknown>>();
-	} catch {
-		log.status = 400;
-		log.error = 'invalid_json';
-		console.log(JSON.stringify(log));
-		return c.json({ success: false, errors: [{ code: 400, message: 'Invalid JSON body' }] }, 400);
-	}
-
-	if (!raw.name || typeof raw.name !== 'string') {
-		log.status = 400;
-		console.log(JSON.stringify(log));
-		return c.json({ success: false, errors: [{ code: 400, message: 'Required field: name (string)' }] }, 400);
-	}
-	if (!raw.token || typeof raw.token !== 'string') {
-		log.status = 400;
-		console.log(JSON.stringify(log));
-		return c.json({ success: false, errors: [{ code: 400, message: 'Required field: token (string)' }] }, 400);
-	}
-	if (!Array.isArray(raw.zone_ids) || raw.zone_ids.length === 0 || !raw.zone_ids.every((z: unknown) => typeof z === 'string')) {
-		log.status = 400;
-		console.log(JSON.stringify(log));
-		return c.json(
-			{ success: false, errors: [{ code: 400, message: 'Required field: zone_ids (non-empty array of strings, or ["*"])' }] },
-			400,
-		);
-	}
-
-	const zoneIds = raw.zone_ids as string[];
-	const invalid = zoneIds.filter((z) => z !== '*' && !ZONE_ID_RE.test(z));
-	if (invalid.length > 0) {
-		log.status = 400;
-		log.invalidZoneIds = invalid;
-		console.log(JSON.stringify(log));
-		return c.json(
-			{ success: false, errors: [{ code: 400, message: `Invalid zone_id format (expected 32-char hex or "*"): ${invalid.join(', ')}` }] },
-			400,
-		);
-	}
+	const parsed = await parseJsonBody(c, createUpstreamTokenSchema, log);
+	if (parsed instanceof Response) return parsed;
 
 	// Optional validation: probe the CF API to check if the token works
 	const warnings: ValidationWarning[] = [];
-	if (raw.validate === true) {
-		const warning = await validateCfToken(raw.token);
+	if (parsed.validate === true) {
+		const warning = await validateCfToken(parsed.token);
 		if (warning) {
 			warnings.push(warning);
 			log.validationFailed = true;
@@ -73,15 +35,15 @@ adminUpstreamTokensApp.post('/', async (c) => {
 	const identity = c.get('accessIdentity');
 	const stub = getStub(c.env);
 	const result = await stub.createUpstreamToken({
-		name: raw.name,
-		token: raw.token,
-		zone_ids: raw.zone_ids as string[],
-		created_by: resolveCreatedBy(identity, raw.created_by),
+		name: parsed.name,
+		token: parsed.token,
+		zone_ids: parsed.zone_ids,
+		created_by: resolveCreatedBy(identity, parsed.created_by),
 	});
 
 	log.status = 200;
 	log.tokenId = result.token.id;
-	log.zoneIds = raw.zone_ids;
+	log.zoneIds = parsed.zone_ids;
 	console.log(JSON.stringify(log));
 
 	return c.json({ success: true, result: result.token, ...(warnings.length > 0 && { warnings }) });
@@ -107,12 +69,14 @@ adminUpstreamTokensApp.get('/', async (c) => {
 // ─── Get ────────────────────────────────────────────────────────────────────
 
 adminUpstreamTokensApp.get('/:id', async (c) => {
-	const id = c.req.param('id');
+	const params = parseParams(c, idParamSchema);
+	if (params instanceof Response) return params;
+
 	const stub = getStub(c.env);
-	const result = await stub.getUpstreamToken(id);
+	const result = await stub.getUpstreamToken(params.id);
 
 	if (!result) {
-		return c.json({ success: false, errors: [{ code: 404, message: 'Upstream token not found' }] }, 404);
+		return jsonError(c, 404, 'Upstream token not found');
 	}
 
 	return c.json({ success: true, result: result.token });
@@ -121,21 +85,23 @@ adminUpstreamTokensApp.get('/:id', async (c) => {
 // ─── Delete ─────────────────────────────────────────────────────────────────
 
 adminUpstreamTokensApp.delete('/:id', async (c) => {
-	const id = c.req.param('id');
+	const params = parseParams(c, idParamSchema);
+	if (params instanceof Response) return params;
+
 	const stub = getStub(c.env);
-	const deleted = await stub.deleteUpstreamToken(id);
+	const deleted = await stub.deleteUpstreamToken(params.id);
 
 	console.log(
 		JSON.stringify({
 			route: 'admin.deleteUpstreamToken',
-			tokenId: id,
+			tokenId: params.id,
 			deleted,
 			ts: new Date().toISOString(),
 		}),
 	);
 
 	if (!deleted) {
-		return c.json({ success: false, errors: [{ code: 404, message: 'Upstream token not found' }] }, 404);
+		return jsonError(c, 404, 'Upstream token not found');
 	}
 
 	return c.json({ success: true, result: { deleted: true } });
@@ -146,7 +112,7 @@ adminUpstreamTokensApp.delete('/:id', async (c) => {
 adminUpstreamTokensApp.post('/bulk-delete', async (c) => {
 	const log: Record<string, unknown> = { route: 'admin.bulkDeleteUpstreamTokens', ts: new Date().toISOString() };
 
-	const body = await parseBulkBody(c);
+	const body = await parseBulkBody(c, 'ids', log);
 	if (body instanceof Response) return body;
 
 	const { ids, dryRun } = body;

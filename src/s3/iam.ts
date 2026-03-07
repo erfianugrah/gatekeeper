@@ -1,25 +1,16 @@
-import { evaluatePolicy } from '../policy-engine';
+import { CredentialManager } from '../credential-manager';
 import { queryAll } from '../sql';
-import { MS_PER_DAY, DEFAULT_CACHE_TTL_MS } from '../constants';
+import { MS_PER_DAY } from '../constants';
 import { generateHexId } from '../crypto';
 import { POLICY_VERSION } from '../policy-types';
 import type { PolicyDocument, RequestContext } from '../policy-types';
 import type { S3Credential, CachedS3Credential, CreateS3CredentialRequest } from './types';
-import type { AuthResult, BulkItemResult, BulkResult, BulkInspectItem, BulkDryRunResult } from '../types';
+import type { AuthResult } from '../types';
 
 /** Access key ID prefix. */
 const KEY_PREFIX = 'GK';
 
-export class S3CredentialManager {
-	private sql: SqlStorage;
-	private cache: Map<string, CachedS3Credential> = new Map();
-	private cacheTtlMs: number;
-
-	constructor(sql: SqlStorage, cacheTtlMs: number = DEFAULT_CACHE_TTL_MS) {
-		this.sql = sql;
-		this.cacheTtlMs = cacheTtlMs;
-	}
-
+export class S3CredentialManager extends CredentialManager<S3Credential, CachedS3Credential> {
 	/** Create tables if they don't exist. Call inside blockConcurrencyWhile. */
 	initTables(): void {
 		this.sql.exec(`
@@ -112,68 +103,12 @@ export class S3CredentialManager {
 
 	/** Soft-revoke a credential. */
 	revokeCredential(accessKeyId: string): boolean {
-		const result = this.sql.exec('UPDATE s3_credentials SET revoked = 1 WHERE access_key_id = ? AND revoked = 0', accessKeyId);
-		this.cache.delete(accessKeyId);
-		return result.rowsWritten > 0;
+		return this.revokeById(accessKeyId);
 	}
 
 	/** Permanently delete a credential. Returns true if the row existed and was removed. */
 	deleteCredential(accessKeyId: string): boolean {
-		const result = this.sql.exec('DELETE FROM s3_credentials WHERE access_key_id = ?', accessKeyId);
-		this.cache.delete(accessKeyId);
-		return result.rowsWritten > 0;
-	}
-
-	// ─── Bulk operations ────────────────────────────────────────────────
-
-	/** Bulk soft-revoke credentials. Returns per-item status. */
-	bulkRevoke(accessKeyIds: string[]): BulkResult {
-		const results: BulkItemResult[] = [];
-		for (const id of accessKeyIds) {
-			const existing = this.getCredential(id);
-			if (!existing) {
-				results.push({ id, status: 'not_found' });
-			} else if (existing.credential.revoked) {
-				results.push({ id, status: 'already_revoked' });
-			} else {
-				this.revokeCredential(id);
-				results.push({ id, status: 'revoked' });
-			}
-		}
-		return { processed: results.length, results };
-	}
-
-	/** Bulk hard-delete credentials. Returns per-item status. */
-	bulkDelete(accessKeyIds: string[]): BulkResult {
-		const results: BulkItemResult[] = [];
-		for (const id of accessKeyIds) {
-			const deleted = this.deleteCredential(id);
-			results.push({ id, status: deleted ? 'deleted' : 'not_found' });
-		}
-		return { processed: results.length, results };
-	}
-
-	/** Inspect credentials without modifying — for dry-run preview. */
-	bulkInspect(accessKeyIds: string[], wouldBecome: string): BulkDryRunResult {
-		const items: BulkInspectItem[] = [];
-		for (const id of accessKeyIds) {
-			const existing = this.getCredential(id);
-			if (!existing) {
-				items.push({ id, current_status: 'not_found', would_become: 'not_found' });
-			} else {
-				const cred = existing.credential;
-				let currentStatus: BulkInspectItem['current_status'];
-				if (cred.revoked) {
-					currentStatus = 'revoked';
-				} else if (cred.expires_at && cred.expires_at < Date.now()) {
-					currentStatus = 'expired';
-				} else {
-					currentStatus = 'active';
-				}
-				items.push({ id, current_status: currentStatus, would_become: wouldBecome });
-			}
-		}
-		return { dry_run: true, would_process: items.length, items };
+		return this.deleteById(accessKeyId);
 	}
 
 	// ─── Auth path (used by Sig V4 verification) ────────────────────────
@@ -192,69 +127,56 @@ export class S3CredentialManager {
 
 	/** Authorize a request against the credential's policy. */
 	authorize(accessKeyId: string, contexts: RequestContext[]): AuthResult {
-		const cached = this.getCachedOrLoad(accessKeyId);
-		if (!cached) {
-			return { authorized: false, error: 'Invalid S3 credential' };
-		}
+		return this.authorizeWithContexts(accessKeyId, contexts);
+	}
 
-		const { credential, resolvedPolicy } = cached;
+	// ─── Protected overrides ────────────────────────────────────────────
 
-		if (credential.revoked) {
-			return { authorized: false, error: 'S3 credential has been revoked' };
-		}
+	protected revokeById(id: string): boolean {
+		const result = this.sql.exec('UPDATE s3_credentials SET revoked = 1 WHERE access_key_id = ? AND revoked = 0', id);
+		this.cache.delete(id);
+		return result.rowsWritten > 0;
+	}
 
-		if (credential.expires_at && credential.expires_at < Date.now()) {
-			return { authorized: false, error: 'S3 credential has expired' };
-		}
+	protected deleteById(id: string): boolean {
+		const result = this.sql.exec('DELETE FROM s3_credentials WHERE access_key_id = ?', id);
+		this.cache.delete(id);
+		return result.rowsWritten > 0;
+	}
 
-		if (!evaluatePolicy(resolvedPolicy, contexts)) {
-			const denied: string[] = [];
-			for (const ctx of contexts) {
-				if (!evaluatePolicy(resolvedPolicy, [ctx])) {
-					denied.push(`${ctx.action} on ${ctx.resource}`);
-				}
-			}
-			return {
-				authorized: false,
-				error: `Access denied: ${denied.join(', ')}`,
-				denied,
-			};
-		}
+	protected getById(id: string): { entity: S3Credential } | null {
+		const result = this.getCredential(id);
+		return result ? { entity: result.credential } : null;
+	}
 
-		return { authorized: true };
+	protected getEntityFromCache(cached: CachedS3Credential): S3Credential {
+		return cached.credential;
+	}
+
+	protected loadFromSql(id: string): S3Credential | null {
+		// Load full credential (with secret) for auth path
+		const rows = queryAll<S3Credential>(this.sql, 'SELECT * FROM s3_credentials WHERE access_key_id = ?', id);
+		return rows.length > 0 ? rows[0] : null;
+	}
+
+	protected buildCacheEntry(entity: S3Credential, resolvedPolicy: PolicyDocument, cachedAt: number): CachedS3Credential {
+		return { credential: entity, resolvedPolicy, cachedAt };
+	}
+
+	protected invalidCredentialMessage(): string {
+		return 'Invalid S3 credential';
+	}
+	protected revokedMessage(): string {
+		return 'S3 credential has been revoked';
+	}
+	protected expiredMessage(): string {
+		return 'S3 credential has expired';
+	}
+	protected deniedMessage(denied: string[]): string {
+		return `Access denied: ${denied.join(', ')}`;
 	}
 
 	// ─── Private helpers ────────────────────────────────────────────────
-
-	private getCachedOrLoad(accessKeyId: string): CachedS3Credential | null {
-		const cached = this.cache.get(accessKeyId);
-		if (cached && Date.now() - cached.cachedAt < this.cacheTtlMs) {
-			return cached;
-		}
-
-		// Load full credential (with secret) for auth path
-		const rows = queryAll<S3Credential>(this.sql, 'SELECT * FROM s3_credentials WHERE access_key_id = ?', accessKeyId);
-		if (rows.length === 0) {
-			this.cache.delete(accessKeyId);
-			return null;
-		}
-
-		const credential = rows[0];
-		let resolvedPolicy: PolicyDocument;
-		try {
-			resolvedPolicy = JSON.parse(credential.policy) as PolicyDocument;
-		} catch {
-			resolvedPolicy = { version: POLICY_VERSION, statements: [] };
-		}
-
-		const entry: CachedS3Credential = {
-			credential,
-			resolvedPolicy,
-			cachedAt: Date.now(),
-		};
-		this.cache.set(accessKeyId, entry);
-		return entry;
-	}
 
 	/** Generate a GK-prefixed access key ID: GK + 18 uppercase hex chars. */
 	private generateAccessKeyId(): string {
