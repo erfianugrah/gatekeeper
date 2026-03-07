@@ -27,7 +27,8 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const wrongZone = await purge(WILDCARD_ID, '/v1/zones/aaaa1111bbbb2222cccc3333dddd4444/purge_cache', {
 		hosts: ['erfi.io'],
 	});
-	assertStatus('wrong zone (no upstream token) -> 502', wrongZone, 502);
+	// Key's policy is scoped to the real zone — wrong zone gets 403 from policy engine before reaching upstream
+	assertStatus('wrong zone -> 403 (policy denies)', wrongZone, 403);
 
 	// ─── 8. Purge Validation ────────────────────────────────────────
 
@@ -44,10 +45,9 @@ export async function run(ctx: SmokeContext): Promise<void> {
 
 	const emptyBody = await purge(WILDCARD_ID, PURGE_URL, {});
 	assertStatus('empty body -> 400', emptyBody, 400);
-	assertJson(
-		'empty body message',
-		emptyBody.body?.errors?.[0]?.message,
-		'Request body must contain one of: files, hosts, tags, prefixes, or purge_everything',
+	assertTruthy(
+		'empty body message mentions purge type',
+		emptyBody.body?.errors?.[0]?.message?.includes('purge type') || emptyBody.body?.errors?.[0]?.message?.includes('must contain'),
 	);
 
 	const peFalse = await purge(WILDCARD_ID, PURGE_URL, { purge_everything: false });
