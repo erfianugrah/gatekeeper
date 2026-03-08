@@ -503,6 +503,66 @@ export async function bulkDeleteUpstreamR2Endpoints(ids: string[]): Promise<Bulk
 	});
 }
 
+// ─── DNS Analytics ───────────────────────────────────────────────────
+
+export interface DnsEvent {
+	id: number;
+	key_id: string;
+	zone_id: string;
+	action: string;
+	record_name: string | null;
+	record_type: string | null;
+	status: number;
+	upstream_status: number | null;
+	duration_ms: number;
+	created_at: number;
+	response_detail: string | null;
+	created_by: string | null;
+}
+
+export interface DnsAnalyticsSummary {
+	total_requests: number;
+	by_status: Record<string, number>;
+	by_action: Record<string, number>;
+	by_record_type: Record<string, number>;
+	avg_duration_ms: number;
+}
+
+export interface DnsEventsQuery {
+	zone_id?: string;
+	key_id?: string;
+	action?: string;
+	record_type?: string;
+	since?: number;
+	until?: number;
+	limit?: number;
+}
+
+export async function getDnsEvents(query: DnsEventsQuery = {}): Promise<DnsEvent[]> {
+	const params = new URLSearchParams();
+	if (query.zone_id) params.set('zone_id', query.zone_id);
+	if (query.key_id) params.set('key_id', query.key_id);
+	if (query.action) params.set('action', query.action);
+	if (query.record_type) params.set('record_type', query.record_type);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	if (query.limit) params.set('limit', String(query.limit));
+	const qs = params.toString();
+	return apiFetch<DnsEvent[]>(`/admin/dns/analytics/events${qs ? `?${qs}` : ''}`);
+}
+
+export async function getDnsSummary(query: Omit<DnsEventsQuery, 'limit'> = {}): Promise<DnsAnalyticsSummary> {
+	const params = new URLSearchParams();
+	if (query.zone_id) params.set('zone_id', query.zone_id);
+	if (query.key_id) params.set('key_id', query.key_id);
+	if (query.action) params.set('action', query.action);
+	if (query.record_type) params.set('record_type', query.record_type);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	const qs = params.toString();
+	return apiFetch<DnsAnalyticsSummary>(`/admin/dns/analytics/summary${qs ? `?${qs}` : ''}`);
+}
+
 // ─── Config Registry ─────────────────────────────────────────────────
 
 export interface GatewayConfig {

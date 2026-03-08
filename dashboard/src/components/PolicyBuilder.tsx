@@ -24,13 +24,35 @@ const PURGE_ACTIONS = [
 	{ value: 'purge:everything', label: 'Everything', description: 'Purge all' },
 ] as const;
 
+const DNS_ACTIONS = [
+	{ value: 'dns:*', label: 'All DNS', description: 'All DNS operations' },
+	{ value: 'dns:create', label: 'Create', description: 'Create DNS records' },
+	{ value: 'dns:read', label: 'Read', description: 'Get or list DNS records' },
+	{ value: 'dns:update', label: 'Update', description: 'Edit or overwrite DNS records' },
+	{ value: 'dns:delete', label: 'Delete', description: 'Delete DNS records' },
+	{ value: 'dns:batch', label: 'Batch', description: 'Batch create/update/delete' },
+	{ value: 'dns:export', label: 'Export', description: 'Export BIND zone file' },
+	{ value: 'dns:import', label: 'Import', description: 'Import BIND zone file' },
+] as const;
+
+const ALL_ACTIONS = [...PURGE_ACTIONS, ...DNS_ACTIONS] as const;
+
 const CONDITION_FIELDS: readonly FieldOption[] = [
+	// Purge fields
 	{ value: 'host', label: 'Host', hint: 'e.g. example.com' },
 	{ value: 'tag', label: 'Tag', hint: 'e.g. static-v2' },
 	{ value: 'prefix', label: 'Prefix', hint: 'e.g. example.com/assets/' },
 	{ value: 'url', label: 'URL', hint: 'e.g. https://example.com/page' },
 	{ value: 'url.path', label: 'URL Path', hint: 'e.g. /api/v1/' },
 	{ value: 'purge_everything', label: 'Purge Everything', hint: 'true/false' },
+	// DNS fields
+	{ value: 'dns.name', label: 'DNS Name', hint: 'e.g. _acme-challenge.example.com' },
+	{ value: 'dns.type', label: 'DNS Type', hint: 'e.g. A, AAAA, CNAME, TXT' },
+	{ value: 'dns.content', label: 'DNS Content', hint: 'e.g. 1.2.3.4' },
+	{ value: 'dns.proxied', label: 'DNS Proxied', hint: 'true/false' },
+	{ value: 'dns.ttl', label: 'DNS TTL', hint: 'e.g. 300' },
+	{ value: 'dns.comment', label: 'DNS Comment', hint: 'e.g. managed by cert-manager' },
+	// Request-level fields
 	{ value: 'client_ip', label: 'Client IP', hint: 'e.g. 203.0.113.42' },
 	{ value: 'client_country', label: 'Country', hint: 'e.g. US, DE, SG' },
 	{ value: 'client_asn', label: 'ASN', hint: 'e.g. 13335' },
@@ -80,14 +102,20 @@ function StatementEditor({ index, statement, onChange, onRemove, canRemove }: St
 
 	const toggleAction = (action: string) => {
 		const current = new Set(statement.actions);
-		if (action === 'purge:*') {
-			onChange({
-				...statement,
-				actions: current.has('purge:*') ? [] : ['purge:*'],
-			});
+		const isWildcardAction = action === 'purge:*' || action === 'dns:*';
+		const actionPrefix = action.split(':')[0] + ':';
+		if (isWildcardAction) {
+			// Toggle wildcard: if already set, remove all actions with that prefix; otherwise set only the wildcard
+			const otherActions = Array.from(current).filter((a) => !a.startsWith(actionPrefix));
+			if (current.has(action)) {
+				onChange({ ...statement, actions: otherActions });
+			} else {
+				onChange({ ...statement, actions: [...otherActions, action] });
+			}
 			return;
 		}
-		current.delete('purge:*');
+		// Remove same-prefix wildcard when toggling a specific action
+		current.delete(actionPrefix + '*');
 		if (current.has(action)) {
 			current.delete(action);
 		} else {
@@ -97,8 +125,12 @@ function StatementEditor({ index, statement, onChange, onRemove, canRemove }: St
 	};
 
 	const conditions: Condition[] = statement.conditions ?? [];
-	const isWildcard = statement.actions.includes('purge:*');
-	const summary = summarizeStatement(statement, 'purge');
+	const hasPurgeWildcard = statement.actions.includes('purge:*');
+	const hasDnsWildcard = statement.actions.includes('dns:*');
+	const hasDnsActions = statement.actions.some((a) => a.startsWith('dns:'));
+	const hasPurgeActions = statement.actions.some((a) => a.startsWith('purge:'));
+	const domain = hasDnsActions && !hasPurgeActions ? 'dns' : hasPurgeActions && !hasDnsActions ? 'purge' : 'purge';
+	const summary = summarizeStatement(statement, domain);
 
 	return (
 		<div className="rounded-lg border border-border bg-card/50 p-3 space-y-3">
@@ -149,8 +181,10 @@ function StatementEditor({ index, statement, onChange, onRemove, canRemove }: St
 						<Label className={T.formLabel}>Actions</Label>
 						<TooltipProvider delayDuration={200}>
 							<div className="flex flex-wrap gap-1.5">
-								{PURGE_ACTIONS.map((a) => {
-									const active = isWildcard ? a.value === 'purge:*' : statement.actions.includes(a.value);
+								{ALL_ACTIONS.map((a) => {
+									const isPurge = a.value.startsWith('purge:');
+									const wildcardActive = isPurge ? hasPurgeWildcard : hasDnsWildcard;
+									const active = wildcardActive ? a.value === (isPurge ? 'purge:*' : 'dns:*') : statement.actions.includes(a.value);
 									return (
 										<Tooltip key={a.value}>
 											<TooltipTrigger asChild>

@@ -1,7 +1,7 @@
 import { TableRow, TableCell } from '@/components/ui/table';
 import { formatTimeISO } from './analytics-helpers';
 import type { UnifiedEvent } from './analytics-types';
-import type { PurgeEvent, S3Event } from '@/lib/api';
+import type { PurgeEvent, S3Event, DnsEvent } from '@/lib/api';
 
 // ─── Detail row (expanded) ──────────────────────────────────────────
 
@@ -49,36 +49,53 @@ function coloredValue(field: DetailField): React.ReactNode {
 
 export function EventDetailRow({ event }: { event: UnifiedEvent }) {
 	const raw = event.raw;
-	const fields: DetailField[] =
-		event.source === 'purge'
-			? [
-					{ key: 'id', value: (raw as PurgeEvent).id, type: 'number' },
-					{ key: 'key_id', value: event.key_id, type: 'id' },
-					{ key: 'zone_id', value: event.zone_id, type: 'id' },
-					{ key: 'purge_type', value: event.purge_type, type: 'operation' },
-					{ key: 'purge_target', value: event.purge_target, type: 'string' },
-					{ key: 'tokens', value: event.tokens, type: 'number' },
-					{ key: 'status', value: event.status, type: 'status' },
-					{ key: 'upstream_status', value: event.upstream_status, type: 'status' },
-					{ key: 'collapsed', value: event.collapsed, type: 'string' },
-					{ key: 'flight_id', value: event.flight_id, type: 'id' },
-					{ key: 'duration_ms', value: event.duration_ms, type: 'duration' },
-					{ key: 'created_by', value: (raw as PurgeEvent).created_by, type: 'id' },
-					{ key: 'response_detail', value: (raw as PurgeEvent).response_detail, type: 'string' },
-					{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
-				]
-			: [
-					{ key: 'id', value: (raw as S3Event).id, type: 'number' },
-					{ key: 'credential_id', value: event.credential_id, type: 'id' },
-					{ key: 'operation', value: event.operation, type: 'operation' },
-					{ key: 'bucket', value: event.bucket, type: 'string' },
-					{ key: 'key', value: event.s3_key, type: 'string' },
-					{ key: 'status', value: event.status, type: 'status' },
-					{ key: 'duration_ms', value: event.duration_ms, type: 'duration' },
-					{ key: 'created_by', value: (raw as S3Event).created_by, type: 'id' },
-					{ key: 'response_detail', value: (raw as S3Event).response_detail, type: 'string' },
-					{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
-				];
+	let fields: DetailField[];
+	if (event.source === 'purge') {
+		fields = [
+			{ key: 'id', value: (raw as PurgeEvent).id, type: 'number' },
+			{ key: 'key_id', value: event.key_id, type: 'id' },
+			{ key: 'zone_id', value: event.zone_id, type: 'id' },
+			{ key: 'purge_type', value: event.purge_type, type: 'operation' },
+			{ key: 'purge_target', value: event.purge_target, type: 'string' },
+			{ key: 'tokens', value: event.tokens, type: 'number' },
+			{ key: 'status', value: event.status, type: 'status' },
+			{ key: 'upstream_status', value: event.upstream_status, type: 'status' },
+			{ key: 'collapsed', value: event.collapsed, type: 'string' },
+			{ key: 'flight_id', value: event.flight_id, type: 'id' },
+			{ key: 'duration_ms', value: event.duration_ms, type: 'duration' },
+			{ key: 'created_by', value: (raw as PurgeEvent).created_by, type: 'id' },
+			{ key: 'response_detail', value: (raw as PurgeEvent).response_detail, type: 'string' },
+			{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
+		];
+	} else if (event.source === 'dns') {
+		fields = [
+			{ key: 'id', value: (raw as DnsEvent).id, type: 'number' },
+			{ key: 'key_id', value: event.key_id, type: 'id' },
+			{ key: 'zone_id', value: event.zone_id, type: 'id' },
+			{ key: 'action', value: event.dns_action, type: 'operation' },
+			{ key: 'record_name', value: event.dns_name, type: 'string' },
+			{ key: 'record_type', value: event.dns_type, type: 'string' },
+			{ key: 'status', value: event.status, type: 'status' },
+			{ key: 'upstream_status', value: event.upstream_status, type: 'status' },
+			{ key: 'duration_ms', value: event.duration_ms, type: 'duration' },
+			{ key: 'created_by', value: (raw as DnsEvent).created_by, type: 'id' },
+			{ key: 'response_detail', value: (raw as DnsEvent).response_detail, type: 'string' },
+			{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
+		];
+	} else {
+		fields = [
+			{ key: 'id', value: (raw as S3Event).id, type: 'number' },
+			{ key: 'credential_id', value: event.credential_id, type: 'id' },
+			{ key: 'operation', value: event.operation, type: 'operation' },
+			{ key: 'bucket', value: event.bucket, type: 'string' },
+			{ key: 'key', value: event.s3_key, type: 'string' },
+			{ key: 'status', value: event.status, type: 'status' },
+			{ key: 'duration_ms', value: event.duration_ms, type: 'duration' },
+			{ key: 'created_by', value: (raw as S3Event).created_by, type: 'id' },
+			{ key: 'response_detail', value: (raw as S3Event).response_detail, type: 'string' },
+			{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
+		];
+	}
 
 	return (
 		<TableRow className="bg-muted/30 hover:bg-muted/40 border-b border-border/50">

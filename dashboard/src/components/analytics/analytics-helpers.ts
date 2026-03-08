@@ -59,6 +59,9 @@ export function eventSearchText(ev: UnifiedEvent): string {
 		ev.purge_type ?? '',
 		ev.purge_target ?? '',
 		ev.collapsed ?? '',
+		ev.dns_action ?? '',
+		ev.dns_name ?? '',
+		ev.dns_type ?? '',
 		(ev.raw as any).created_by ?? '',
 		(ev.raw as any).response_detail ?? '',
 	];

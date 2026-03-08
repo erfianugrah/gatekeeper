@@ -18,6 +18,7 @@ const main = defineCommand({
 		analytics: () => import('./commands/analytics.js').then((m) => m.default),
 		's3-credentials': () => import('./commands/s3-credentials.js').then((m) => m.default),
 		's3-analytics': () => import('./commands/s3-analytics.js').then((m) => m.default),
+		'dns-analytics': () => import('./commands/dns-analytics.js').then((m) => m.default),
 		'upstream-tokens': () => import('./commands/upstream-tokens.js').then((m) => m.default),
 		'upstream-r2': () => import('./commands/upstream-r2.js').then((m) => m.default),
 		config: () => import('./commands/config.js').then((m) => m.default),

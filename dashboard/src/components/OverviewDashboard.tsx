@@ -8,6 +8,7 @@ import {
 	AlertTriangle,
 	HardDrive,
 	Cloud,
+	Globe,
 	Key,
 	Shield,
 	Zap,
@@ -22,14 +23,16 @@ import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger }
 import {
 	getSummary,
 	getS3Summary,
+	getDnsSummary,
 	getEvents,
 	getS3Events,
+	getDnsEvents,
 	listKeys,
 	listS3Credentials,
 	listUpstreamTokens,
 	listUpstreamR2,
 } from '@/lib/api';
-import type { AnalyticsSummary, S3AnalyticsSummary, PurgeEvent, S3Event } from '@/lib/api';
+import type { AnalyticsSummary, S3AnalyticsSummary, DnsAnalyticsSummary, PurgeEvent, S3Event, DnsEvent } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { STATUS_COLORS, PURGE_TYPE_COLORS, CHART_PALETTE, CHART_TOOLTIP_STYLE } from '@/lib/utils';
 import { T } from '@/lib/typography';
@@ -51,10 +54,12 @@ function formatNumber(n: number): string {
 	return n.toLocaleString();
 }
 
-function mergeByStatus(purge: Record<string, number>, s3: Record<string, number>): Record<string, number> {
-	const merged: Record<string, number> = { ...purge };
-	for (const [k, v] of Object.entries(s3)) {
-		merged[k] = (merged[k] ?? 0) + v;
+function mergeByStatus(...sources: Record<string, number>[]): Record<string, number> {
+	const merged: Record<string, number> = {};
+	for (const src of sources) {
+		for (const [k, v] of Object.entries(src)) {
+			merged[k] = (merged[k] ?? 0) + v;
+		}
 	}
 	return merged;
 }
@@ -179,7 +184,7 @@ function LoadingSkeleton() {
 
 interface RecentEvent {
 	id: string;
-	source: 'purge' | 's3';
+	source: 'purge' | 's3' | 'dns';
 	status: number;
 	detail: string;
 	/** Full purge target or S3 detail for tooltip */
@@ -218,11 +223,26 @@ function fromS3Recent(ev: S3Event): RecentEvent {
 	};
 }
 
+function fromDnsRecent(ev: DnsEvent): RecentEvent {
+	const detail = `${ev.action}${ev.record_name ? ` ${ev.record_name}` : ''}${ev.record_type ? ` (${ev.record_type})` : ''}`;
+	return {
+		id: `d-${ev.id}`,
+		source: 'dns',
+		status: ev.status,
+		detail: truncateId(detail, 50),
+		detailFull: detail.length > 50 ? detail : null,
+		duration_ms: ev.duration_ms,
+		created_at: ev.created_at,
+		identity: truncateId(ev.key_id),
+	};
+}
+
 // ─── Overview Dashboard ─────────────────────────────────────────────
 
 export function OverviewDashboard() {
 	const [purgeSummary, setPurgeSummary] = useState<AnalyticsSummary | null>(null);
 	const [s3Summary, setS3Summary] = useState<S3AnalyticsSummary | null>(null);
+	const [dnsSummary, setDnsSummary] = useState<DnsAnalyticsSummary | null>(null);
 	const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
 	const [resourceCounts, setResourceCounts] = useState({
 		activeKeys: 0,
@@ -239,24 +259,27 @@ export function OverviewDashboard() {
 		setLoading(true);
 		setError(null);
 		try {
-			const [purge, s3, purgeEvents, s3Events, keys, s3Creds, upTokens, upR2] = await Promise.all([
+			const [purge, s3, dns, purgeEvents, s3Events, dnsEvents, keys, s3Creds, upTokens, upR2] = await Promise.all([
 				getSummary().catch(() => null),
 				getS3Summary().catch(() => null),
+				getDnsSummary().catch(() => null),
 				getEvents({ limit: 10 }).catch(() => [] as PurgeEvent[]),
 				getS3Events({ limit: 10 }).catch(() => [] as S3Event[]),
+				getDnsEvents({ limit: 10 }).catch(() => [] as DnsEvent[]),
 				listKeys().catch(() => []),
 				listS3Credentials().catch(() => []),
 				listUpstreamTokens().catch(() => []),
 				listUpstreamR2().catch(() => []),
 			]);
-			if (!purge && !s3) {
-				throw new Error('Failed to load analytics from both purge and S3 endpoints');
+			if (!purge && !s3 && !dns) {
+				throw new Error('Failed to load analytics from all endpoints');
 			}
 			setPurgeSummary(purge);
 			setS3Summary(s3);
+			setDnsSummary(dns);
 
 			// Merge and sort recent events
-			const all: RecentEvent[] = [...purgeEvents.map(fromPurgeRecent), ...s3Events.map(fromS3Recent)]
+			const all: RecentEvent[] = [...purgeEvents.map(fromPurgeRecent), ...s3Events.map(fromS3Recent), ...dnsEvents.map(fromDnsRecent)]
 				.sort((a, b) => b.created_at - a.created_at)
 				.slice(0, 10);
 			setRecentEvents(all);
@@ -273,6 +296,7 @@ export function OverviewDashboard() {
 			setError(e.message ?? 'Failed to load summary');
 			setPurgeSummary(null);
 			setS3Summary(null);
+			setDnsSummary(null);
 		} finally {
 			setLoading(false);
 		}
@@ -286,10 +310,11 @@ export function OverviewDashboard() {
 
 	const purgeTotal = purgeSummary?.total_requests ?? 0;
 	const s3Total = s3Summary?.total_requests ?? 0;
-	const totalRequests = purgeTotal + s3Total;
+	const dnsTotal = dnsSummary?.total_requests ?? 0;
+	const totalRequests = purgeTotal + s3Total + dnsTotal;
 
 	// Combined status breakdown
-	const mergedStatus = mergeByStatus(purgeSummary?.by_status ?? {}, s3Summary?.by_status ?? {});
+	const mergedStatus = mergeByStatus(purgeSummary?.by_status ?? {}, s3Summary?.by_status ?? {}, dnsSummary?.by_status ?? {});
 	const barData = Object.entries(mergedStatus)
 		.map(([status, count]) => ({ status, count }))
 		.sort((a, b) => Number(a.status) - Number(b.status));
@@ -313,20 +338,35 @@ export function OverviewDashboard() {
 				.map(([name, value]) => ({ name, value }))
 		: [];
 
-	// Traffic split (purge vs s3)
+	// DNS action pie
+	const dnsActionPie = dnsSummary
+		? Object.entries(dnsSummary.by_action)
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, 10)
+				.map(([name, value]) => ({ name, value }))
+		: [];
+
+	// Traffic split (purge vs s3 vs dns)
 	const trafficPie = [
 		...(purgeTotal > 0 ? [{ name: 'Purge', value: purgeTotal }] : []),
 		...(s3Total > 0 ? [{ name: 'S3', value: s3Total }] : []),
+		...(dnsTotal > 0 ? [{ name: 'DNS', value: dnsTotal }] : []),
 	];
 	const TRAFFIC_COLORS: Record<string, string> = {
 		Purge: '#c574dd',
 		S3: '#79e6f3',
+		DNS: '#a6e3a1',
 	};
 
 	// Combined avg latency
 	const avgLatency =
 		totalRequests > 0
-			? Math.round(((purgeSummary?.avg_duration_ms ?? 0) * purgeTotal + (s3Summary?.avg_duration_ms ?? 0) * s3Total) / totalRequests)
+			? Math.round(
+					((purgeSummary?.avg_duration_ms ?? 0) * purgeTotal +
+						(s3Summary?.avg_duration_ms ?? 0) * s3Total +
+						(dnsSummary?.avg_duration_ms ?? 0) * dnsTotal) /
+						totalRequests,
+				)
 			: 0;
 
 	// Error stats
@@ -357,7 +397,7 @@ export function OverviewDashboard() {
 				{!loading && totalRequests > 0 && (
 					<>
 						{/* Row 1: Traffic stat cards */}
-						<div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-7">
+						<div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
 							<StatCard
 								label="Total Requests"
 								value={formatNumber(totalRequests)}
@@ -378,6 +418,13 @@ export function OverviewDashboard() {
 								icon={<HardDrive className="h-5 w-5 text-lv-cyan" />}
 								iconBg="bg-lv-cyan/15"
 								delay={120}
+							/>
+							<StatCard
+								label="DNS Requests"
+								value={formatNumber(dnsTotal)}
+								icon={<Globe className="h-5 w-5 text-lv-green" />}
+								iconBg="bg-lv-green/15"
+								delay={150}
 							/>
 							<StatCard
 								label="Avg Latency"
@@ -624,6 +671,37 @@ export function OverviewDashboard() {
 									</CardContent>
 								</Card>
 							)}
+							{/* DNS actions breakdown */}
+							{dnsTotal > 0 && (
+								<Card>
+									<CardHeader>
+										<CardTitle className={T.sectionHeading}>DNS Actions</CardTitle>
+									</CardHeader>
+									<CardContent>
+										{dnsActionPie.length === 0 ? (
+											<p className={cn(T.muted, 'py-12 text-center')}>No data</p>
+										) : (
+											<ResponsiveContainer width="100%" height={260}>
+												<BarChart data={dnsActionPie} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
+													<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
+													<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={100} />
+													<Tooltip
+														contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
+														itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
+														labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
+														formatter={(value: number) => [formatNumber(value), 'Requests']}
+													/>
+													<Bar dataKey="value" radius={[0, 4, 4, 0]}>
+														{dnsActionPie.map((entry, i) => (
+															<Cell key={entry.name} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />
+														))}
+													</Bar>
+												</BarChart>
+											</ResponsiveContainer>
+										)}
+									</CardContent>
+								</Card>
+							)}
 						</div>
 
 						{/* Row 5: Recent Events */}
@@ -644,10 +722,20 @@ export function OverviewDashboard() {
 									<div className="space-y-2">
 										{recentEvents.map((ev) => (
 											<div key={ev.id} className="flex items-center gap-3 rounded-md border border-border/50 bg-card/50 px-3 py-2 text-sm">
-												<WithTip tip={ev.source === 'purge' ? 'Cache purge request' : 'S3/R2 storage request'}>
+												<WithTip
+													tip={
+														ev.source === 'purge'
+															? 'Cache purge request'
+															: ev.source === 'dns'
+																? 'DNS record operation'
+																: 'S3/R2 storage request'
+													}
+												>
 													<div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted/50">
 														{ev.source === 'purge' ? (
 															<Cloud className="h-3.5 w-3.5 text-lv-purple" />
+														) : ev.source === 'dns' ? (
+															<Globe className="h-3.5 w-3.5 text-lv-green" />
 														) : (
 															<HardDrive className="h-3.5 w-3.5 text-lv-cyan" />
 														)}

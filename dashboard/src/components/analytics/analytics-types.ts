@@ -1,14 +1,14 @@
-import type { PurgeEvent, S3Event } from '@/lib/api';
+import type { PurgeEvent, S3Event, DnsEvent } from '@/lib/api';
 
 // ─── Unified event type ─────────────────────────────────────────────
 
 export type UnifiedEvent = {
 	id: number;
-	source: 'purge' | 's3';
+	source: 'purge' | 's3' | 'dns';
 	status: number;
 	duration_ms: number;
 	created_at: number;
-	raw: PurgeEvent | S3Event;
+	raw: PurgeEvent | S3Event | DnsEvent;
 	key_id?: string;
 	zone_id?: string;
 	purge_type?: string;
@@ -21,6 +21,9 @@ export type UnifiedEvent = {
 	operation?: string;
 	bucket?: string | null;
 	s3_key?: string | null;
+	dns_action?: string;
+	dns_name?: string | null;
+	dns_type?: string | null;
 };
 
 /** A flight group: one leader event with zero or more collapsed followers. */
@@ -37,13 +40,16 @@ export interface FlightGroup {
 
 export type SortField = 'created_at' | 'status' | 'duration_ms' | 'source';
 export type SortDir = 'asc' | 'desc';
-export type TabFilter = 'all' | 'purge' | 's3';
+export type TabFilter = 'all' | 'purge' | 's3' | 'dns';
 export type StatusFilter = 'all' | '2xx' | '4xx' | '5xx';
 
 // ─── Constants ──────────────────────────────────────────────────────
 
 /** Offset to avoid ID collisions between purge events and S3 events in the unified view. */
 export const S3_EVENT_ID_OFFSET = 1_000_000_000;
+
+/** Offset to avoid ID collisions between purge/S3 events and DNS events in the unified view. */
+export const DNS_EVENT_ID_OFFSET = 2_000_000_000;
 
 export const LIMIT_OPTIONS = [50, 100, 500] as const;
 
@@ -80,6 +86,23 @@ export function fromS3(ev: S3Event): UnifiedEvent {
 		operation: ev.operation,
 		bucket: ev.bucket,
 		s3_key: ev.key,
+	};
+}
+
+export function fromDns(ev: DnsEvent): UnifiedEvent {
+	return {
+		id: ev.id + DNS_EVENT_ID_OFFSET,
+		source: 'dns',
+		status: ev.status,
+		duration_ms: ev.duration_ms,
+		created_at: ev.created_at,
+		raw: ev,
+		key_id: ev.key_id,
+		zone_id: ev.zone_id,
+		dns_action: ev.action,
+		dns_name: ev.record_name,
+		dns_type: ev.record_type,
+		upstream_status: ev.upstream_status,
 	};
 }
 
