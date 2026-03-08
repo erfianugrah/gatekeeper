@@ -429,6 +429,11 @@ export class Gatekeeper extends DurableObject<Env> {
 		return this.iam.authorizeFromBody(keyId, zoneId, body, requestFields);
 	}
 
+	/** Generic policy authorization — takes pre-built RequestContexts directly. Used by DNS and future services. */
+	async authorize(keyId: string, zoneId: string, contexts: RequestContext[]): Promise<AuthResult> {
+		return this.iam.authorize(keyId, zoneId, contexts);
+	}
+
 	async createKey(req: CreateKeyRequest): Promise<{ key: ApiKey }> {
 		return this.iam.createKey(req);
 	}

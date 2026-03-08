@@ -358,36 +358,41 @@ CREATE INDEX IF NOT EXISTS idx_dns_zone_time ON dns_events (zone_id, created_at 
 CREATE INDEX IF NOT EXISTS idx_dns_key_time  ON dns_events (key_id, created_at DESC);
 ```
 
-#### New Files
+#### New Files (Implemented)
 
-| File                                            | Purpose                                               |
-| ----------------------------------------------- | ----------------------------------------------------- |
-| `src/dns/routes.ts`                             | Hono sub-app for all DNS record endpoints             |
-| `src/dns/operations.ts`                         | Action detection, condition field extraction          |
-| `src/dns/types.ts`                              | DNS-specific types (mirrors SDK shapes we care about) |
-| `src/dns/analytics.ts`                          | D1 analytics for DNS operations                       |
-| `src/routes/admin-dns.ts`                       | Admin endpoints for DNS analytics queries             |
-| `test/dns-crud.test.ts`                         | Create, read, update, delete operations               |
-| `test/dns-batch.test.ts`                        | Batch decomposition and per-record authorization      |
-| `test/dns-iam.test.ts`                          | Policy enforcement (name/type/content scoping)        |
-| `test/dns-ratelimit.test.ts`                    | Rate limiting behavior                                |
-| `test/dns-analytics.test.ts`                    | D1 event logging and queries                          |
-| `dashboard/src/components/DnsPage.tsx`          | Dashboard page for DNS analytics                      |
-| `dashboard/src/components/DnsPolicyBuilder.tsx` | DNS-specific policy builder hints                     |
+| File                                | Purpose                                             |
+| ----------------------------------- | --------------------------------------------------- |
+| `src/dns/routes.ts`                 | Hono sub-app for all 9 DNS record endpoints         |
+| `src/dns/operations.ts`             | Action classification, condition fields, contexts   |
+| `src/dns/analytics.ts`              | D1 event logging, query, and summary                |
+| `src/routes/admin-dns-analytics.ts` | Admin analytics endpoints for DNS events/summary    |
+| `test/dns.test.ts`                  | 27 integration tests (auth, CRUD, IAM, batch, etc.) |
 
-#### Open Questions
+#### Modified Files
 
-- [ ] Should DNS keys be separate from purge keys, or should one key support both?
-      Leaning toward: same key type, actions differentiate (`purge:*` vs `dns:*`).
+| File                    | Change                                                 |
+| ----------------------- | ------------------------------------------------------ |
+| `src/schema.ts`         | Added `dns_events` table + indexes SQL                 |
+| `src/durable-object.ts` | Added generic `authorize()` RPC method                 |
+| `src/index.ts`          | Mounted `dnsRoute`, added `deleteOldDnsEvents` to cron |
+| `src/routes/admin.ts`   | Mounted DNS analytics at `/admin/dns/analytics/*`      |
+
+#### Pending Files
+
+| File                                            | Purpose                           |
+| ----------------------------------------------- | --------------------------------- |
+| `dashboard/src/components/DnsPage.tsx`          | Dashboard page for DNS analytics  |
+| `dashboard/src/components/DnsPolicyBuilder.tsx` | DNS-specific policy builder hints |
+
+#### Resolved Questions
+
+- [x] **Same key type** for DNS and purge. Actions differentiate (`purge:*` vs `dns:*`).
       A single key with `["purge:*", "dns:create", "dns:delete"]` and a condition on
       `dns.name` gives an ACME client purge + DNS challenge in one credential.
-- [ ] Should export/import be gated behind a separate action or just `dns:read`/`dns:create`?
-      Leaning toward: separate actions (`dns:export`, `dns:import`) since import is a
+- [x] **Separate actions** for export/import (`dns:export`, `dns:import`) since import is a
       bulk mutation that bypasses per-record authorization.
-- [ ] Rate limit bucket: shared with purge, or separate? DNS and purge hit the same
-      global 1200/5min CF API limit, so a shared bucket makes sense. But DNS write
-      patterns are bursier (batch of 50 records at once). Separate buckets with a
-      shared ceiling might be better.
+- [x] **Shared bulk rate-limit bucket** for DNS and purge. DNS operations consume 1 token
+      per request from the bulk bucket. Same global CF API limit applies.
 
 ---
 
@@ -433,26 +438,33 @@ from `zone:<id>` to also support `account:<id>`. Not blocking, but adds scope to
 
 ### Phase 1 Task Breakdown (DNS)
 
-| #   | Task                                             | Depends On | Estimate |
-| --- | ------------------------------------------------ | ---------- | -------- |
-| 1   | Define `src/dns/types.ts`                        | --         | Small    |
-| 2   | Implement `src/dns/operations.ts`                | 1          | Medium   |
-| 3   | Implement `src/dns/routes.ts`                    | 1, 2       | Large    |
-| 4   | Implement pre-flight GET for delete/update by ID | 3          | Medium   |
-| 5   | Implement batch decomposition                    | 3          | Medium   |
-| 6   | Implement `src/dns/analytics.ts`                 | --         | Small    |
-| 7   | Wire routes into `src/index.ts`                  | 3          | Small    |
-| 8   | Add `src/routes/admin-dns.ts`                    | 6          | Small    |
-| 9   | Add wrangler.jsonc route patterns                | 7          | Small    |
-| 10  | Write `test/dns-crud.test.ts`                    | 3          | Medium   |
-| 11  | Write `test/dns-batch.test.ts`                   | 5          | Medium   |
-| 12  | Write `test/dns-iam.test.ts`                     | 3          | Large    |
-| 13  | Write `test/dns-ratelimit.test.ts`               | 3          | Small    |
-| 14  | Write `test/dns-analytics.test.ts`               | 6          | Small    |
-| 15  | Dashboard: `DnsPage.tsx`                         | 8          | Medium   |
-| 16  | Dashboard: DNS policy builder hints              | --         | Small    |
-| 17  | CLI: `gk dns-analytics` command                  | 8          | Small    |
-| 18  | Docs: update API.md, GUIDE.md, SECURITY.md       | all        | Medium   |
+| #   | Task                                             | Depends On | Status                             |
+| --- | ------------------------------------------------ | ---------- | ---------------------------------- |
+| 1   | ~~Define `src/dns/types.ts`~~                    | --         | Skipped (inlined in operations.ts) |
+| 2   | Implement `src/dns/operations.ts`                | --         | Done                               |
+| 3   | Implement `src/dns/routes.ts`                    | 2          | Done                               |
+| 4   | Implement pre-flight GET for delete/update by ID | 3          | Done                               |
+| 5   | Implement batch decomposition                    | 3          | Done                               |
+| 6   | Implement `src/dns/analytics.ts`                 | --         | Done                               |
+| 7   | Wire routes into `src/index.ts`                  | 3          | Done                               |
+| 8   | Add `src/routes/admin-dns-analytics.ts`          | 6          | Done                               |
+| 9   | Add wrangler.jsonc route patterns                | 7          | N/A (catch-all route)              |
+| 10  | Write `test/dns.test.ts` (27 tests)              | 3          | Done                               |
+| 11  | ~~Separate test files per concern~~              | --         | Consolidated into test/dns.test.ts |
+| 12  | Dashboard: `DnsPage.tsx`                         | 8          | Pending                            |
+| 13  | Dashboard: DNS policy builder hints              | --         | Pending                            |
+| 14  | CLI: `gk dns-analytics` command                  | 8          | Pending                            |
+| 15  | Docs: update API.md, GUIDE.md, SECURITY.md       | all        | Pending                            |
+
+**Implementation notes:**
+
+- Types were inlined in `src/dns/operations.ts` rather than a separate types file (not enough types to justify a separate module).
+- Tests were consolidated into a single `test/dns.test.ts` (27 tests) covering auth, CRUD, policy enforcement, batch, export, upstream errors, and analytics.
+- DNS uses the generic `authorize()` RPC method added to the Durable Object, which accepts an array of `RequestContext` objects and returns the auth result.
+- Pre-flight GET is always performed for DELETE operations (to extract `dns.name` and `dns.type` for policy evaluation).
+- Batch operations decompose into individual contexts per sub-operation, all authorized before forwarding.
+- DNS shares the bulk rate-limit bucket (1 token per request).
+- Retention cron deletes old `dns_events` rows alongside purge and S3 events.
 
 ---
 

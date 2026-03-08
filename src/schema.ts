@@ -63,3 +63,32 @@ export const S3_EVENTS_INDEX_BUCKET_SQL = `
 CREATE INDEX IF NOT EXISTS idx_s3_events_bucket_created
 ON s3_events (bucket, created_at DESC);
 `;
+
+// ─── DNS events ─────────────────────────────────────────────────────────────
+
+export const DNS_EVENTS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS dns_events (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	key_id TEXT NOT NULL,
+	zone_id TEXT NOT NULL,
+	action TEXT NOT NULL,
+	record_name TEXT,
+	record_type TEXT,
+	status INTEGER NOT NULL,
+	upstream_status INTEGER,
+	duration_ms INTEGER NOT NULL,
+	response_detail TEXT,
+	created_by TEXT,
+	created_at INTEGER NOT NULL
+);
+`;
+
+export const DNS_EVENTS_INDEX_KEY_SQL = `
+CREATE INDEX IF NOT EXISTS idx_dns_events_key_created
+ON dns_events (key_id, created_at DESC);
+`;
+
+export const DNS_EVENTS_INDEX_ZONE_SQL = `
+CREATE INDEX IF NOT EXISTS idx_dns_events_zone_created
+ON dns_events (zone_id, created_at DESC);
+`;

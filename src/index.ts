@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
 import { purgeRoute, __testClearInflightCache } from './routes/purge';
+import { dnsRoute } from './dns/routes';
 import { adminApp } from './routes/admin';
 import { s3App } from './s3/routes';
 import { deleteOldEvents } from './analytics';
 import { deleteOldS3Events } from './s3/analytics';
+import { deleteOldDnsEvents } from './dns/analytics';
 import { getStub } from './do-stub';
 import type { HonoEnv } from './types';
 
@@ -38,6 +40,7 @@ app.use('*', async (c, next) => {
 
 app.get('/health', (c) => c.json({ ok: true }));
 app.route('/', purgeRoute);
+app.route('/', dnsRoute);
 app.route('/admin', adminApp);
 app.route('/s3', s3App);
 
@@ -53,9 +56,10 @@ export default {
 			const gwConfig = await stub.getConfig();
 			const retentionDays = gwConfig.retention_days;
 
-			const [purgeDeleted, s3Deleted] = await Promise.all([
+			const [purgeDeleted, s3Deleted, dnsDeleted] = await Promise.all([
 				deleteOldEvents(env.ANALYTICS_DB, retentionDays),
 				deleteOldS3Events(env.ANALYTICS_DB, retentionDays),
+				deleteOldDnsEvents(env.ANALYTICS_DB, retentionDays),
 			]);
 			console.log(
 				JSON.stringify({
@@ -64,6 +68,7 @@ export default {
 					retentionDays,
 					purgeDeleted,
 					s3Deleted,
+					dnsDeleted,
 					ts: new Date(controller.scheduledTime).toISOString(),
 				}),
 			);

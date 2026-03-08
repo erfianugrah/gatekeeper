@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { adminAuth, requireRole, requireRoleByMethod } from '../auth-admin';
 import { adminKeysApp } from './admin-keys';
 import { adminAnalyticsApp } from './admin-analytics';
+import { adminDnsAnalyticsApp } from './admin-dns-analytics';
 import { adminS3App } from './admin-s3';
 import { adminUpstreamTokensApp } from './admin-upstream-tokens';
 import { adminUpstreamR2App } from './admin-upstream-r2';
@@ -51,6 +52,7 @@ adminApp.get('/me', (c) => {
 adminApp.use('/keys/*', requireRoleByMethod('viewer', 'operator'));
 adminApp.use('/keys', requireRoleByMethod('viewer', 'operator'));
 adminApp.use('/analytics/*', requireRole('viewer'));
+adminApp.use('/dns/*', requireRole('viewer'));
 adminApp.use('/s3/*', requireRoleByMethod('viewer', 'operator'));
 adminApp.use('/s3', requireRoleByMethod('viewer', 'operator'));
 
@@ -66,6 +68,7 @@ adminApp.use('/config', requireRoleByMethod('viewer', 'admin'));
 
 adminApp.route('/keys', adminKeysApp);
 adminApp.route('/analytics', adminAnalyticsApp);
+adminApp.route('/dns/analytics', adminDnsAnalyticsApp);
 adminApp.route('/s3', adminS3App);
 adminApp.route('/upstream-tokens', adminUpstreamTokensApp);
 adminApp.route('/upstream-r2', adminUpstreamR2App);
