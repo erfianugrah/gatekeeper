@@ -25,6 +25,8 @@ import {
 	purgeAnalyticsSummaryQuerySchema,
 	s3AnalyticsEventsQuerySchema,
 	s3AnalyticsSummaryQuerySchema,
+	dnsAnalyticsEventsQuerySchema,
+	dnsAnalyticsSummaryQuerySchema,
 	listKeysQuerySchema,
 	listS3CredentialsQuerySchema,
 	deleteQuerySchema,
@@ -32,6 +34,7 @@ import {
 	configKeyParamSchema,
 	idParamSchema,
 	zoneIdParamSchema,
+	dnsRecordParamSchema,
 	// Response / entity schemas
 	apiErrorSchema,
 	errorEnvelopeSchema,
@@ -48,6 +51,8 @@ import {
 	analyticsSummarySchema,
 	s3EventSchema,
 	s3AnalyticsSummarySchema,
+	dnsEventSchema,
+	dnsAnalyticsSummarySchema,
 	gatewayConfigSchema,
 	configOverrideSchema,
 	configResponseSchema,
@@ -101,12 +106,13 @@ const s3Security: SecReq[] = [{ S3SigV4Auth: [] }];
 const tags = [
 	{ name: 'System', description: 'Health and status endpoints' },
 	{ name: 'Purge', description: 'Cloudflare cache purge via gateway keys' },
-	{ name: 'Keys', description: 'CRUD for purge API keys with IAM policies' },
-	{ name: 'Analytics', description: 'Purge analytics events and summaries' },
+	{ name: 'DNS', description: 'Cloudflare DNS record management via gateway keys' },
+	{ name: 'Keys', description: 'CRUD for API keys with IAM policies' },
+	{ name: 'Analytics', description: 'Analytics events and summaries (purge, DNS, S3)' },
 	{ name: 'S3Credentials', description: 'CRUD for S3-compatible credentials with IAM policies' },
-	{ name: 'S3Analytics', description: 'S3 proxy analytics events and summaries' },
+
 	{ name: 'S3Proxy', description: 'S3-compatible proxy to Cloudflare R2 storage' },
-	{ name: 'UpstreamTokens', description: 'Manage upstream Cloudflare API tokens for cache purge' },
+	{ name: 'UpstreamTokens', description: 'Manage upstream Cloudflare API tokens for purge and DNS' },
 	{ name: 'UpstreamR2', description: 'Manage upstream R2 endpoints for S3 proxy' },
 	{ name: 'Config', description: 'Gateway configuration management' },
 ];
@@ -203,6 +209,228 @@ const document = createDocument({
 						}),
 					},
 					'400': errorResponse('Invalid request body'),
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'429': errorResponse('Rate limited'),
+					'502': errorResponse('No upstream API token registered for zone'),
+				},
+			},
+		},
+
+		// ─── DNS ────────────────────────────────────────────────────────
+		'/v1/zones/{zoneId}/dns_records': {
+			post: {
+				tags: ['DNS'],
+				operationId: 'createDnsRecord',
+				summary: 'Create a DNS record',
+				description:
+					'Proxies to the Cloudflare DNS Records API with IAM policy authorization. ' +
+					'Policies can scope by dns.name, dns.type, dns.content, and other condition fields.',
+				security: purgeKeySecurity,
+				requestParams: { path: zoneIdParamSchema },
+				requestBody: {
+					required: true,
+					...jsonContent(
+						z.object({
+							type: z.string().meta({ description: 'DNS record type (A, AAAA, CNAME, TXT, MX, etc.)' }),
+							name: z.string().meta({ description: 'FQDN of the record' }),
+							content: z.string().optional().meta({ description: 'Record content/value' }),
+							ttl: z
+								.union([z.number(), z.literal(1)])
+								.optional()
+								.meta({ description: 'TTL in seconds, or 1 for auto' }),
+							proxied: z.boolean().optional().meta({ description: 'Whether to proxy through Cloudflare' }),
+							comment: z.string().optional(),
+							tags: z.array(z.string()).optional(),
+						}),
+					),
+				},
+				responses: {
+					'200': { description: 'DNS record created (proxied from Cloudflare)', ...jsonContent(z.unknown()) },
+					'400': errorResponse('Invalid request body'),
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'429': errorResponse('Rate limited'),
+					'502': errorResponse('No upstream API token registered for zone'),
+				},
+			},
+			get: {
+				tags: ['DNS'],
+				operationId: 'listDnsRecords',
+				summary: 'List DNS records',
+				description:
+					'Lists DNS records for a zone. Supports filtering by type, name, content, etc. ' +
+					'All query parameters are passed through to the Cloudflare API.',
+				security: purgeKeySecurity,
+				requestParams: { path: zoneIdParamSchema },
+				responses: {
+					'200': { description: 'DNS records list (proxied from Cloudflare)', ...jsonContent(z.unknown()) },
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'429': errorResponse('Rate limited'),
+					'502': errorResponse('No upstream API token registered for zone'),
+				},
+			},
+		},
+		'/v1/zones/{zoneId}/dns_records/export': {
+			get: {
+				tags: ['DNS'],
+				operationId: 'exportDnsRecords',
+				summary: 'Export DNS records as BIND zone file',
+				description: 'Exports all DNS records for the zone in BIND format. Requires the dns:export action.',
+				security: purgeKeySecurity,
+				requestParams: { path: zoneIdParamSchema },
+				responses: {
+					'200': { description: 'BIND zone file content' },
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'429': errorResponse('Rate limited'),
+					'502': errorResponse('No upstream API token registered for zone'),
+				},
+			},
+		},
+		'/v1/zones/{zoneId}/dns_records/batch': {
+			post: {
+				tags: ['DNS'],
+				operationId: 'batchDnsRecords',
+				summary: 'Batch create/update/delete DNS records',
+				description:
+					'Batch operations on DNS records. Execution order: deletes -> patches -> puts -> posts. ' +
+					'Each sub-operation is individually authorized against the IAM policy. ' +
+					'If any sub-operation is denied, the entire batch is rejected.',
+				security: purgeKeySecurity,
+				requestParams: { path: zoneIdParamSchema },
+				requestBody: {
+					required: true,
+					...jsonContent(
+						z.object({
+							deletes: z.array(z.object({ id: z.string() })).optional(),
+							patches: z.array(z.record(z.string(), z.unknown())).optional(),
+							puts: z.array(z.record(z.string(), z.unknown())).optional(),
+							posts: z.array(z.record(z.string(), z.unknown())).optional(),
+						}),
+					),
+				},
+				responses: {
+					'200': { description: 'Batch result (proxied from Cloudflare)', ...jsonContent(z.unknown()) },
+					'400': errorResponse('Invalid request body'),
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied (one or more sub-operations rejected)'),
+					'429': errorResponse('Rate limited'),
+					'502': errorResponse('No upstream API token registered for zone'),
+				},
+			},
+		},
+		'/v1/zones/{zoneId}/dns_records/import': {
+			post: {
+				tags: ['DNS'],
+				operationId: 'importDnsRecords',
+				summary: 'Import DNS records from BIND zone file',
+				description:
+					'Imports DNS records from a BIND zone file. This is a powerful bulk mutation ' +
+					'that bypasses per-record authorization. Requires the dns:import action. ' +
+					'Rate limited to 3 requests/minute by Cloudflare.',
+				security: purgeKeySecurity,
+				requestParams: { path: zoneIdParamSchema },
+				requestBody: {
+					required: true,
+					content: { 'multipart/form-data': { schema: z.object({ file: z.string().meta({ description: 'BIND zone file' }) }) } },
+				},
+				responses: {
+					'200': { description: 'Import result (proxied from Cloudflare)', ...jsonContent(z.unknown()) },
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'429': errorResponse('Rate limited'),
+					'502': errorResponse('No upstream API token registered for zone'),
+				},
+			},
+		},
+		'/v1/zones/{zoneId}/dns_records/{recordId}': {
+			get: {
+				tags: ['DNS'],
+				operationId: 'getDnsRecord',
+				summary: 'Get a single DNS record',
+				security: purgeKeySecurity,
+				requestParams: { path: dnsRecordParamSchema },
+				responses: {
+					'200': { description: 'DNS record details (proxied from Cloudflare)', ...jsonContent(z.unknown()) },
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'429': errorResponse('Rate limited'),
+					'502': errorResponse('No upstream API token registered for zone'),
+				},
+			},
+			patch: {
+				tags: ['DNS'],
+				operationId: 'editDnsRecord',
+				summary: 'Partially update a DNS record',
+				description: 'PATCH update — only the provided fields are changed.',
+				security: purgeKeySecurity,
+				requestParams: { path: dnsRecordParamSchema },
+				requestBody: {
+					required: true,
+					...jsonContent(
+						z.object({
+							type: z.string().optional(),
+							name: z.string().optional(),
+							content: z.string().optional(),
+							ttl: z.union([z.number(), z.literal(1)]).optional(),
+							proxied: z.boolean().optional(),
+							comment: z.string().optional(),
+							tags: z.array(z.string()).optional(),
+						}),
+					),
+				},
+				responses: {
+					'200': { description: 'Updated DNS record (proxied from Cloudflare)', ...jsonContent(z.unknown()) },
+					'400': errorResponse('Invalid request body'),
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'429': errorResponse('Rate limited'),
+					'502': errorResponse('No upstream API token registered for zone'),
+				},
+			},
+			put: {
+				tags: ['DNS'],
+				operationId: 'updateDnsRecord',
+				summary: 'Fully overwrite a DNS record',
+				description: 'PUT update — all fields are replaced.',
+				security: purgeKeySecurity,
+				requestParams: { path: dnsRecordParamSchema },
+				requestBody: {
+					required: true,
+					...jsonContent(
+						z.object({
+							type: z.string().meta({ description: 'DNS record type' }),
+							name: z.string().meta({ description: 'FQDN of the record' }),
+							content: z.string().optional(),
+							ttl: z.union([z.number(), z.literal(1)]).optional(),
+							proxied: z.boolean().optional(),
+							comment: z.string().optional(),
+							tags: z.array(z.string()).optional(),
+						}),
+					),
+				},
+				responses: {
+					'200': { description: 'Updated DNS record (proxied from Cloudflare)', ...jsonContent(z.unknown()) },
+					'400': errorResponse('Invalid request body'),
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'429': errorResponse('Rate limited'),
+					'502': errorResponse('No upstream API token registered for zone'),
+				},
+			},
+			delete: {
+				tags: ['DNS'],
+				operationId: 'deleteDnsRecord',
+				summary: 'Delete a DNS record',
+				description:
+					'Deletes a DNS record by ID. A pre-flight GET is performed to resolve the ' +
+					"record's FQDN and type for policy evaluation against dns.name/dns.type conditions.",
+				security: purgeKeySecurity,
+				requestParams: { path: dnsRecordParamSchema },
+				responses: {
+					'200': { description: 'Delete confirmation (proxied from Cloudflare)', ...jsonContent(z.unknown()) },
 					'401': errorResponse('Missing or invalid API key'),
 					'403': errorResponse('Policy denied'),
 					'429': errorResponse('Rate limited'),
@@ -421,7 +649,7 @@ const document = createDocument({
 		// ─── S3 Analytics ───────────────────────────────────────────────
 		'/admin/s3/analytics/events': {
 			get: {
-				tags: ['S3Analytics'],
+				tags: ['Analytics'],
 				operationId: 'getS3AnalyticsEvents',
 				summary: 'Query S3 proxy analytics events',
 				security: adminSecurity,
@@ -434,13 +662,41 @@ const document = createDocument({
 		},
 		'/admin/s3/analytics/summary': {
 			get: {
-				tags: ['S3Analytics'],
+				tags: ['Analytics'],
 				operationId: 'getS3AnalyticsSummary',
 				summary: 'Query S3 proxy analytics summary',
 				security: adminSecurity,
 				requestParams: { query: s3AnalyticsSummaryQuerySchema },
 				responses: {
 					'200': ok('S3 analytics summary', successEnvelope(s3AnalyticsSummarySchema)),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
+
+		// ─── DNS Analytics ──────────────────────────────────────────────
+		'/admin/dns/analytics/events': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getDnsAnalyticsEvents',
+				summary: 'Query DNS proxy analytics events',
+				security: adminSecurity,
+				requestParams: { query: dnsAnalyticsEventsQuerySchema },
+				responses: {
+					'200': ok('List of DNS events', successEnvelope(z.array(dnsEventSchema))),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
+		'/admin/dns/analytics/summary': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getDnsAnalyticsSummary',
+				summary: 'Query DNS proxy analytics summary',
+				security: adminSecurity,
+				requestParams: { query: dnsAnalyticsSummaryQuerySchema },
+				responses: {
+					'200': ok('DNS analytics summary', successEnvelope(dnsAnalyticsSummarySchema)),
 					'503': errorResponse('Analytics not configured'),
 				},
 			},

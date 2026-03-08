@@ -333,12 +333,20 @@ export const idParamSchema = z.object({
 	id: z.string().min(1, 'ID is required'),
 });
 
-/** :zoneId param for the purge route. */
+/** :zoneId param for the purge and DNS routes. */
 export const zoneIdParamSchema = z.object({
 	zoneId: zoneIdString,
 });
 
 export type ZoneIdParam = z.infer<typeof zoneIdParamSchema>;
+
+/** :zoneId + :recordId params for single-record DNS routes. */
+export const dnsRecordParamSchema = z.object({
+	zoneId: zoneIdString,
+	recordId: z.string().min(1, 'Record ID is required'),
+});
+
+export type DnsRecordParam = z.infer<typeof dnsRecordParamSchema>;
 
 // ─── Parse helpers ──────────────────────────────────────────────────────────
 
@@ -687,3 +695,60 @@ export const validationWarningSchema = z
 		message: z.string(),
 	})
 	.meta({ id: 'ValidationWarning', description: 'Warning from upstream credential validation' });
+
+// ─── DNS analytics schemas ──────────────────────────────────────────────────
+
+/** DNS analytics: GET /admin/dns/analytics/events */
+export const dnsAnalyticsEventsQuerySchema = z.object({
+	zone_id: z.string().optional(),
+	key_id: z.string().optional(),
+	action: z.string().optional(),
+	record_type: z.string().optional(),
+	since: z.coerce.number().optional(),
+	until: z.coerce.number().optional(),
+	limit: z.coerce.number().int().min(1).max(MAX_ANALYTICS_LIMIT).optional().default(DEFAULT_ANALYTICS_LIMIT),
+});
+
+export type DnsAnalyticsEventsQuery = z.infer<typeof dnsAnalyticsEventsQuerySchema>;
+
+/** DNS analytics: GET /admin/dns/analytics/summary */
+export const dnsAnalyticsSummaryQuerySchema = z.object({
+	zone_id: z.string().optional(),
+	key_id: z.string().optional(),
+	action: z.string().optional(),
+	record_type: z.string().optional(),
+	since: z.coerce.number().optional(),
+	until: z.coerce.number().optional(),
+});
+
+export type DnsAnalyticsSummaryQuery = z.infer<typeof dnsAnalyticsSummaryQuerySchema>;
+
+// ─── DNS entity schemas ─────────────────────────────────────────────────────
+
+/** DNS event row from D1. */
+export const dnsEventSchema = z
+	.object({
+		key_id: z.string(),
+		zone_id: z.string(),
+		action: z.string(),
+		record_name: z.string().nullable(),
+		record_type: z.string().nullable(),
+		status: z.number(),
+		upstream_status: z.number().nullable(),
+		duration_ms: z.number(),
+		created_at: z.number(),
+		response_detail: z.string().nullable(),
+		created_by: z.string().nullable(),
+	})
+	.meta({ id: 'DnsEvent', description: 'A single DNS proxy analytics event' });
+
+/** DNS analytics summary. */
+export const dnsAnalyticsSummarySchema = z
+	.object({
+		total_requests: z.number(),
+		by_status: z.record(z.string(), z.number()),
+		by_action: z.record(z.string(), z.number()),
+		by_record_type: z.record(z.string(), z.number()),
+		avg_duration_ms: z.number(),
+	})
+	.meta({ id: 'DnsAnalyticsSummary', description: 'Aggregate DNS proxy analytics' });

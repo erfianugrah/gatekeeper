@@ -1,34 +1,19 @@
+/**
+ * Admin analytics endpoints for DNS proxy events.
+ *
+ * Mounted at /admin/dns/analytics by the admin router.
+ * Uses the same Zod + parseQueryParams pattern as purge and S3 analytics.
+ */
+
 import { Hono } from 'hono';
 import { queryDnsEvents, queryDnsSummary } from '../dns/analytics';
-import { jsonError, parseQueryParams } from './admin-schemas';
-import { z } from 'zod';
+import { jsonError, parseQueryParams, dnsAnalyticsEventsQuerySchema, dnsAnalyticsSummaryQuerySchema } from './admin-schemas';
 import type { DnsAnalyticsQuery } from '../dns/analytics';
 import type { HonoEnv } from '../types';
 
 // ─── Admin: DNS Analytics ───────────────────────────────────────────────────
 
 export const adminDnsAnalyticsApp = new Hono<HonoEnv>();
-
-// ─── Query schemas ──────────────────────────────────────────────────────────
-
-const dnsEventsQuerySchema = z.object({
-	zone_id: z.string().optional(),
-	key_id: z.string().optional(),
-	action: z.string().optional(),
-	record_type: z.string().optional(),
-	since: z.coerce.number().optional(),
-	until: z.coerce.number().optional(),
-	limit: z.coerce.number().int().min(1).max(1000).optional(),
-});
-
-const dnsSummaryQuerySchema = z.object({
-	zone_id: z.string().optional(),
-	key_id: z.string().optional(),
-	action: z.string().optional(),
-	record_type: z.string().optional(),
-	since: z.coerce.number().optional(),
-	until: z.coerce.number().optional(),
-});
 
 // ─── Events ─────────────────────────────────────────────────────────────────
 
@@ -38,7 +23,7 @@ adminDnsAnalyticsApp.get('/events', async (c) => {
 		return jsonError(c, 503, 'Analytics not configured');
 	}
 
-	const query = parseQueryParams(c, dnsEventsQuerySchema);
+	const query = parseQueryParams(c, dnsAnalyticsEventsQuerySchema);
 	if (query instanceof Response) return query;
 
 	const analyticsQuery: DnsAnalyticsQuery = {
@@ -73,7 +58,7 @@ adminDnsAnalyticsApp.get('/summary', async (c) => {
 		return jsonError(c, 503, 'Analytics not configured');
 	}
 
-	const query = parseQueryParams(c, dnsSummaryQuerySchema);
+	const query = parseQueryParams(c, dnsAnalyticsSummaryQuerySchema);
 	if (query instanceof Response) return query;
 
 	const analyticsQuery: DnsAnalyticsQuery = {
