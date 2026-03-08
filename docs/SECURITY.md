@@ -31,7 +31,7 @@ Gatekeeper uses four authentication tiers, each suited to a different principal 
 
 | Tier                  | Principal          | Mechanism                                                    | Routes                     |
 | --------------------- | ------------------ | ------------------------------------------------------------ | -------------------------- |
-| API key (`gw_*`)      | Services, CI/CD    | `Authorization: Bearer gw_...`                               | `/v1/*`                    |
+| API key (`gw_*`)      | Services, CI/CD    | `Authorization: Bearer gw_...`                               | `/v1/*` (purge + DNS)      |
 | S3 credential (`GK*`) | S3 clients         | AWS Sig V4 (header or presigned URL)                         | `/s3/*`                    |
 | Access JWT            | Humans (dashboard) | `Cf-Access-Jwt-Assertion` header / `CF_Authorization` cookie | `/admin/*`, `/dashboard/*` |
 | Admin key             | CLI, automation    | `X-Admin-Key` header                                         | `/admin/*`                 |
@@ -207,6 +207,19 @@ Namespaced by service. Wildcard suffix supported (`purge:*` matches all purge ac
 | `s3:ListMultipartUploadParts` | List parts of a multipart upload                         |
 | `s3:*`                        | All S3 actions (66 operations mapped)                    |
 
+#### DNS service (8 actions)
+
+| Action       | Description                                                  |
+| ------------ | ------------------------------------------------------------ |
+| `dns:create` | Create a DNS record                                          |
+| `dns:read`   | Get or list DNS records                                      |
+| `dns:update` | Edit (PATCH) or overwrite (PUT) a DNS record                 |
+| `dns:delete` | Delete a DNS record                                          |
+| `dns:batch`  | Batch create/update/delete (each sub-operation also checked) |
+| `dns:export` | Export zone file (BIND format)                               |
+| `dns:import` | Import zone file (BIND format)                               |
+| `dns:*`      | All DNS actions                                              |
+
 ### Resources
 
 Typed identifiers with optional wildcards.
@@ -299,6 +312,20 @@ The expression engine is service-agnostic -- it evaluates conditions against a `
 | `source_bucket`  | `x-amz-copy-source`     | Copy source bucket            |
 | `source_key`     | `x-amz-copy-source`     | Copy source key               |
 | `list_prefix`    | `?prefix=` query param  | List operations prefix filter |
+
+#### DNS service fields (7 fields)
+
+| Field         | Source              | Description                            |
+| ------------- | ------------------- | -------------------------------------- |
+| `dns.type`    | Record type         | DNS record type (A, AAAA, CNAME, TXT…) |
+| `dns.name`    | Record name         | FQDN (e.g. `sub.example.com`)          |
+| `dns.content` | Record content      | Record value                           |
+| `dns.proxied` | Record proxied flag | Whether CF proxy is enabled (boolean)  |
+| `dns.ttl`     | Record TTL          | TTL in seconds (coerced to string)     |
+| `dns.comment` | Record comment      | Record comment                         |
+| `dns.tags`    | Record tags         | Comma-joined tags                      |
+
+DNS records also have access to the [request-level fields](#request-level-fields-6-fields-available-on-both-purge-and-s3-requests) (`client_ip`, `time.hour`, etc.).
 
 ### Compound Conditions
 
@@ -561,6 +588,84 @@ flowchart TD
 ```
 
 Reads are allowed at any time. Writes are restricted to Monday-Friday, 09:00-17:00 UTC.
+
+#### DNS: ACME client scoped to challenge records
+
+```json
+{
+	"version": "2025-01-01",
+	"statements": [
+		{
+			"effect": "allow",
+			"actions": ["dns:create", "dns:read", "dns:delete"],
+			"resources": ["zone:abc123def456..."],
+			"conditions": [
+				{ "field": "dns.type", "operator": "eq", "value": "TXT" },
+				{ "field": "dns.name", "operator": "starts_with", "value": "_acme-challenge." }
+			]
+		}
+	]
+}
+```
+
+#### DNS: CI limited to staging A/AAAA/CNAME records
+
+```json
+{
+	"version": "2025-01-01",
+	"statements": [
+		{
+			"effect": "allow",
+			"actions": ["dns:create", "dns:update", "dns:delete"],
+			"resources": ["zone:abc123def456..."],
+			"conditions": [
+				{ "field": "dns.type", "operator": "in", "value": ["A", "AAAA", "CNAME"] },
+				{ "field": "dns.name", "operator": "wildcard", "value": "*.staging.example.com" }
+			]
+		}
+	]
+}
+```
+
+#### DNS: Read-only access across all zones
+
+```json
+{
+	"version": "2025-01-01",
+	"statements": [
+		{
+			"effect": "allow",
+			"actions": ["dns:read"],
+			"resources": ["zone:*"]
+		}
+	]
+}
+```
+
+#### DNS + Purge: Combined ACME key (cert challenge + cache clear)
+
+```json
+{
+	"version": "2025-01-01",
+	"statements": [
+		{
+			"effect": "allow",
+			"actions": ["dns:create", "dns:read", "dns:delete"],
+			"resources": ["zone:abc123def456..."],
+			"conditions": [
+				{ "field": "dns.type", "operator": "eq", "value": "TXT" },
+				{ "field": "dns.name", "operator": "starts_with", "value": "_acme-challenge." }
+			]
+		},
+		{
+			"effect": "allow",
+			"actions": ["purge:tag"],
+			"resources": ["zone:abc123def456..."],
+			"conditions": [{ "field": "tag", "operator": "starts_with", "value": "cert-" }]
+		}
+	]
+}
+```
 
 ### Regex Safety
 

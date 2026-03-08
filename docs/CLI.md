@@ -678,6 +678,72 @@ gk upstream-r2 bulk-delete --ids upr2_aaa,upr2_bbb --confirm
 
 ---
 
+## dns-analytics
+
+View DNS proxy analytics. Two subcommands: `events` and `summary`.
+
+### dns-analytics events
+
+Query recent DNS proxy events.
+
+```
+gk dns-analytics events [flags]
+```
+
+| Flag            | Type   | Description                                              |
+| --------------- | ------ | -------------------------------------------------------- |
+| `--zone-id`     | string | Filter by zone ID                                        |
+| `--key-id`      | string | Filter by API key ID                                     |
+| `--action`      | string | Filter by DNS action (e.g. `dns:create`, `dns:read`)     |
+| `--record-type` | string | Filter by record type (e.g. `A`, `AAAA`, `CNAME`, `TXT`) |
+| `--since`       | string | Start time (ISO 8601 or unix ms)                         |
+| `--until`       | string | End time (ISO 8601 or unix ms)                           |
+| `--limit`       | string | Max events (default 100, max 1000)                       |
+
+```bash
+# All DNS events
+gk dns-analytics events
+
+# Filter by action and zone
+gk dns-analytics events --action dns:create --zone-id abc123
+
+# TXT record operations only
+gk dns-analytics events --record-type TXT --limit 50
+
+# Time range
+gk dns-analytics events --since 2025-01-01T00:00:00Z --until 2025-01-02T00:00:00Z
+```
+
+### dns-analytics summary
+
+Get aggregated DNS analytics summary.
+
+```
+gk dns-analytics summary [flags]
+```
+
+| Flag            | Type   | Description                      |
+| --------------- | ------ | -------------------------------- |
+| `--zone-id`     | string | Filter by zone ID                |
+| `--key-id`      | string | Filter by API key ID             |
+| `--action`      | string | Filter by DNS action             |
+| `--record-type` | string | Filter by record type            |
+| `--since`       | string | Start time (ISO 8601 or unix ms) |
+| `--until`       | string | End time (ISO 8601 or unix ms)   |
+
+```bash
+# Overall DNS summary
+gk dns-analytics summary
+
+# Summary for a specific zone
+gk dns-analytics summary --zone-id abc123
+
+# Summary for a time range
+gk dns-analytics summary --since 2025-01-01T00:00:00Z --json
+```
+
+---
+
 ## config
 
 Manage gateway configuration (rate limits, cache TTLs, etc.). Requires

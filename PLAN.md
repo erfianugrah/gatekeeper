@@ -438,23 +438,24 @@ from `zone:<id>` to also support `account:<id>`. Not blocking, but adds scope to
 
 ### Phase 1 Task Breakdown (DNS)
 
-| #   | Task                                             | Depends On | Status                             |
-| --- | ------------------------------------------------ | ---------- | ---------------------------------- |
-| 1   | ~~Define `src/dns/types.ts`~~                    | --         | Skipped (inlined in operations.ts) |
-| 2   | Implement `src/dns/operations.ts`                | --         | Done                               |
-| 3   | Implement `src/dns/routes.ts`                    | 2          | Done                               |
-| 4   | Implement pre-flight GET for delete/update by ID | 3          | Done                               |
-| 5   | Implement batch decomposition                    | 3          | Done                               |
-| 6   | Implement `src/dns/analytics.ts`                 | --         | Done                               |
-| 7   | Wire routes into `src/index.ts`                  | 3          | Done                               |
-| 8   | Add `src/routes/admin-dns-analytics.ts`          | 6          | Done                               |
-| 9   | Add wrangler.jsonc route patterns                | 7          | N/A (catch-all route)              |
-| 10  | Write `test/dns.test.ts` (27 tests)              | 3          | Done                               |
-| 11  | ~~Separate test files per concern~~              | --         | Consolidated into test/dns.test.ts |
-| 12  | Dashboard: `DnsPage.tsx`                         | 8          | Pending                            |
-| 13  | Dashboard: DNS policy builder hints              | --         | Pending                            |
-| 14  | CLI: `gk dns-analytics` command                  | 8          | Pending                            |
-| 15  | Docs: update API.md, GUIDE.md, SECURITY.md       | all        | Pending                            |
+| #   | Task                                               | Depends On | Status                             |
+| --- | -------------------------------------------------- | ---------- | ---------------------------------- |
+| 1   | ~~Define `src/dns/types.ts`~~                      | --         | Skipped (inlined in operations.ts) |
+| 2   | Implement `src/dns/operations.ts`                  | --         | Done                               |
+| 3   | Implement `src/dns/routes.ts`                      | 2          | Done                               |
+| 4   | Implement pre-flight GET for delete/update by ID   | 3          | Done                               |
+| 5   | Implement batch decomposition                      | 3          | Done                               |
+| 6   | Implement `src/dns/analytics.ts`                   | --         | Done                               |
+| 7   | Wire routes into `src/index.ts`                    | 3          | Done                               |
+| 8   | Add `src/routes/admin-dns-analytics.ts`            | 6          | Done                               |
+| 9   | Add wrangler.jsonc route patterns                  | 7          | N/A (catch-all route)              |
+| 10  | Write `test/dns.test.ts` (27 tests)                | 3          | Done                               |
+| 11  | ~~Separate test files per concern~~                | --         | Consolidated into test/dns.test.ts |
+| 12  | Dashboard: DNS in analytics + overview + badges    | 8          | Done                               |
+| 13  | Dashboard: DNS actions/conditions in PolicyBuilder | --         | Done                               |
+| 14  | CLI: `gk dns-analytics` command                    | 8          | Done                               |
+| 15  | Docs: update API.md, GUIDE.md, SECURITY.md, etc.   | all        | Done                               |
+| 16  | Smoke tests: `cli/smoke/dns.ts` + wire into runner | 10, 14     | Done                               |
 
 **Implementation notes:**
 

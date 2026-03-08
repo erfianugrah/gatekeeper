@@ -2067,6 +2067,132 @@ curl -X DELETE -H "X-Admin-Key: $ADMIN_KEY" \
 
 ---
 
+## 9. DNS Record Operations
+
+DNS proxy endpoints use the same API keys as purge. Create a key with `dns:*` actions to manage DNS records.
+
+### Create a DNS key (ACME client)
+
+**CLI:**
+
+```bash
+gk keys create --zone-id $ZONE_ID --name "acme-client" --policy @- <<'EOF'
+{
+  "version": "2025-01-01",
+  "statements": [{
+    "effect": "allow",
+    "actions": ["dns:create", "dns:read", "dns:delete"],
+    "resources": ["zone:$ZONE_ID"],
+    "conditions": [
+      { "field": "dns.type", "operator": "eq", "value": "TXT" },
+      { "field": "dns.name", "operator": "starts_with", "value": "_acme-challenge." }
+    ]
+  }]
+}
+EOF
+```
+
+**curl:**
+
+```bash
+curl -s "$GATEKEEPER_URL/admin/keys" \
+  -H "X-Admin-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "acme-client",
+    "zone_id": "'$ZONE_ID'",
+    "policy": {
+      "version": "2025-01-01",
+      "statements": [{
+        "effect": "allow",
+        "actions": ["dns:create", "dns:read", "dns:delete"],
+        "resources": ["zone:'$ZONE_ID'"],
+        "conditions": [
+          { "field": "dns.type", "operator": "eq", "value": "TXT" },
+          { "field": "dns.name", "operator": "starts_with", "value": "_acme-challenge." }
+        ]
+      }]
+    }
+  }'
+```
+
+### List DNS records
+
+```bash
+curl -s "$GATEKEEPER_URL/v1/zones/$ZONE_ID/dns_records" \
+  -H "Authorization: Bearer $KEY_ID"
+```
+
+### Create a DNS record
+
+```bash
+curl -s "$GATEKEEPER_URL/v1/zones/$ZONE_ID/dns_records" \
+  -X POST \
+  -H "Authorization: Bearer $KEY_ID" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "A",
+    "name": "app.example.com",
+    "content": "1.2.3.4",
+    "proxied": true,
+    "ttl": 1
+  }'
+```
+
+### Update a DNS record
+
+```bash
+curl -s "$GATEKEEPER_URL/v1/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+  -X PATCH \
+  -H "Authorization: Bearer $KEY_ID" \
+  -H "Content-Type: application/json" \
+  -d '{ "content": "5.6.7.8" }'
+```
+
+### Delete a DNS record
+
+```bash
+curl -s "$GATEKEEPER_URL/v1/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+  -X DELETE \
+  -H "Authorization: Bearer $KEY_ID"
+```
+
+### Batch operations
+
+```bash
+curl -s "$GATEKEEPER_URL/v1/zones/$ZONE_ID/dns_records/batch" \
+  -X POST \
+  -H "Authorization: Bearer $KEY_ID" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "posts": [
+      { "type": "A", "name": "new.example.com", "content": "1.2.3.4" }
+    ],
+    "deletes": [
+      { "id": "record_id_to_delete" }
+    ]
+  }'
+```
+
+### Export zone file
+
+```bash
+curl -s "$GATEKEEPER_URL/v1/zones/$ZONE_ID/dns_records/export" \
+  -H "Authorization: Bearer $KEY_ID"
+```
+
+### DNS analytics
+
+```bash
+# Recent DNS events
+gk dns-analytics events --zone-id $ZONE_ID
+
+# DNS summary
+gk dns-analytics summary --zone-id $ZONE_ID --json
+```
+
+---
+
 ## Appendix A: Policy Reference
 
 ### Policy version

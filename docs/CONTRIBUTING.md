@@ -77,6 +77,7 @@ gatekeeper/
     index.ts           Main entrypoint -- Hono app, security headers, cron handler
     durable-object.ts  Gatekeeper DO class (key/config/credential storage)
     routes/            Hono sub-apps: admin-keys, admin-config, admin-analytics, purge, etc.
+    dns/               DNS Records API proxy: routes, operations, analytics
     s3/                S3-compatible proxy: routes, SigV4, IAM, XML handling
     schema.ts          D1 table DDL (CREATE TABLE IF NOT EXISTS)
     types.ts           Shared TypeScript types

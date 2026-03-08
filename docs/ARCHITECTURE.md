@@ -1,6 +1,6 @@
 # Gatekeeper Architecture
 
-Gatekeeper is a Cloudflare Workers API gateway that sits in front of the Cloudflare purge API and R2 S3-compatible storage. It provides IAM-style access control, token-bucket rate limiting, request collapsing, and a full management dashboard -- all running on a single Worker with a single Durable Object.
+Gatekeeper is a Cloudflare Workers API gateway that sits in front of the Cloudflare purge API, DNS Records API, and R2 S3-compatible storage. It provides IAM-style access control, token-bucket rate limiting, request collapsing, and a full management dashboard -- all running on a single Worker with a single Durable Object.
 
 ---
 
@@ -48,6 +48,7 @@ flowchart TB
         subgraph Handlers["Service Handlers"]
             purge["Purge Handler<br/><code>/v1/zones/:id/purge_cache</code>"]
             s3h["S3 Proxy Handler<br/><code>/s3/*</code>"]
+            dnsh["DNS Proxy Handler<br/><code>/v1/zones/:id/dns_records/*</code>"]
             admin["Admin API<br/><code>/admin/*</code>"]
         end
     end
@@ -66,7 +67,7 @@ flowchart TB
     assets["Static Assets<br/>Dashboard SPA"]
 
     subgraph Upstream["Upstream Services"]
-        cfapi["api.cloudflare.com<br/><code>/purge_cache</code>"]
+        cfapi["api.cloudflare.com<br/><code>/purge_cache</code>, <code>/dns_records</code>"]
         r2api["R2 S3 API<br/><i>re-signed via aws4fetch</i>"]
     end
 
@@ -78,10 +79,13 @@ flowchart TB
     iam --> Handlers
     purge --> DO
     s3h --> DO
+    dnsh --> DO
     admin --> DO
     purge --> d1
     s3h --> d1
+    dnsh --> d1
     DO --> cfapi
+    dnsh --> cfapi
     DO --> r2api
     human --> assets
 ```
@@ -94,7 +98,7 @@ Three client types hit the gateway:
 
 The Worker routes requests through security-header middleware, then into the authentication layer (Access JWT, admin key HMAC, or Sig V4 verification), then through the IAM policy engine, and finally to the appropriate service handler. Handlers communicate with the Durable Object for state (keys, credentials, rate limits, config) and with D1 for analytics logging. Upstream calls go to `api.cloudflare.com` (purge) or R2's S3-compatible API (storage).
 
-Static assets for the dashboard SPA are served via Workers Static Assets with SPA fallback. API routes (`/v1/*`, `/admin/*`, `/health`, `/s3/*`) are handled by the Worker via `run_worker_first`.
+Static assets for the dashboard SPA are served via Workers Static Assets with SPA fallback. API routes (`/v1/*`, `/admin/*`, `/health`, `/s3/*`) are handled by the Worker via `run_worker_first`. DNS proxy routes live under `/v1/zones/:zoneId/dns_records/*` alongside the purge endpoint.
 
 ---
 
@@ -131,7 +135,7 @@ Upstream Cloudflare API tokens and R2 endpoint credentials are stored in the DO,
 
 ## Bounded Contexts
 
-The system is divided into nine bounded contexts, each with a clear responsibility:
+The system is divided into ten bounded contexts, each with a clear responsibility:
 
 ### 1. IAM (Purge Keys)
 
@@ -194,6 +198,12 @@ CRUD operations: create, list, get, delete, bulk delete.
 Registry of upstream R2 endpoint credentials. Each endpoint has a name, access key, secret key (write-only), the R2 endpoint URL, and a bucket scope. When an S3 request arrives, the gateway resolves the best matching endpoint: exact bucket match preferred over wildcard.
 
 CRUD operations: create, list, get, delete, bulk delete.
+
+### 10. DNS Proxy
+
+**Files:** `src/dns/routes.ts`, `src/dns/operations.ts`, `src/dns/analytics.ts`, `src/routes/admin-dns-analytics.ts`
+
+Proxies Cloudflare DNS Records API operations (`/v1/zones/:zoneId/dns_records/*`). Uses the same API keys and upstream tokens as purge. Eight IAM actions (`dns:create`, `dns:read`, `dns:update`, `dns:delete`, `dns:batch`, `dns:export`, `dns:import`, `dns:*`) with seven condition fields (`dns.name`, `dns.type`, `dns:content`, `dns.proxied`, `dns.ttl`, `dns.comment`, `dns.tags`). DELETE operations perform a pre-flight GET to resolve record metadata for policy evaluation. Batch operations decompose into individual authorization contexts per sub-operation. DNS events are logged to D1 (`dns_events` table) and share the same retention cron as purge and S3.
 
 ---
 

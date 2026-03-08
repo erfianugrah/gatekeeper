@@ -17,10 +17,12 @@ The machine-readable OpenAPI 3.1 specification is available at [`openapi.json`](
 - [4. Analytics](#4-analytics)
 - [5. S3 Credentials](#5-s3-credentials)
 - [6. S3 Analytics](#6-s3-analytics)
-- [7. S3 Proxy](#7-s3-proxy)
-- [8. Upstream Tokens](#8-upstream-tokens)
-- [9. Upstream R2](#9-upstream-r2)
-- [10. Config](#10-config)
+- [7. DNS Proxy](#7-dns-proxy)
+- [8. DNS Analytics](#8-dns-analytics)
+- [9. S3 Proxy](#9-s3-proxy)
+- [10. Upstream Tokens](#10-upstream-tokens)
+- [11. Upstream R2](#11-upstream-r2)
+- [12. Config](#12-config)
 
 ---
 
@@ -30,7 +32,7 @@ Four security schemes are used across the API:
 
 | Scheme               | Header / Mechanism                                                                                             | Used By                                |
 | -------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| **ApiKeyAuth**       | `Authorization: Bearer gw_<key_id>`                                                                            | Purge endpoint                         |
+| **ApiKeyAuth**       | `Authorization: Bearer gw_<key_id>`                                                                            | Purge endpoint, DNS proxy              |
 | **AdminKeyAuth**     | `X-Admin-Key: <admin_key>`                                                                                     | All `/admin/*` endpoints               |
 | **CloudflareAccess** | `Cf-Access-Jwt-Assertion` header or `CF_Authorization` cookie                                                  | All `/admin/*` endpoints (alternative) |
 | **S3SigV4Auth**      | AWS Signature Version 4 (`Authorization: AWS4-HMAC-SHA256 Credential=GK.../...`) or presigned URL query params | S3 proxy endpoints                     |
@@ -910,7 +912,161 @@ Aggregate S3 proxy analytics summary.
 
 ---
 
-## 7. S3 Proxy
+## 7. DNS Proxy
+
+DNS record management proxied through the Gatekeeper IAM layer. Uses the same API keys as purge -- actions differentiate (`purge:*` vs `dns:*`).
+
+Authentication: `Authorization: Bearer gw_<key_id>`
+
+### POST `/v1/zones/:zoneId/dns_records`
+
+Create a DNS record.
+
+**IAM action:** `dns:create`
+
+**Request body:** Forwarded to Cloudflare DNS API. Typical fields:
+
+| Field     | Type    | Description                   |
+| --------- | ------- | ----------------------------- |
+| `type`    | string  | Record type (A, AAAA, CNAME…) |
+| `name`    | string  | FQDN (e.g. `sub.example.com`) |
+| `content` | string  | Record value                  |
+| `proxied` | boolean | Cloudflare proxy enabled      |
+| `ttl`     | number  | TTL in seconds (1 = auto)     |
+| `comment` | string  | Optional comment              |
+| `tags`    | array   | Optional tags                 |
+
+**Response:** Upstream Cloudflare API response forwarded as-is.
+
+### GET `/v1/zones/:zoneId/dns_records`
+
+List DNS records. All query parameters are forwarded to the upstream Cloudflare API (supports `type`, `name`, `content`, `proxied`, `search`, `order`, `direction`, pagination, etc.).
+
+**IAM action:** `dns:read`
+
+### GET `/v1/zones/:zoneId/dns_records/:recordId`
+
+Get a single DNS record by ID.
+
+**IAM action:** `dns:read`
+
+### PATCH `/v1/zones/:zoneId/dns_records/:recordId`
+
+Partially update a DNS record.
+
+**IAM action:** `dns:update`
+
+### PUT `/v1/zones/:zoneId/dns_records/:recordId`
+
+Fully overwrite a DNS record.
+
+**IAM action:** `dns:update`
+
+### DELETE `/v1/zones/:zoneId/dns_records/:recordId`
+
+Delete a DNS record. A pre-flight GET is performed to resolve the record's name and type for policy condition evaluation.
+
+**IAM action:** `dns:delete`
+
+### POST `/v1/zones/:zoneId/dns_records/batch`
+
+Batch create/update/delete DNS records. Each sub-operation is individually authorized before the batch is forwarded. If any sub-operation is denied, the entire batch is rejected.
+
+**IAM action:** `dns:batch` (plus `dns:create`, `dns:update`, `dns:delete` for each sub-operation)
+
+**Request body:**
+
+```json
+{
+	"deletes": [{ "id": "record_id" }],
+	"patches": [{ "id": "record_id", "content": "1.2.3.4" }],
+	"puts": [{ "id": "record_id", "type": "A", "name": "...", "content": "..." }],
+	"posts": [{ "type": "A", "name": "new.example.com", "content": "1.2.3.4" }]
+}
+```
+
+### GET `/v1/zones/:zoneId/dns_records/export`
+
+Export zone file in BIND format.
+
+**IAM action:** `dns:export`
+
+### POST `/v1/zones/:zoneId/dns_records/import`
+
+Import zone file. Body is `multipart/form-data` forwarded as-is.
+
+**IAM action:** `dns:import`
+
+---
+
+## 8. DNS Analytics
+
+Admin endpoints for querying DNS proxy event logs. Requires admin authentication.
+
+### GET `/admin/dns/analytics/events`
+
+List recent DNS proxy events.
+
+**Query parameters:**
+
+| Parameter     | Type   | Description                                  |
+| ------------- | ------ | -------------------------------------------- |
+| `zone_id`     | string | Filter by zone ID                            |
+| `key_id`      | string | Filter by API key ID                         |
+| `action`      | string | Filter by DNS action (e.g. `dns:create`)     |
+| `record_type` | string | Filter by record type (e.g. `A`, `CNAME`)    |
+| `since`       | number | Start time (unix milliseconds)               |
+| `until`       | number | End time (unix milliseconds)                 |
+| `limit`       | number | Max events to return (default 100, max 1000) |
+
+**Response:**
+
+```json
+{
+	"success": true,
+	"result": [
+		{
+			"id": 1,
+			"key_id": "gw_...",
+			"zone_id": "abc123...",
+			"action": "dns:create",
+			"record_name": "sub.example.com",
+			"record_type": "A",
+			"status": 200,
+			"upstream_status": 200,
+			"duration_ms": 142,
+			"response_detail": "...",
+			"created_by": "api-key",
+			"created_at": 1700000000000
+		}
+	]
+}
+```
+
+### GET `/admin/dns/analytics/summary`
+
+Aggregated DNS analytics summary.
+
+**Query parameters:** Same as events, except no `limit`.
+
+**Response:**
+
+```json
+{
+	"success": true,
+	"result": {
+		"total_requests": 1234,
+		"avg_duration_ms": 87,
+		"by_status": { "200": 1100, "403": 50, "429": 84 },
+		"by_action": { "dns:read": 800, "dns:create": 300, "dns:update": 134 },
+		"by_record_type": { "A": 500, "CNAME": 400, "TXT": 334 }
+	}
+}
+```
+
+---
+
+## 9. S3 Proxy
 
 ### `GET|PUT|POST|DELETE|HEAD /s3/*`
 
@@ -977,7 +1133,7 @@ All other R2 responses (404, 409, etc.) are passed through unchanged.
 
 ---
 
-## 8. Upstream Tokens
+## 10. Upstream Tokens
 
 Manage upstream Cloudflare API tokens used for proxying cache purge requests. Admin auth required.
 
@@ -1136,7 +1292,7 @@ Bulk delete upstream tokens.
 
 ---
 
-## 9. Upstream R2
+## 11. Upstream R2
 
 Manage upstream R2 endpoints for S3 proxy forwarding. Admin auth required.
 
@@ -1302,7 +1458,7 @@ Bulk delete upstream R2 endpoints.
 
 ---
 
-## 10. Config
+## 12. Config
 
 Gateway configuration management. Admin auth required.
 
@@ -1450,41 +1606,52 @@ Returns the newly resolved config after the override is removed.
 
 ## Endpoint Summary
 
-| #   | Method | Path                                 | Tag            | Auth        |
-| --- | ------ | ------------------------------------ | -------------- | ----------- |
-| 1   | GET    | `/health`                            | System         | None        |
-| 2   | POST   | `/v1/zones/:zoneId/purge_cache`      | Purge          | ApiKeyAuth  |
-| 3   | POST   | `/admin/keys`                        | Keys           | Admin       |
-| 4   | GET    | `/admin/keys`                        | Keys           | Admin       |
-| 5   | GET    | `/admin/keys/:id`                    | Keys           | Admin       |
-| 6   | DELETE | `/admin/keys/:id`                    | Keys           | Admin       |
-| 7   | POST   | `/admin/keys/bulk-revoke`            | Keys           | Admin       |
-| 8   | POST   | `/admin/keys/bulk-delete`            | Keys           | Admin       |
-| 9   | GET    | `/admin/analytics/events`            | Analytics      | Admin       |
-| 10  | GET    | `/admin/analytics/summary`           | Analytics      | Admin       |
-| 11  | POST   | `/admin/s3/credentials`              | S3Credentials  | Admin       |
-| 12  | GET    | `/admin/s3/credentials`              | S3Credentials  | Admin       |
-| 13  | GET    | `/admin/s3/credentials/:id`          | S3Credentials  | Admin       |
-| 14  | DELETE | `/admin/s3/credentials/:id`          | S3Credentials  | Admin       |
-| 15  | POST   | `/admin/s3/credentials/bulk-revoke`  | S3Credentials  | Admin       |
-| 16  | POST   | `/admin/s3/credentials/bulk-delete`  | S3Credentials  | Admin       |
-| 17  | GET    | `/admin/s3/analytics/events`         | S3Analytics    | Admin       |
-| 18  | GET    | `/admin/s3/analytics/summary`        | S3Analytics    | Admin       |
-| 19  | GET    | `/s3/*`                              | S3Proxy        | S3SigV4Auth |
-| 20  | PUT    | `/s3/*`                              | S3Proxy        | S3SigV4Auth |
-| 21  | POST   | `/s3/*`                              | S3Proxy        | S3SigV4Auth |
-| 22  | DELETE | `/s3/*`                              | S3Proxy        | S3SigV4Auth |
-| 23  | HEAD   | `/s3/*`                              | S3Proxy        | S3SigV4Auth |
-| 24  | POST   | `/admin/upstream-tokens`             | UpstreamTokens | Admin       |
-| 25  | GET    | `/admin/upstream-tokens`             | UpstreamTokens | Admin       |
-| 26  | GET    | `/admin/upstream-tokens/:id`         | UpstreamTokens | Admin       |
-| 27  | DELETE | `/admin/upstream-tokens/:id`         | UpstreamTokens | Admin       |
-| 28  | POST   | `/admin/upstream-tokens/bulk-delete` | UpstreamTokens | Admin       |
-| 29  | POST   | `/admin/upstream-r2`                 | UpstreamR2     | Admin       |
-| 30  | GET    | `/admin/upstream-r2`                 | UpstreamR2     | Admin       |
-| 31  | GET    | `/admin/upstream-r2/:id`             | UpstreamR2     | Admin       |
-| 32  | DELETE | `/admin/upstream-r2/:id`             | UpstreamR2     | Admin       |
-| 33  | POST   | `/admin/upstream-r2/bulk-delete`     | UpstreamR2     | Admin       |
-| 34  | GET    | `/admin/config`                      | Config         | Admin       |
-| 35  | PUT    | `/admin/config`                      | Config         | Admin       |
-| 36  | DELETE | `/admin/config/:key`                 | Config         | Admin       |
+| #   | Method | Path                                   | Tag            | Auth        |
+| --- | ------ | -------------------------------------- | -------------- | ----------- |
+| 1   | GET    | `/health`                              | System         | None        |
+| 2   | POST   | `/v1/zones/:zoneId/purge_cache`        | Purge          | ApiKeyAuth  |
+| 3   | POST   | `/v1/zones/:zoneId/dns_records`        | DNS            | ApiKeyAuth  |
+| 4   | GET    | `/v1/zones/:zoneId/dns_records`        | DNS            | ApiKeyAuth  |
+| 5   | GET    | `/v1/zones/:zoneId/dns_records/export` | DNS            | ApiKeyAuth  |
+| 6   | POST   | `/v1/zones/:zoneId/dns_records/batch`  | DNS            | ApiKeyAuth  |
+| 7   | POST   | `/v1/zones/:zoneId/dns_records/import` | DNS            | ApiKeyAuth  |
+| 8   | GET    | `/v1/zones/:zoneId/dns_records/:id`    | DNS            | ApiKeyAuth  |
+| 9   | PATCH  | `/v1/zones/:zoneId/dns_records/:id`    | DNS            | ApiKeyAuth  |
+| 10  | PUT    | `/v1/zones/:zoneId/dns_records/:id`    | DNS            | ApiKeyAuth  |
+| 11  | DELETE | `/v1/zones/:zoneId/dns_records/:id`    | DNS            | ApiKeyAuth  |
+| 12  | POST   | `/admin/keys`                          | Keys           | Admin       |
+| 13  | GET    | `/admin/keys`                          | Keys           | Admin       |
+| 14  | GET    | `/admin/keys/:id`                      | Keys           | Admin       |
+| 15  | DELETE | `/admin/keys/:id`                      | Keys           | Admin       |
+| 16  | POST   | `/admin/keys/bulk-revoke`              | Keys           | Admin       |
+| 17  | POST   | `/admin/keys/bulk-delete`              | Keys           | Admin       |
+| 18  | GET    | `/admin/analytics/events`              | Analytics      | Admin       |
+| 19  | GET    | `/admin/analytics/summary`             | Analytics      | Admin       |
+| 20  | POST   | `/admin/s3/credentials`                | S3Credentials  | Admin       |
+| 21  | GET    | `/admin/s3/credentials`                | S3Credentials  | Admin       |
+| 22  | GET    | `/admin/s3/credentials/:id`            | S3Credentials  | Admin       |
+| 23  | DELETE | `/admin/s3/credentials/:id`            | S3Credentials  | Admin       |
+| 24  | POST   | `/admin/s3/credentials/bulk-revoke`    | S3Credentials  | Admin       |
+| 25  | POST   | `/admin/s3/credentials/bulk-delete`    | S3Credentials  | Admin       |
+| 26  | GET    | `/admin/s3/analytics/events`           | S3Analytics    | Admin       |
+| 27  | GET    | `/admin/s3/analytics/summary`          | S3Analytics    | Admin       |
+| 28  | GET    | `/admin/dns/analytics/events`          | DnsAnalytics   | Admin       |
+| 29  | GET    | `/admin/dns/analytics/summary`         | DnsAnalytics   | Admin       |
+| 30  | GET    | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
+| 31  | PUT    | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
+| 32  | POST   | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
+| 33  | DELETE | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
+| 34  | HEAD   | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
+| 35  | POST   | `/admin/upstream-tokens`               | UpstreamTokens | Admin       |
+| 36  | GET    | `/admin/upstream-tokens`               | UpstreamTokens | Admin       |
+| 37  | GET    | `/admin/upstream-tokens/:id`           | UpstreamTokens | Admin       |
+| 38  | DELETE | `/admin/upstream-tokens/:id`           | UpstreamTokens | Admin       |
+| 39  | POST   | `/admin/upstream-tokens/bulk-delete`   | UpstreamTokens | Admin       |
+| 40  | POST   | `/admin/upstream-r2`                   | UpstreamR2     | Admin       |
+| 41  | GET    | `/admin/upstream-r2`                   | UpstreamR2     | Admin       |
+| 42  | GET    | `/admin/upstream-r2/:id`               | UpstreamR2     | Admin       |
+| 43  | DELETE | `/admin/upstream-r2/:id`               | UpstreamR2     | Admin       |
+| 44  | POST   | `/admin/upstream-r2/bulk-delete`       | UpstreamR2     | Admin       |
+| 45  | GET    | `/admin/config`                        | Config         | Admin       |
+| 46  | PUT    | `/admin/config`                        | Config         | Admin       |
+| 47  | DELETE | `/admin/config/:key`                   | Config         | Admin       |
