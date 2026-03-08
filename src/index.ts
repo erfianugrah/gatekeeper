@@ -34,11 +34,44 @@ const app = new Hono<HonoEnv>();
 app.use('*', async (c, next) => {
 	await next();
 	for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+		// Don't overwrite CSP if the route explicitly set one (e.g. /logout needs a relaxed policy)
+		if (name === 'Content-Security-Policy' && c.res.headers.has('Content-Security-Policy')) continue;
 		c.header(name, value);
 	}
 });
 
 app.get('/health', (c) => c.json({ ok: true }));
+
+// ─── Logout — clears Access session and redirects back to dashboard ─────────
+
+app.get('/logout', (c) => {
+	const teamName = c.env.CF_ACCESS_TEAM_NAME;
+	if (!teamName) {
+		return c.redirect('/dashboard/');
+	}
+
+	const accessOrigin = `https://${teamName}.cloudflareaccess.com`;
+	const accessLogoutUrl = `${accessOrigin}/cdn-cgi/access/logout`;
+	const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Signing out…</title></head>
+<body>
+<p>Signing out…</p>
+<script>
+// Hit the Access logout endpoint to clear the session, then redirect back to the dashboard.
+// Access will catch the unauthenticated request and show the login page.
+fetch("${accessLogoutUrl}", { mode: "no-cors", credentials: "include" })
+  .finally(function() { setTimeout(function() { window.location.replace("/dashboard/"); }, 500); });
+</script>
+<noscript><meta http-equiv="refresh" content="2;url=/dashboard/"></noscript>
+</body></html>`;
+
+	return c.html(html, 200, {
+		'Cache-Control': 'no-store',
+		'Content-Security-Policy': `default-src 'none'; script-src 'unsafe-inline'; connect-src ${accessOrigin}; style-src 'unsafe-inline'`,
+		'Set-Cookie': 'CF_Authorization=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax',
+	});
+});
+
 app.route('/', purgeRoute);
 app.route('/', dnsRoute);
 app.route('/admin', adminApp);

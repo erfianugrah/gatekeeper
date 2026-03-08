@@ -42,7 +42,7 @@ adminApp.get('/me', (c) => {
 			role,
 			groups: identity?.groups ?? [],
 			authMethod: identity ? 'access' : 'api-key',
-			logoutUrl: c.env.CF_ACCESS_TEAM_NAME ? `https://${c.env.CF_ACCESS_TEAM_NAME}.cloudflareaccess.com/cdn-cgi/access/logout` : null,
+			logoutUrl: c.env.CF_ACCESS_TEAM_NAME ? '/logout' : null,
 		},
 	});
 });
