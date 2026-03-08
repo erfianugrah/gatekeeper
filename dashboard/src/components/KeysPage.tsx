@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, ShieldOff, Trash2, Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus, ShieldOff, Trash2, Loader2, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -191,6 +191,178 @@ function KeysTableSkeleton() {
 	);
 }
 
+// ─── Policy Detail Row (expanded) ───────────────────────────────────
+
+function formatCondition(c: any): string {
+	if ('any' in c) return `any(${c.any.map(formatCondition).join(', ')})`;
+	if ('all' in c) return `all(${c.all.map(formatCondition).join(', ')})`;
+	if ('not' in c) return `not(${formatCondition(c.not)})`;
+	const val = Array.isArray(c.value) ? c.value.join(', ') : String(c.value);
+	return `${c.field} ${c.operator} ${val}`;
+}
+
+function formatTimestamp(epoch: number): string {
+	return new Date(epoch).toLocaleString('en-US', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit',
+		second: '2-digit',
+		hour12: false,
+	});
+}
+
+/** Label + value pair used in the detail grid. */
+function DetailField({ label, children }: { label: string; children: React.ReactNode }) {
+	return (
+		<div className="contents">
+			<span className="text-[11px] font-data text-muted-foreground/70 select-none">{label}</span>
+			<span className="text-[11px] font-data break-all select-all">{children}</span>
+		</div>
+	);
+}
+
+function KeyDetailRow({ apiKey, colSpan }: { apiKey: ApiKey; colSpan: number }) {
+	let parsedPolicy: PolicyDocument | null = null;
+	try {
+		parsedPolicy = typeof apiKey.policy === 'string' ? JSON.parse(apiKey.policy) : apiKey.policy;
+	} catch {
+		/* invalid JSON */
+	}
+
+	return (
+		<TableRow className="bg-muted/30 hover:bg-muted/40 border-b border-border/50">
+			<TableCell colSpan={colSpan} className="px-6 py-3">
+				<div className="space-y-4 max-w-4xl">
+					{/* ── Key metadata ──────────────────────────────── */}
+					<div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5">
+						<DetailField label="id">
+							<span className="text-lv-cyan">{apiKey.id}</span>
+						</DetailField>
+						<DetailField label="name">
+							<span className="text-foreground">{apiKey.name}</span>
+						</DetailField>
+						<DetailField label="zone_id">
+							{apiKey.zone_id ? (
+								<span className="text-lv-cyan">{apiKey.zone_id}</span>
+							) : (
+								<span className="italic text-muted-foreground/40">any</span>
+							)}
+						</DetailField>
+						<DetailField label="status">
+							{apiKey.revoked ? (
+								<span className="text-lv-red font-semibold">Revoked</span>
+							) : (
+								<span className="text-lv-green font-semibold">Active</span>
+							)}
+						</DetailField>
+						<DetailField label="created_at">
+							<span className="text-lv-blue">{formatTimestamp(apiKey.created_at)}</span>
+						</DetailField>
+						<DetailField label="expires_at">
+							{apiKey.expires_at ? (
+								<span className="text-lv-blue">{formatTimestamp(apiKey.expires_at)}</span>
+							) : (
+								<span className="italic text-muted-foreground/40">never</span>
+							)}
+						</DetailField>
+						<DetailField label="created_by">
+							{apiKey.created_by ? (
+								<span className="text-lv-cyan">{apiKey.created_by}</span>
+							) : (
+								<span className="italic text-muted-foreground/40">null</span>
+							)}
+						</DetailField>
+					</div>
+
+					{/* ── Rate limits ──────────────────────────────── */}
+					<div>
+						<span className="text-[11px] font-data text-muted-foreground/50 block mb-1">Rate Limits</span>
+						<div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5">
+							<DetailField label="single_rate">
+								{apiKey.single_rate != null ? (
+									<span className="text-lv-purple">
+										{apiKey.single_rate} <span className="text-muted-foreground">req/s</span>
+									</span>
+								) : (
+									<span className="italic text-muted-foreground/40">default</span>
+								)}
+							</DetailField>
+							<DetailField label="single_bucket">
+								{apiKey.single_bucket != null ? (
+									<span className="text-lv-purple">{apiKey.single_bucket}</span>
+								) : (
+									<span className="italic text-muted-foreground/40">default</span>
+								)}
+							</DetailField>
+							<DetailField label="bulk_rate">
+								{apiKey.bulk_rate != null ? (
+									<span className="text-lv-purple">
+										{apiKey.bulk_rate} <span className="text-muted-foreground">req/s</span>
+									</span>
+								) : (
+									<span className="italic text-muted-foreground/40">default</span>
+								)}
+							</DetailField>
+							<DetailField label="bulk_bucket">
+								{apiKey.bulk_bucket != null ? (
+									<span className="text-lv-purple">{apiKey.bulk_bucket}</span>
+								) : (
+									<span className="italic text-muted-foreground/40">default</span>
+								)}
+							</DetailField>
+						</div>
+					</div>
+
+					{/* ── Policy ───────────────────────────────────── */}
+					<div>
+						<div className="flex items-center gap-2 mb-2">
+							<span className="text-[11px] font-data text-muted-foreground/50">Policy</span>
+							{parsedPolicy && <span className="text-[11px] font-data text-muted-foreground/40">v{parsedPolicy.version}</span>}
+						</div>
+						{!parsedPolicy || !parsedPolicy.statements || parsedPolicy.statements.length === 0 ? (
+							<span className="text-[11px] font-data text-muted-foreground/70 italic">No policy data</span>
+						) : (
+							<div className="space-y-2">
+								{parsedPolicy.statements.map((stmt, i) => (
+									<div key={stmt._id ?? i} className="rounded border border-border/50 bg-background/50 px-3 py-2 space-y-1.5">
+										<div className="flex items-center gap-2">
+											<Badge
+												className={cn(
+													'text-[10px] px-1.5 py-0',
+													stmt.effect === 'allow'
+														? 'bg-lv-green/20 text-lv-green border-lv-green/30'
+														: 'bg-lv-red/20 text-lv-red border-lv-red/30',
+												)}
+											>
+												{stmt.effect.toUpperCase()}
+											</Badge>
+											<span className="text-[11px] font-data text-muted-foreground/50">Statement {i + 1}</span>
+										</div>
+										<div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+											<span className="text-[11px] font-data text-muted-foreground/70">actions</span>
+											<span className="text-[11px] font-data text-lv-cyan">{stmt.actions.join(', ')}</span>
+											<span className="text-[11px] font-data text-muted-foreground/70">resources</span>
+											<span className="text-[11px] font-data text-lv-purple">{stmt.resources.join(', ')}</span>
+											{stmt.conditions && stmt.conditions.length > 0 && (
+												<>
+													<span className="text-[11px] font-data text-muted-foreground/70">conditions</span>
+													<span className="text-[11px] font-data text-lv-peach">{stmt.conditions.map(formatCondition).join(' AND ')}</span>
+												</>
+											)}
+										</div>
+									</div>
+								))}
+							</div>
+						)}
+					</div>
+				</div>
+			</TableCell>
+		</TableRow>
+	);
+}
+
 // ─── Keys Page ──────────────────────────────────────────────────────
 
 export function KeysPage() {
@@ -206,6 +378,16 @@ export function KeysPage() {
 	const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'revoked'>('all');
 	const [sortField, setSortField] = useState<SortField>('created_at');
 	const [sortDir, setSortDir] = useState<SortDir>('desc');
+	const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+	const toggleExpanded = (id: string) => {
+		setExpandedIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	};
 
 	const fetchKeys = useCallback(async () => {
 		setLoading(true);
@@ -514,6 +696,7 @@ export function KeysPage() {
 												aria-label="Select all"
 											/>
 										</TableHead>
+										<TableHead className="w-6 px-2" />
 										<TableHead className={cn(T.sectionLabel, 'cursor-pointer select-none')} {...sortableProps('name')}>
 											<span className="flex items-center gap-1">
 												Name <SortIcon field="name" />
@@ -549,72 +732,102 @@ export function KeysPage() {
 									</TableRow>
 								</TableHeader>
 								<TableBody>
-									{pageItems.map((k) => (
-										<TableRow key={k.id} className={selectedIds.has(k.id) ? 'bg-lv-purple/5' : undefined}>
-											<TableCell className="w-8">
-												<input
-													type="checkbox"
-													checked={selectedIds.has(k.id)}
-													onChange={() => toggleSelect(k.id)}
-													className="rounded border-border"
-													aria-label="Select row"
-												/>
-											</TableCell>
-											<TableCell className={T.tableRowName}>{k.name}</TableCell>
-											<TableCell>
-												<code className={T.tableCellMono} title={k.id}>
-													{truncateId(k.id)}
-												</code>
-											</TableCell>
-											<TableCell>
-												{k.zone_id ? (
-													<code className={T.tableCellMono} title={k.zone_id}>
-														{truncateId(k.zone_id, 8)}
-													</code>
-												) : (
-													<span className={T.muted}>Any</span>
-												)}
-											</TableCell>
-											<TableCell>
-												{k.revoked ? (
-													<Badge className="bg-lv-red/20 text-lv-red border-lv-red/30">Revoked</Badge>
-												) : (
-													<Badge className="bg-lv-green/20 text-lv-green border-lv-green/30">Active</Badge>
-												)}
-											</TableCell>
-											<TableCell className={T.tableCell}>{formatDate(k.created_at)}</TableCell>
-											<TableCell className={T.tableCell}>
-												{k.expires_at ? formatDate(k.expires_at) : <span className={T.muted}>Never</span>}
-											</TableCell>
-											<TableCell className={T.tableCell}>{k.created_by ?? <span className={T.muted}>—</span>}</TableCell>
-											<TableCell className="text-right space-x-1">
-												{!k.revoked && (
-													<Button
-														size="xs"
-														variant="ghost"
-														className="text-lv-red hover:text-lv-red-bright hover:bg-lv-red/10"
-														onClick={() => handleRevoke(k.id)}
-														disabled={revokingId === k.id}
-													>
-														{revokingId === k.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldOff className="h-3.5 w-3.5" />}
-														Revoke
-													</Button>
-												)}
-												{!!k.revoked && (
-													<Button
-														size="xs"
-														variant="ghost"
-														className="text-muted-foreground hover:text-lv-red hover:bg-lv-red/10"
-														onClick={() => handleDelete(k.id)}
-														disabled={deletingId === k.id}
-													>
-														{deletingId === k.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-														Delete
-													</Button>
-												)}
-											</TableCell>
-										</TableRow>
-									))}
+									{pageItems.map((k) => {
+										const isExpanded = expandedIds.has(k.id);
+										return (
+											<>
+												<TableRow
+													key={k.id}
+													className={cn(
+														'cursor-pointer select-none',
+														selectedIds.has(k.id) && 'bg-lv-purple/5',
+														isExpanded && 'bg-muted/30',
+													)}
+													onClick={() => toggleExpanded(k.id)}
+												>
+													<TableCell className="w-8" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+														<input
+															type="checkbox"
+															checked={selectedIds.has(k.id)}
+															onChange={() => toggleSelect(k.id)}
+															className="rounded border-border"
+															aria-label="Select row"
+														/>
+													</TableCell>
+													<TableCell className="w-6 px-2">
+														<ChevronRight
+															className={cn(
+																'h-3.5 w-3.5 text-muted-foreground transition-transform duration-150',
+																isExpanded && 'rotate-90',
+															)}
+														/>
+													</TableCell>
+													<TableCell className={T.tableRowName}>{k.name}</TableCell>
+													<TableCell>
+														<code className={T.tableCellMono} title={k.id}>
+															{truncateId(k.id)}
+														</code>
+													</TableCell>
+													<TableCell>
+														{k.zone_id ? (
+															<code className={T.tableCellMono} title={k.zone_id}>
+																{truncateId(k.zone_id, 8)}
+															</code>
+														) : (
+															<span className={T.muted}>Any</span>
+														)}
+													</TableCell>
+													<TableCell>
+														{k.revoked ? (
+															<Badge className="bg-lv-red/20 text-lv-red border-lv-red/30">Revoked</Badge>
+														) : (
+															<Badge className="bg-lv-green/20 text-lv-green border-lv-green/30">Active</Badge>
+														)}
+													</TableCell>
+													<TableCell className={T.tableCell}>{formatDate(k.created_at)}</TableCell>
+													<TableCell className={T.tableCell}>
+														{k.expires_at ? formatDate(k.expires_at) : <span className={T.muted}>Never</span>}
+													</TableCell>
+													<TableCell className={T.tableCell}>{k.created_by ?? <span className={T.muted}>—</span>}</TableCell>
+													<TableCell className="text-right space-x-1" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+														{!k.revoked && (
+															<Button
+																size="xs"
+																variant="ghost"
+																className="text-lv-red hover:text-lv-red-bright hover:bg-lv-red/10"
+																onClick={() => handleRevoke(k.id)}
+																disabled={revokingId === k.id}
+															>
+																{revokingId === k.id ? (
+																	<Loader2 className="h-3.5 w-3.5 animate-spin" />
+																) : (
+																	<ShieldOff className="h-3.5 w-3.5" />
+																)}
+																Revoke
+															</Button>
+														)}
+														{!!k.revoked && (
+															<Button
+																size="xs"
+																variant="ghost"
+																className="text-muted-foreground hover:text-lv-red hover:bg-lv-red/10"
+																onClick={() => handleDelete(k.id)}
+																disabled={deletingId === k.id}
+															>
+																{deletingId === k.id ? (
+																	<Loader2 className="h-3.5 w-3.5 animate-spin" />
+																) : (
+																	<Trash2 className="h-3.5 w-3.5" />
+																)}
+																Delete
+															</Button>
+														)}
+													</TableCell>
+												</TableRow>
+												{isExpanded && <KeyDetailRow key={`${k.id}-detail`} apiKey={k} colSpan={10} />}
+											</>
+										);
+									})}
 								</TableBody>
 							</Table>
 						)}

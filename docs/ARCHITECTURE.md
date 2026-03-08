@@ -55,7 +55,7 @@ flowchart TB
 
     subgraph DO["Durable Object (SQLite)"]
         tb["Token Buckets<br/><i>in-memory, lazy refill</i>"]
-        keys["Purge Keys"]
+        keys["API Keys"]
         creds["S3 Credentials"]
         upt["Upstream Tokens"]
         upr2["Upstream R2 Endpoints"]
@@ -137,7 +137,7 @@ Upstream Cloudflare API tokens and R2 endpoint credentials are stored in the DO,
 
 The system is divided into ten bounded contexts, each with a clear responsibility:
 
-### 1. IAM (Purge Keys)
+### 1. IAM (API Keys)
 
 **Files:** `src/iam.ts`, `src/policy-engine.ts`, `src/policy-types.ts`, `src/routes/admin-keys.ts`
 
