@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { PolicyBuilder } from '@/components/PolicyBuilder';
+import { JsonHighlight } from '@/components/JsonHighlight';
 import { usePagination } from '@/hooks/use-pagination';
 import { TablePagination } from '@/components/TablePagination';
 import { listKeys, createKey, revokeKey, deleteKey, bulkRevokeKeys, bulkDeleteKeys, POLICY_VERSION } from '@/lib/api';
@@ -224,6 +225,7 @@ function DetailField({ label, children }: { label: string; children: React.React
 }
 
 function KeyDetailRow({ apiKey, colSpan }: { apiKey: ApiKey; colSpan: number }) {
+	const [showJson, setShowJson] = useState(false);
 	let parsedPolicy: PolicyDocument | null = null;
 	try {
 		parsedPolicy = typeof apiKey.policy === 'string' ? JSON.parse(apiKey.policy) : apiKey.policy;
@@ -354,6 +356,14 @@ function KeyDetailRow({ apiKey, colSpan }: { apiKey: ApiKey; colSpan: number }) 
 										</div>
 									</div>
 								))}
+								<button
+									type="button"
+									onClick={() => setShowJson(!showJson)}
+									className="text-[10px] text-lv-blue/60 hover:text-lv-blue hover:underline font-data"
+								>
+									{showJson ? 'Hide JSON' : 'Show JSON'}
+								</button>
+								{showJson && <JsonHighlight data={parsedPolicy} />}
 							</div>
 						)}
 					</div>

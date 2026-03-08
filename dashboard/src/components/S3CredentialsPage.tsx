@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 import { S3PolicyBuilder } from '@/components/S3PolicyBuilder';
+import { JsonHighlight } from '@/components/JsonHighlight';
 import { summarizeStatement } from '@/components/ConditionEditor';
 import { usePagination } from '@/hooks/use-pagination';
 import { TablePagination } from '@/components/TablePagination';
@@ -305,6 +306,7 @@ function DetailField({ label, children }: { label: string; children: ReactNode }
 // ─── Credential Detail Row ──────────────────────────────────────────
 
 function CredentialDetailRow({ credential, colSpan }: { credential: S3Credential; colSpan: number }) {
+	const [showJson, setShowJson] = useState(false);
 	let parsedPolicy: PolicyDocument | null = null;
 	try {
 		parsedPolicy = typeof credential.policy === 'string' ? JSON.parse(credential.policy) : credential.policy;
@@ -397,6 +399,14 @@ function CredentialDetailRow({ credential, colSpan }: { credential: S3Credential
 										</div>
 									);
 								})}
+								<button
+									type="button"
+									onClick={() => setShowJson(!showJson)}
+									className="text-[10px] text-lv-blue/60 hover:text-lv-blue hover:underline font-data"
+								>
+									{showJson ? 'Hide JSON' : 'Show JSON'}
+								</button>
+								{showJson && <JsonHighlight data={parsedPolicy} />}
 							</div>
 						)}
 					</div>
