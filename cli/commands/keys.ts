@@ -1,5 +1,5 @@
 import { defineCommand } from 'citty';
-import { resolveConfig, resolveZoneId, request, assertOk } from '../client.js';
+import { resolveConfig, resolveZoneId, resolveOptionalZoneId, request, assertOk } from '../client.js';
 import {
 	success,
 	info,
@@ -40,6 +40,10 @@ const create = defineCommand({
 			description: 'Policy document as JSON string or @path/to/file.json',
 			required: true,
 		},
+		'account-scoped': {
+			type: 'boolean',
+			description: 'Create key without zone scope (for CF proxy: D1, KV, Workers, etc.)',
+		},
 		'expires-in-days': {
 			type: 'string',
 			description: 'Key expiration in days (optional)',
@@ -47,13 +51,16 @@ const create = defineCommand({
 	},
 	async run({ args }) {
 		const config = resolveConfig(args);
-		const zoneId = resolveZoneId(args);
+		const zoneId = args['account-scoped'] ? undefined : resolveOptionalZoneId(args);
 
 		const body: Record<string, unknown> = {
 			name: args.name,
-			zone_id: zoneId,
 			policy: parsePolicy(args.policy),
 		};
+
+		if (zoneId) {
+			body.zone_id = zoneId;
+		}
 
 		if (args['expires-in-days']) {
 			body['expires_in_days'] = Number(args['expires-in-days']);
@@ -100,10 +107,13 @@ const list = defineCommand({
 	},
 	async run({ args }) {
 		const config = resolveConfig(args);
-		const zoneId = resolveZoneId(args);
+		const zoneId = resolveOptionalZoneId(args);
 
-		const statusFilter = args['active-only'] ? '&status=active' : '';
-		const { status, data, durationMs } = await request(config, 'GET', `/admin/keys?zone_id=${encodeURIComponent(zoneId)}${statusFilter}`, {
+		const params = new URLSearchParams();
+		if (zoneId) params.set('zone_id', zoneId);
+		if (args['active-only']) params.set('status', 'active');
+		const qs = params.toString();
+		const { status, data, durationMs } = await request(config, 'GET', `/admin/keys${qs ? `?${qs}` : ''}`, {
 			auth: 'admin',
 			label: 'Fetching keys...',
 		});
@@ -118,7 +128,7 @@ const list = defineCommand({
 		const result = (data as Record<string, unknown>).result as Record<string, unknown>[];
 
 		if (result.length === 0) {
-			info(`No keys found for zone ${dim(zoneId)}`);
+			info(zoneId ? `No keys found for zone ${dim(zoneId)}` : 'No keys found.');
 			return;
 		}
 
@@ -157,14 +167,13 @@ const get = defineCommand({
 	},
 	async run({ args }) {
 		const config = resolveConfig(args);
-		const zoneId = resolveZoneId(args);
+		const zoneId = resolveOptionalZoneId(args);
 
-		const { status, data, durationMs } = await request(
-			config,
-			'GET',
-			`/admin/keys/${encodeURIComponent(args['key-id'])}?zone_id=${encodeURIComponent(zoneId)}`,
-			{ auth: 'admin', label: 'Fetching key...' },
-		);
+		const qs = zoneId ? `?zone_id=${encodeURIComponent(zoneId)}` : '';
+		const { status, data, durationMs } = await request(config, 'GET', `/admin/keys/${encodeURIComponent(args['key-id'])}${qs}`, {
+			auth: 'admin',
+			label: 'Fetching key...',
+		});
 
 		if (args.json) {
 			assertOk(status, data);
@@ -205,7 +214,7 @@ const revoke = defineCommand({
 	},
 	async run({ args }) {
 		const config = resolveConfig(args);
-		const zoneId = resolveZoneId(args);
+		const zoneId = resolveOptionalZoneId(args);
 		const keyId = args['key-id'];
 		const isPermanent = !!args.permanent;
 		const action = isPermanent ? 'permanently delete' : 'revoke';
@@ -218,7 +227,10 @@ const revoke = defineCommand({
 			}
 		}
 
-		const qs = `zone_id=${encodeURIComponent(zoneId)}${isPermanent ? '&permanent=true' : ''}`;
+		const params = new URLSearchParams();
+		if (zoneId) params.set('zone_id', zoneId);
+		if (isPermanent) params.set('permanent', 'true');
+		const qs = params.toString();
 		const { status, data, durationMs } = await request(config, 'DELETE', `/admin/keys/${encodeURIComponent(keyId)}?${qs}`, {
 			auth: 'admin',
 			label: isPermanent ? 'Deleting key...' : 'Revoking key...',
