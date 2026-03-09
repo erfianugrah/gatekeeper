@@ -8,10 +8,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { usePagination } from '@/hooks/use-pagination';
 import { TablePagination } from '@/components/TablePagination';
-import { getEvents, getS3Events, getDnsEvents } from '@/lib/api';
+import { getEvents, getS3Events, getDnsEvents, getCfProxyEvents } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { T } from '@/lib/typography';
-import { fromPurge, fromS3, fromDns, groupByFlight, LIMIT_OPTIONS } from './analytics/analytics-types';
+import { fromPurge, fromS3, fromDns, fromCfProxy, groupByFlight, LIMIT_OPTIONS } from './analytics/analytics-types';
 import { formatTime, truncateId, eventSearchText, exportToJson, copyToClipboard } from './analytics/analytics-helpers';
 import {
 	WithTooltip,
@@ -23,7 +23,7 @@ import {
 } from './analytics/analytics-badges';
 import { EventDetailRow } from './analytics/EventDetailRow';
 import { EventsTableSkeleton } from './analytics/EventsTableSkeleton';
-import type { PurgeEvent, S3Event, DnsEvent } from '@/lib/api';
+import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent } from '@/lib/api';
 import type { UnifiedEvent, FlightGroup, SortField, SortDir, TabFilter, StatusFilter } from './analytics/analytics-types';
 
 // ─── Analytics Page ─────────────────────────────────────────────────
@@ -32,6 +32,7 @@ export function AnalyticsPage() {
 	const [purgeEvents, setPurgeEvents] = useState<PurgeEvent[]>([]);
 	const [s3Events, setS3Events] = useState<S3Event[]>([]);
 	const [dnsEvents, setDnsEvents] = useState<DnsEvent[]>([]);
+	const [cfEvents, setCfEvents] = useState<CfProxyEvent[]>([]);
 	const [limit, setLimit] = useState<number>(100);
 	const [tab, setTab] = useState<TabFilter>('all');
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -57,7 +58,7 @@ export function AnalyticsPage() {
 		setError(null);
 		const errors: string[] = [];
 		try {
-			const [purge, s3, dns] = await Promise.all([
+			const [purge, s3, dns, cf] = await Promise.all([
 				getEvents({ limit: fetchLimit }).catch((e) => {
 					errors.push(`Purge: ${e.message}`);
 					return [] as PurgeEvent[];
@@ -70,11 +71,16 @@ export function AnalyticsPage() {
 					errors.push(`DNS: ${e.message}`);
 					return [] as DnsEvent[];
 				}),
+				getCfProxyEvents({ limit: fetchLimit }).catch((e) => {
+					errors.push(`CF: ${e.message}`);
+					return [] as CfProxyEvent[];
+				}),
 			]);
 			setPurgeEvents(purge);
 			setS3Events(s3);
 			setDnsEvents(dns);
-			if (errors.length > 0 && purge.length === 0 && s3.length === 0 && dns.length === 0) {
+			setCfEvents(cf);
+			if (errors.length > 0 && purge.length === 0 && s3.length === 0 && dns.length === 0 && cf.length === 0) {
 				setError(errors.join('; '));
 			}
 		} catch (e: any) {
@@ -82,6 +88,7 @@ export function AnalyticsPage() {
 			setPurgeEvents([]);
 			setS3Events([]);
 			setDnsEvents([]);
+			setCfEvents([]);
 		} finally {
 			setLoading(false);
 		}
@@ -123,8 +130,8 @@ export function AnalyticsPage() {
 	// ── Unified + filtered + sorted events ──────────────────────
 
 	const allEvents: UnifiedEvent[] = useMemo(
-		() => [...purgeEvents.map(fromPurge), ...s3Events.map(fromS3), ...dnsEvents.map(fromDns)],
-		[purgeEvents, s3Events, dnsEvents],
+		() => [...purgeEvents.map(fromPurge), ...s3Events.map(fromS3), ...dnsEvents.map(fromDns), ...cfEvents.map(fromCfProxy)],
+		[purgeEvents, s3Events, dnsEvents, cfEvents],
 	);
 
 	const filteredEvents = useMemo(() => {
@@ -194,6 +201,7 @@ export function AnalyticsPage() {
 	const purgeCount = purgeEvents.length;
 	const s3Count = s3Events.length;
 	const dnsCount = dnsEvents.length;
+	const cfCount = cfEvents.length;
 	const totalCount = allEvents.length;
 
 	const handleCopy = () => {
@@ -215,9 +223,9 @@ export function AnalyticsPage() {
 				<div className="flex flex-wrap items-center gap-3">
 					{/* Source tabs */}
 					<div className="flex rounded-md border border-border">
-						{(['all', 'purge', 's3', 'dns'] as TabFilter[]).map((t) => {
-							const count = t === 'all' ? totalCount : t === 'purge' ? purgeCount : t === 'dns' ? dnsCount : s3Count;
-							const labels: Record<TabFilter, string> = { all: 'All', purge: 'Purge', s3: 'S3', dns: 'DNS' };
+						{(['all', 'purge', 's3', 'dns', 'cf'] as TabFilter[]).map((t) => {
+							const count = t === 'all' ? totalCount : t === 'purge' ? purgeCount : t === 'dns' ? dnsCount : t === 'cf' ? cfCount : s3Count;
+							const labels: Record<TabFilter, string> = { all: 'All', purge: 'Purge', s3: 'S3', dns: 'DNS', cf: 'CF Proxy' };
 							return (
 								<button
 									key={t}
@@ -317,7 +325,7 @@ export function AnalyticsPage() {
 							{totalCount === 0
 								? tab === 'all'
 									? 'No events recorded yet.'
-									: `No ${tab === 'purge' ? 'purge' : tab === 'dns' ? 'DNS' : 'S3'} events recorded yet.`
+									: `No ${tab === 'purge' ? 'purge' : tab === 'dns' ? 'DNS' : tab === 'cf' ? 'CF proxy' : 'S3'} events recorded yet.`
 								: 'No events match the current filters.'}
 						</p>
 					</div>
@@ -450,6 +458,22 @@ export function AnalyticsPage() {
 																		<Badge className="bg-lv-blue/20 text-lv-blue border-lv-blue/30 shrink-0">{ev.collapsed}</Badge>
 																	</WithTooltip>
 																) : null}
+															</div>
+														) : ev.source === 'cf' ? (
+															<div className="flex items-center gap-2 min-w-0">
+																<WithTooltip tip={`${ev.cf_service}:${ev.cf_action?.split(':')[1] ?? ev.cf_action}`}>
+																	<Badge className="bg-lv-peach/20 text-lv-peach border-lv-peach/30 shrink-0">{ev.cf_action}</Badge>
+																</WithTooltip>
+																<code className={cn(T.tableCellMono, 'shrink-0')} title={ev.cf_account_id}>
+																	{truncateId(ev.cf_account_id ?? '', 8)}
+																</code>
+																{ev.cf_resource_id && (
+																	<WithTooltip tip={`Resource: ${ev.cf_resource_id}`}>
+																		<code className={cn(T.tableCellMono, 'truncate max-w-[200px] text-lv-cyan/80')}>
+																			{truncateId(ev.cf_resource_id, 16)}
+																		</code>
+																	</WithTooltip>
+																)}
 															</div>
 														) : ev.source === 'dns' ? (
 															<div className="flex items-center gap-2 min-w-0">

@@ -9,6 +9,8 @@ import {
 	CF_PROXY_EVENTS_INDEX_KEY_SQL,
 	CF_PROXY_EVENTS_INDEX_ACCOUNT_SQL,
 	CF_PROXY_EVENTS_INDEX_SERVICE_SQL,
+	CF_PROXY_EVENTS_ADD_LATENCY_SQL,
+	CF_PROXY_EVENTS_ADD_RESPONSE_SIZE_SQL,
 } from '../schema';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -25,6 +27,10 @@ export interface CfProxyEvent {
 	status: number;
 	upstream_status: number | null;
 	duration_ms: number;
+	/** Time spent waiting for the CF API upstream response (ms). */
+	upstream_latency_ms: number | null;
+	/** Response body size in bytes (null for binary passthrough). */
+	response_size: number | null;
 	created_at: number; // unix ms
 	response_detail: string | null;
 	created_by: string | null;
@@ -46,6 +52,8 @@ export interface CfProxyAnalyticsSummary {
 	by_service: Record<string, number>;
 	by_action: Record<string, number>;
 	avg_duration_ms: number;
+	avg_upstream_latency_ms: number;
+	avg_response_size: number;
 }
 
 // ─── Table init ─────────────────────────────────────────────────────────────
@@ -57,6 +65,15 @@ async function ensureTables(db: D1Database): Promise<void> {
 		db.prepare(CF_PROXY_EVENTS_INDEX_ACCOUNT_SQL),
 		db.prepare(CF_PROXY_EVENTS_INDEX_SERVICE_SQL),
 	]);
+	// Migration: add columns to tables created before upstream_latency_ms / response_size existed.
+	// ALTER TABLE ... ADD COLUMN fails if the column already exists, so we catch and ignore.
+	for (const sql of [CF_PROXY_EVENTS_ADD_LATENCY_SQL, CF_PROXY_EVENTS_ADD_RESPONSE_SIZE_SQL]) {
+		try {
+			await db.prepare(sql).run();
+		} catch {
+			// Column already exists — expected after first migration run.
+		}
+	}
 }
 
 // ─── Write ──────────────────────────────────────────────────────────────────
@@ -67,8 +84,8 @@ export async function logCfProxyEvent(db: D1Database, event: CfProxyEvent): Prom
 		await ensureTables(db);
 		await db
 			.prepare(
-				`INSERT INTO cf_proxy_events (key_id, account_id, service, action, resource_id, status, upstream_status, duration_ms, response_detail, created_by, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO cf_proxy_events (key_id, account_id, service, action, resource_id, status, upstream_status, duration_ms, upstream_latency_ms, response_size, response_detail, created_by, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
 				event.key_id,
@@ -79,6 +96,8 @@ export async function logCfProxyEvent(db: D1Database, event: CfProxyEvent): Prom
 				event.status,
 				event.upstream_status,
 				event.duration_ms,
+				event.upstream_latency_ms,
+				event.response_size,
 				event.response_detail,
 				event.created_by,
 				event.created_at,
@@ -179,12 +198,16 @@ export async function queryCfProxySummary(db: D1Database, query: CfProxyAnalytic
 
 	const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-	const [totalRow, statusRows, serviceRows, actionRows, durationRow] = await db.batch([
+	const [totalRow, statusRows, serviceRows, actionRows, avgRow] = await db.batch([
 		db.prepare(`SELECT COUNT(*) as cnt FROM cf_proxy_events ${where}`).bind(...params),
 		db.prepare(`SELECT status, COUNT(*) as cnt FROM cf_proxy_events ${where} GROUP BY status`).bind(...params),
 		db.prepare(`SELECT service, COUNT(*) as cnt FROM cf_proxy_events ${where} GROUP BY service ORDER BY cnt DESC LIMIT 20`).bind(...params),
 		db.prepare(`SELECT action, COUNT(*) as cnt FROM cf_proxy_events ${where} GROUP BY action ORDER BY cnt DESC LIMIT 20`).bind(...params),
-		db.prepare(`SELECT AVG(duration_ms) as avg_ms FROM cf_proxy_events ${where}`).bind(...params),
+		db
+			.prepare(
+				`SELECT AVG(duration_ms) as avg_ms, AVG(upstream_latency_ms) as avg_upstream_ms, AVG(response_size) as avg_resp_size FROM cf_proxy_events ${where}`,
+			)
+			.bind(...params),
 	]);
 
 	const total = totalRow.results[0] as any;
@@ -201,11 +224,14 @@ export async function queryCfProxySummary(db: D1Database, query: CfProxyAnalytic
 		byAction[row.action] = row.cnt;
 	}
 
+	const avg = avgRow.results[0] as any;
 	return {
 		total_requests: total?.cnt ?? 0,
 		by_status: byStatus,
 		by_service: byService,
 		by_action: byAction,
-		avg_duration_ms: Math.round((durationRow.results[0] as any)?.avg_ms ?? 0),
+		avg_duration_ms: Math.round(avg?.avg_ms ?? 0),
+		avg_upstream_latency_ms: Math.round(avg?.avg_upstream_ms ?? 0),
+		avg_response_size: Math.round(avg?.avg_resp_size ?? 0),
 	};
 }

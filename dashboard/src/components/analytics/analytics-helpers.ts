@@ -62,6 +62,10 @@ export function eventSearchText(ev: UnifiedEvent): string {
 		ev.dns_action ?? '',
 		ev.dns_name ?? '',
 		ev.dns_type ?? '',
+		ev.cf_service ?? '',
+		ev.cf_action ?? '',
+		ev.cf_account_id ?? '',
+		ev.cf_resource_id ?? '',
 		(ev.raw as any).created_by ?? '',
 		(ev.raw as any).response_detail ?? '',
 	];

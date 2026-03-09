@@ -1,4 +1,4 @@
-import { Cloud, Globe, HardDrive } from 'lucide-react';
+import { Cloud, Globe, HardDrive, Server } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -21,6 +21,7 @@ const SOURCE_TOOLTIPS: Record<string, string> = {
 	purge: 'Cloudflare cache purge request',
 	s3: 'S3/R2 object storage request',
 	dns: 'Cloudflare DNS record operation',
+	cf: 'Cloudflare management API proxy (D1, KV, Workers, etc.)',
 };
 
 // ─── Tooltip wrapper ────────────────────────────────────────────────
@@ -83,7 +84,7 @@ export function statusBadge(status: number): React.ReactNode {
 	return <WithTooltip tip={tip}>{badge}</WithTooltip>;
 }
 
-export function sourceBadge(source: 'purge' | 's3' | 'dns'): React.ReactNode {
+export function sourceBadge(source: 'purge' | 's3' | 'dns' | 'cf'): React.ReactNode {
 	const tip = SOURCE_TOOLTIPS[source] ?? source;
 	if (source === 'purge') {
 		return (
@@ -101,6 +102,16 @@ export function sourceBadge(source: 'purge' | 's3' | 'dns'): React.ReactNode {
 				<Badge className="bg-lv-green/20 text-lv-green border-lv-green/30 gap-1">
 					<Globe className="h-3 w-3" />
 					DNS
+				</Badge>
+			</WithTooltip>
+		);
+	}
+	if (source === 'cf') {
+		return (
+			<WithTooltip tip={tip}>
+				<Badge className="bg-lv-peach/20 text-lv-peach border-lv-peach/30 gap-1">
+					<Server className="h-3 w-3" />
+					CF
 				</Badge>
 			</WithTooltip>
 		);

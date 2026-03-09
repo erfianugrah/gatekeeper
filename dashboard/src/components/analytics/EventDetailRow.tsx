@@ -1,11 +1,11 @@
 import { TableRow, TableCell } from '@/components/ui/table';
 import { formatTimeISO } from './analytics-helpers';
 import type { UnifiedEvent } from './analytics-types';
-import type { PurgeEvent, S3Event, DnsEvent } from '@/lib/api';
+import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent } from '@/lib/api';
 
 // ─── Detail row (expanded) ──────────────────────────────────────────
 
-type FieldType = 'id' | 'string' | 'number' | 'status' | 'duration' | 'timestamp' | 'null' | 'operation';
+type FieldType = 'id' | 'string' | 'number' | 'status' | 'duration' | 'bytes' | 'timestamp' | 'null' | 'operation';
 
 interface DetailField {
 	key: string;
@@ -36,6 +36,11 @@ function coloredValue(field: DetailField): React.ReactNode {
 					{value} <span className="text-muted-foreground">ms</span>
 				</span>
 			);
+		case 'bytes': {
+			const b = Number(value);
+			const label = b < 1024 ? `${b} B` : b < 1024 * 1024 ? `${(b / 1024).toFixed(1)} KB` : `${(b / (1024 * 1024)).toFixed(2)} MB`;
+			return <span className="text-lv-blue">{label}</span>;
+		}
 		case 'number':
 			return <span className="text-lv-purple">{String(value)}</span>;
 		case 'timestamp':
@@ -80,6 +85,24 @@ export function EventDetailRow({ event }: { event: UnifiedEvent }) {
 			{ key: 'duration_ms', value: event.duration_ms, type: 'duration' },
 			{ key: 'created_by', value: (raw as DnsEvent).created_by, type: 'id' },
 			{ key: 'response_detail', value: (raw as DnsEvent).response_detail, type: 'string' },
+			{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
+		];
+	} else if (event.source === 'cf') {
+		const cfRaw = raw as CfProxyEvent;
+		fields = [
+			{ key: 'id', value: cfRaw.id, type: 'number' },
+			{ key: 'key_id', value: event.key_id, type: 'id' },
+			{ key: 'account_id', value: event.cf_account_id, type: 'id' },
+			{ key: 'service', value: event.cf_service, type: 'operation' },
+			{ key: 'action', value: event.cf_action, type: 'operation' },
+			{ key: 'resource_id', value: event.cf_resource_id, type: 'id' },
+			{ key: 'status', value: event.status, type: 'status' },
+			{ key: 'upstream_status', value: event.upstream_status, type: 'status' },
+			{ key: 'duration_ms', value: event.duration_ms, type: 'duration' },
+			{ key: 'upstream_latency_ms', value: cfRaw.upstream_latency_ms, type: 'duration' },
+			{ key: 'response_size', value: cfRaw.response_size, type: 'bytes' },
+			{ key: 'created_by', value: cfRaw.created_by, type: 'id' },
+			{ key: 'response_detail', value: cfRaw.response_detail, type: 'string' },
 			{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
 		];
 	} else {

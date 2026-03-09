@@ -90,16 +90,21 @@ async function handleWorkersRequest(
 	if (tokenOrError instanceof Response) return tokenOrError;
 	const upstreamToken = tokenOrError;
 
-	// Proxy to CF API
+	// Proxy to CF API — measure upstream latency separately
 	const queryString = new URL(c.req.url).search.slice(1);
+	const upstreamStart = Date.now();
 	const upstream = await proxyToCfApi(upstreamPath, upstreamToken, method, body, queryString || undefined, contentType, extraHeaders);
+	const upstreamLatencyMs = Date.now() - upstreamStart;
 
 	// Binary passthrough for script download / content endpoints
 	const shouldPassthrough = isBinaryPassthrough && upstream.status >= 200 && upstream.status < 300;
 	const responseBody = shouldPassthrough ? null : await upstream.text();
+	const responseSize = responseBody != null ? new TextEncoder().encode(responseBody).byteLength : null;
 
 	log.status = upstream.status;
 	log.upstreamStatus = upstream.status;
+	log.upstreamLatencyMs = upstreamLatencyMs;
+	if (responseSize != null) log.responseSize = responseSize;
 	log.durationMs = Date.now() - start;
 	console.log(JSON.stringify(log));
 
@@ -119,6 +124,8 @@ async function handleWorkersRequest(
 			status: upstream.status,
 			upstream_status: upstream.status,
 			duration_ms: Date.now() - start,
+			upstream_latency_ms: upstreamLatencyMs,
+			response_size: responseSize,
 			response_detail: responseBody ? extractResponseDetail(responseBody) : null,
 			created_by: authResult.keyName ? `key:${authResult.keyName}` : AUDIT_CREATED_BY_API_KEY,
 			created_at: Date.now(),

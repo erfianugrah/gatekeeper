@@ -45,3 +45,50 @@ CREATE TABLE s3_events (
 
 CREATE INDEX idx_s3_events_cred_created ON s3_events (credential_id, created_at DESC);
 CREATE INDEX idx_s3_events_bucket_created ON s3_events (bucket, created_at DESC);
+
+-- ─── DNS events ─────────────────────────────────────────────────────────────
+
+DROP TABLE IF EXISTS dns_events;
+
+CREATE TABLE dns_events (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	key_id TEXT NOT NULL,
+	zone_id TEXT NOT NULL,
+	action TEXT NOT NULL,
+	record_name TEXT,
+	record_type TEXT,
+	status INTEGER NOT NULL,
+	upstream_status INTEGER,
+	duration_ms INTEGER NOT NULL,
+	response_detail TEXT,
+	created_by TEXT,
+	created_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_dns_events_key_created ON dns_events (key_id, created_at DESC);
+CREATE INDEX idx_dns_events_zone_created ON dns_events (zone_id, created_at DESC);
+
+-- ─── CF proxy events ────────────────────────────────────────────────────────
+
+DROP TABLE IF EXISTS cf_proxy_events;
+
+CREATE TABLE cf_proxy_events (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	key_id TEXT NOT NULL,
+	account_id TEXT NOT NULL,
+	service TEXT NOT NULL,
+	action TEXT NOT NULL,
+	resource_id TEXT,
+	status INTEGER NOT NULL,
+	upstream_status INTEGER,
+	duration_ms INTEGER NOT NULL,
+	upstream_latency_ms INTEGER,
+	response_size INTEGER,
+	response_detail TEXT,
+	created_by TEXT,
+	created_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_cf_proxy_key_created ON cf_proxy_events (key_id, created_at DESC);
+CREATE INDEX idx_cf_proxy_account_created ON cf_proxy_events (account_id, created_at DESC);
+CREATE INDEX idx_cf_proxy_service_created ON cf_proxy_events (service, created_at DESC);

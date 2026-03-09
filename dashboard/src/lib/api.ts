@@ -563,6 +563,70 @@ export async function getDnsSummary(query: Omit<DnsEventsQuery, 'limit'> = {}): 
 	return apiFetch<DnsAnalyticsSummary>(`/admin/dns/analytics/summary${qs ? `?${qs}` : ''}`);
 }
 
+// ─── CF Proxy Analytics ──────────────────────────────────────────────
+
+export interface CfProxyEvent {
+	id: number;
+	key_id: string;
+	account_id: string;
+	service: string;
+	action: string;
+	resource_id: string | null;
+	status: number;
+	upstream_status: number | null;
+	duration_ms: number;
+	upstream_latency_ms: number | null;
+	response_size: number | null;
+	response_detail: string | null;
+	created_by: string | null;
+	created_at: number;
+}
+
+export interface CfProxyAnalyticsSummary {
+	total_requests: number;
+	by_status: Record<string, number>;
+	by_service: Record<string, number>;
+	by_action: Record<string, number>;
+	avg_duration_ms: number;
+	avg_upstream_latency_ms: number;
+	avg_response_size: number;
+}
+
+export interface CfProxyEventsQuery {
+	account_id?: string;
+	key_id?: string;
+	service?: string;
+	action?: string;
+	since?: number;
+	until?: number;
+	limit?: number;
+}
+
+export async function getCfProxyEvents(query: CfProxyEventsQuery = {}): Promise<CfProxyEvent[]> {
+	const params = new URLSearchParams();
+	if (query.account_id) params.set('account_id', query.account_id);
+	if (query.key_id) params.set('key_id', query.key_id);
+	if (query.service) params.set('service', query.service);
+	if (query.action) params.set('action', query.action);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	if (query.limit) params.set('limit', String(query.limit));
+	const qs = params.toString();
+	return apiFetch<CfProxyEvent[]>(`/admin/cf/analytics/events${qs ? `?${qs}` : ''}`);
+}
+
+export async function getCfProxySummary(query: Omit<CfProxyEventsQuery, 'limit'> = {}): Promise<CfProxyAnalyticsSummary> {
+	const params = new URLSearchParams();
+	if (query.account_id) params.set('account_id', query.account_id);
+	if (query.key_id) params.set('key_id', query.key_id);
+	if (query.service) params.set('service', query.service);
+	if (query.action) params.set('action', query.action);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	const qs = params.toString();
+	return apiFetch<CfProxyAnalyticsSummary>(`/admin/cf/analytics/summary${qs ? `?${qs}` : ''}`);
+}
+
 // ─── Config Registry ─────────────────────────────────────────────────
 
 export interface GatewayConfig {

@@ -4,6 +4,12 @@
  * Proxies requests to the Cloudflare D1 API with per-database policy enforcement.
  * Mounted under `/cf/accounts/:accountId/d1` by the CF proxy router.
  *
+ * Uses the shared `handleCfServiceRequest` / `jsonServiceRoute` from service-handler.ts
+ * to eliminate duplicated auth + proxy + analytics boilerplate.
+ *
+ * Routes that need to peek at the request body (query, raw, create) use
+ * `handleCfServiceRequest` directly to avoid double-reading the stream.
+ *
  * Route structure mirrors the CF API (relative to the mount point):
  *   POST   /database                                      -> d1:create
  *   GET    /database                                      -> d1:list
@@ -20,10 +26,8 @@
  */
 
 import { Hono } from 'hono';
-import { getStub } from '../../do-stub';
-import { AUDIT_CREATED_BY_API_KEY } from '../../constants';
-import { proxyToCfApi, buildProxyResponse, extractResponseDetail, cfJsonError, resolveUpstreamTokenOrError } from '../proxy-helpers';
-import { logCfProxyEvent } from '../analytics';
+import { handleCfServiceRequest, jsonServiceRoute } from '../service-handler';
+import { cfJsonError } from '../proxy-helpers';
 import {
 	d1ListContext,
 	d1CreateContext,
@@ -37,98 +41,13 @@ import {
 	d1TimeTravelContext,
 } from './operations';
 import type { CfProxyEnv } from '../router';
-import type { CfProxyEvent } from '../analytics';
-import type { RequestContext } from '../../policy-types';
 
 // ─── Route ──────────────────────────────────────────────────────────────────
 
 export const d1Routes = new Hono<CfProxyEnv>();
 
-// ─── Shared handler ─────────────────────────────────────────────────────────
-
-/**
- * Full auth + proxy + analytics flow for a D1 operation.
- * The shared CF proxy middleware already handled bearer extraction,
- * account validation, upstream token resolution, and rate limiting.
- */
-async function handleD1Request(
-	c: any,
-	action: string,
-	contexts: RequestContext[],
-	upstreamPath: string,
-	method: string,
-	body?: BodyInit | null,
-	contentType?: string | null,
-	resourceId?: string | null,
-): Promise<Response> {
-	const env = c.env;
-	const keyId: string = c.get('keyId');
-	const accountId: string = c.get('accountId');
-	const start: number = c.get('startTime');
-	const log: Record<string, unknown> = c.get('log');
-	log.service = 'd1';
-	log.action = action;
-	if (resourceId) log.resourceId = resourceId;
-
-	const stub = getStub(env);
-
-	// Authorize BEFORE resolving the upstream token so unauthorized callers
-	// cannot probe which accounts have upstream tokens registered.
-	const authResult = await stub.authorize(keyId, accountId, contexts);
-	if (!authResult.authorized) {
-		const status = authResult.error === 'Invalid API key' ? 401 : 403;
-		log.status = status;
-		log.error = 'auth_failed';
-		log.authError = authResult.error;
-		log.durationMs = Date.now() - start;
-		console.log(JSON.stringify(log));
-		return cfJsonError(status, authResult.error ?? 'Forbidden');
-	}
-
-	c.set('keyName', authResult.keyName);
-
-	// Resolve upstream token (post-auth)
-	const tokenOrError = await resolveUpstreamTokenOrError(env, accountId, log, start);
-	if (tokenOrError instanceof Response) return tokenOrError;
-	const upstreamToken = tokenOrError;
-
-	// Proxy to CF API
-	const queryString = method === 'GET' ? new URL(c.req.url).search.slice(1) : '';
-	const upstream = await proxyToCfApi(upstreamPath, upstreamToken, method, body, queryString || undefined, contentType);
-	const responseBody = await upstream.text();
-
-	log.status = upstream.status;
-	log.upstreamStatus = upstream.status;
-	log.durationMs = Date.now() - start;
-	console.log(JSON.stringify(log));
-
-	// Drain bucket on upstream 429 to prevent hammering
-	if (upstream.status === 429) {
-		c.executionCtx.waitUntil(stub.drainCfProxyBucket());
-	}
-
-	// Analytics
-	if (env.ANALYTICS_DB) {
-		const event: CfProxyEvent = {
-			key_id: keyId,
-			account_id: accountId,
-			service: 'd1',
-			action,
-			resource_id: resourceId ?? null,
-			status: upstream.status,
-			upstream_status: upstream.status,
-			duration_ms: Date.now() - start,
-			response_detail: extractResponseDetail(responseBody),
-			created_by: authResult.keyName ? `key:${authResult.keyName}` : AUDIT_CREATED_BY_API_KEY,
-			created_at: Date.now(),
-		};
-		c.executionCtx.waitUntil(logCfProxyEvent(env.ANALYTICS_DB, event));
-	}
-
-	return buildProxyResponse(upstream, responseBody);
-}
-
 // ─── Create database ────────────────────────────────────────────────────────
+// Reads body to build policy context fields, then passes pre-read body to handler.
 
 d1Routes.post('/database', async (c) => {
 	const accountId: string = c.get('accountId');
@@ -144,7 +63,16 @@ d1Routes.post('/database', async (c) => {
 		}
 
 		const contexts = [d1CreateContext(accountId, body, requestFields)];
-		return handleD1Request(c, 'd1:create', contexts, `/accounts/${accountId}/d1/database`, 'POST', bodyText, 'application/json');
+		return handleCfServiceRequest(
+			c,
+			'd1',
+			'd1:create',
+			contexts,
+			`/accounts/${accountId}/d1/database`,
+			'POST',
+			bodyText,
+			'application/json',
+		);
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'd1.create', error: e.message, ts: new Date().toISOString() }));
 		return cfJsonError(500, 'Internal server error');
@@ -159,7 +87,7 @@ d1Routes.get('/database', async (c) => {
 
 	try {
 		const contexts = [d1ListContext(accountId, requestFields)];
-		return handleD1Request(c, 'd1:list', contexts, `/accounts/${accountId}/d1/database`, 'GET');
+		return jsonServiceRoute(c, 'd1', 'd1:list', contexts, `/accounts/${accountId}/d1/database`, 'GET');
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'd1.list', error: e.message, ts: new Date().toISOString() }));
 		return cfJsonError(500, 'Internal server error');
@@ -174,18 +102,8 @@ d1Routes.post('/database/:databaseId/export', async (c) => {
 	const databaseId = c.req.param('databaseId');
 
 	try {
-		const bodyText = await c.req.text();
 		const contexts = [d1ExportContext(accountId, databaseId, requestFields)];
-		return handleD1Request(
-			c,
-			'd1:export',
-			contexts,
-			`/accounts/${accountId}/d1/database/${databaseId}/export`,
-			'POST',
-			bodyText,
-			'application/json',
-			databaseId,
-		);
+		return jsonServiceRoute(c, 'd1', 'd1:export', contexts, `/accounts/${accountId}/d1/database/${databaseId}/export`, 'POST', databaseId);
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'd1.export', error: e.message, ts: new Date().toISOString() }));
 		return cfJsonError(500, 'Internal server error');
@@ -200,18 +118,8 @@ d1Routes.post('/database/:databaseId/import', async (c) => {
 	const databaseId = c.req.param('databaseId');
 
 	try {
-		const bodyText = await c.req.text();
 		const contexts = [d1ImportContext(accountId, databaseId, requestFields)];
-		return handleD1Request(
-			c,
-			'd1:import',
-			contexts,
-			`/accounts/${accountId}/d1/database/${databaseId}/import`,
-			'POST',
-			bodyText,
-			'application/json',
-			databaseId,
-		);
+		return jsonServiceRoute(c, 'd1', 'd1:import', contexts, `/accounts/${accountId}/d1/database/${databaseId}/import`, 'POST', databaseId);
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'd1.import', error: e.message, ts: new Date().toISOString() }));
 		return cfJsonError(500, 'Internal server error');
@@ -219,6 +127,7 @@ d1Routes.post('/database/:databaseId/import', async (c) => {
 });
 
 // ─── Query database ─────────────────────────────────────────────────────────
+// Reads body to extract SQL for policy context, then passes pre-read body to handler.
 
 d1Routes.post('/database/:databaseId/query', async (c) => {
 	const accountId: string = c.get('accountId');
@@ -236,8 +145,9 @@ d1Routes.post('/database/:databaseId/query', async (c) => {
 		}
 
 		const contexts = [d1QueryContext(accountId, databaseId, sql, requestFields)];
-		return handleD1Request(
+		return handleCfServiceRequest(
 			c,
+			'd1',
 			'd1:query',
 			contexts,
 			`/accounts/${accountId}/d1/database/${databaseId}/query`,
@@ -253,6 +163,7 @@ d1Routes.post('/database/:databaseId/query', async (c) => {
 });
 
 // ─── Raw query database ─────────────────────────────────────────────────────
+// Reads body to extract SQL for policy context, then passes pre-read body to handler.
 
 d1Routes.post('/database/:databaseId/raw', async (c) => {
 	const accountId: string = c.get('accountId');
@@ -270,8 +181,9 @@ d1Routes.post('/database/:databaseId/raw', async (c) => {
 		}
 
 		const contexts = [d1RawContext(accountId, databaseId, sql, requestFields)];
-		return handleD1Request(
+		return handleCfServiceRequest(
 			c,
+			'd1',
 			'd1:raw',
 			contexts,
 			`/accounts/${accountId}/d1/database/${databaseId}/raw`,
@@ -295,14 +207,13 @@ d1Routes.get('/database/:databaseId/time_travel/bookmark', async (c) => {
 
 	try {
 		const contexts = [d1TimeTravelContext(accountId, databaseId, requestFields)];
-		return handleD1Request(
+		return jsonServiceRoute(
 			c,
+			'd1',
 			'd1:time_travel',
 			contexts,
 			`/accounts/${accountId}/d1/database/${databaseId}/time_travel/bookmark`,
 			'GET',
-			null,
-			null,
 			databaseId,
 		);
 	} catch (e: any) {
@@ -319,16 +230,14 @@ d1Routes.post('/database/:databaseId/time_travel/restore', async (c) => {
 	const databaseId = c.req.param('databaseId');
 
 	try {
-		const bodyText = await c.req.text();
 		const contexts = [d1TimeTravelContext(accountId, databaseId, requestFields)];
-		return handleD1Request(
+		return jsonServiceRoute(
 			c,
+			'd1',
 			'd1:time_travel',
 			contexts,
 			`/accounts/${accountId}/d1/database/${databaseId}/time_travel/restore`,
 			'POST',
-			bodyText,
-			'application/json',
 			databaseId,
 		);
 	} catch (e: any) {
@@ -346,7 +255,7 @@ d1Routes.get('/database/:databaseId', async (c) => {
 
 	try {
 		const contexts = [d1GetContext(accountId, databaseId, requestFields)];
-		return handleD1Request(c, 'd1:get', contexts, `/accounts/${accountId}/d1/database/${databaseId}`, 'GET', null, null, databaseId);
+		return jsonServiceRoute(c, 'd1', 'd1:get', contexts, `/accounts/${accountId}/d1/database/${databaseId}`, 'GET', databaseId);
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'd1.get', error: e.message, ts: new Date().toISOString() }));
 		return cfJsonError(500, 'Internal server error');
@@ -361,18 +270,8 @@ d1Routes.put('/database/:databaseId', async (c) => {
 	const databaseId = c.req.param('databaseId');
 
 	try {
-		const bodyText = await c.req.text();
 		const contexts = [d1UpdateContext(accountId, databaseId, requestFields)];
-		return handleD1Request(
-			c,
-			'd1:update',
-			contexts,
-			`/accounts/${accountId}/d1/database/${databaseId}`,
-			'PUT',
-			bodyText,
-			'application/json',
-			databaseId,
-		);
+		return jsonServiceRoute(c, 'd1', 'd1:update', contexts, `/accounts/${accountId}/d1/database/${databaseId}`, 'PUT', databaseId);
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'd1.update', error: e.message, ts: new Date().toISOString() }));
 		return cfJsonError(500, 'Internal server error');
@@ -387,18 +286,8 @@ d1Routes.patch('/database/:databaseId', async (c) => {
 	const databaseId = c.req.param('databaseId');
 
 	try {
-		const bodyText = await c.req.text();
 		const contexts = [d1UpdateContext(accountId, databaseId, requestFields)];
-		return handleD1Request(
-			c,
-			'd1:update',
-			contexts,
-			`/accounts/${accountId}/d1/database/${databaseId}`,
-			'PATCH',
-			bodyText,
-			'application/json',
-			databaseId,
-		);
+		return jsonServiceRoute(c, 'd1', 'd1:update', contexts, `/accounts/${accountId}/d1/database/${databaseId}`, 'PATCH', databaseId);
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'd1.edit', error: e.message, ts: new Date().toISOString() }));
 		return cfJsonError(500, 'Internal server error');
@@ -414,7 +303,7 @@ d1Routes.delete('/database/:databaseId', async (c) => {
 
 	try {
 		const contexts = [d1DeleteContext(accountId, databaseId, requestFields)];
-		return handleD1Request(c, 'd1:delete', contexts, `/accounts/${accountId}/d1/database/${databaseId}`, 'DELETE', null, null, databaseId);
+		return jsonServiceRoute(c, 'd1', 'd1:delete', contexts, `/accounts/${accountId}/d1/database/${databaseId}`, 'DELETE', databaseId);
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'd1.delete', error: e.message, ts: new Date().toISOString() }));
 		return cfJsonError(500, 'Internal server error');

@@ -1,14 +1,14 @@
-import type { PurgeEvent, S3Event, DnsEvent } from '@/lib/api';
+import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent } from '@/lib/api';
 
 // ─── Unified event type ─────────────────────────────────────────────
 
 export type UnifiedEvent = {
 	id: number;
-	source: 'purge' | 's3' | 'dns';
+	source: 'purge' | 's3' | 'dns' | 'cf';
 	status: number;
 	duration_ms: number;
 	created_at: number;
-	raw: PurgeEvent | S3Event | DnsEvent;
+	raw: PurgeEvent | S3Event | DnsEvent | CfProxyEvent;
 	key_id?: string;
 	zone_id?: string;
 	purge_type?: string;
@@ -24,6 +24,10 @@ export type UnifiedEvent = {
 	dns_action?: string;
 	dns_name?: string | null;
 	dns_type?: string | null;
+	cf_service?: string;
+	cf_action?: string;
+	cf_account_id?: string;
+	cf_resource_id?: string | null;
 };
 
 /** A flight group: one leader event with zero or more collapsed followers. */
@@ -40,7 +44,7 @@ export interface FlightGroup {
 
 export type SortField = 'created_at' | 'status' | 'duration_ms' | 'source';
 export type SortDir = 'asc' | 'desc';
-export type TabFilter = 'all' | 'purge' | 's3' | 'dns';
+export type TabFilter = 'all' | 'purge' | 's3' | 'dns' | 'cf';
 export type StatusFilter = 'all' | '2xx' | '4xx' | '5xx';
 
 // ─── Constants ──────────────────────────────────────────────────────
@@ -50,6 +54,9 @@ export const S3_EVENT_ID_OFFSET = 1_000_000_000;
 
 /** Offset to avoid ID collisions between purge/S3 events and DNS events in the unified view. */
 export const DNS_EVENT_ID_OFFSET = 2_000_000_000;
+
+/** Offset to avoid ID collisions for CF proxy events in the unified view. */
+export const CF_EVENT_ID_OFFSET = 3_000_000_000;
 
 export const LIMIT_OPTIONS = [50, 100, 500] as const;
 
@@ -103,6 +110,23 @@ export function fromDns(ev: DnsEvent): UnifiedEvent {
 		dns_name: ev.record_name,
 		dns_type: ev.record_type,
 		upstream_status: ev.upstream_status,
+	};
+}
+
+export function fromCfProxy(ev: CfProxyEvent): UnifiedEvent {
+	return {
+		id: ev.id + CF_EVENT_ID_OFFSET,
+		source: 'cf',
+		status: ev.status,
+		duration_ms: ev.duration_ms,
+		created_at: ev.created_at,
+		raw: ev,
+		key_id: ev.key_id,
+		upstream_status: ev.upstream_status,
+		cf_service: ev.service,
+		cf_action: ev.action,
+		cf_account_id: ev.account_id,
+		cf_resource_id: ev.resource_id,
 	};
 }
 

@@ -106,11 +106,17 @@ CREATE TABLE IF NOT EXISTS cf_proxy_events (
 	status INTEGER NOT NULL,
 	upstream_status INTEGER,
 	duration_ms INTEGER NOT NULL,
+	upstream_latency_ms INTEGER,
+	response_size INTEGER,
 	response_detail TEXT,
 	created_by TEXT,
 	created_at INTEGER NOT NULL
 );
 `;
+
+/** ALTER TABLE migration: add upstream_latency_ms + response_size to existing cf_proxy_events tables. */
+export const CF_PROXY_EVENTS_ADD_LATENCY_SQL = `ALTER TABLE cf_proxy_events ADD COLUMN upstream_latency_ms INTEGER`;
+export const CF_PROXY_EVENTS_ADD_RESPONSE_SIZE_SQL = `ALTER TABLE cf_proxy_events ADD COLUMN response_size INTEGER`;
 
 export const CF_PROXY_EVENTS_INDEX_KEY_SQL = `
 CREATE INDEX IF NOT EXISTS idx_cf_proxy_key_created
