@@ -36,6 +36,7 @@ export async function proxyToCfApi(
 	body?: BodyInit | null,
 	queryString?: string,
 	contentType?: string | null,
+	extraHeaders?: Record<string, string>,
 ): Promise<Response> {
 	const url = `${CF_API_BASE}${upstreamPath}${queryString ? `?${queryString}` : ''}`;
 	const headers: Record<string, string> = {
@@ -43,6 +44,11 @@ export async function proxyToCfApi(
 	};
 	if (contentType) {
 		headers['Content-Type'] = contentType;
+	}
+	if (extraHeaders) {
+		for (const [k, v] of Object.entries(extraHeaders)) {
+			headers[k] = v;
+		}
 	}
 	return fetch(url, {
 		method,
