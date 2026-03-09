@@ -84,6 +84,18 @@ gatekeeper/
     routes/            Hono sub-apps: admin-keys, admin-config, admin-analytics, purge, etc.
     dns/               DNS Records API proxy: routes, operations, analytics
     s3/                S3-compatible proxy: routes, SigV4, IAM, XML handling
+    cf/                CF API proxy (D1, KV, Workers, Queues, Vectorize, Hyperdrive)
+      router.ts          Main router mounted at /cf
+      service-handler.ts Generic auth + proxy + analytics handler
+      proxy-helpers.ts   Shared proxy utilities
+      analytics.ts       CF proxy D1 analytics
+      d1/routes.ts       D1 routes
+      kv/routes.ts       KV routes
+      workers/routes.ts  Workers routes
+      queues/routes.ts   Queues routes
+      vectorize/routes.ts Vectorize routes
+      hyperdrive/routes.ts Hyperdrive routes
+      dns/routes.ts      DNS routes (zone-scoped, canonical /cf/zones/ path)
     schema.ts          D1 table DDL (CREATE TABLE IF NOT EXISTS)
     types.ts           Shared TypeScript types
     policy-engine.ts   IAM policy evaluation engine
@@ -97,6 +109,8 @@ gatekeeper/
     ui.ts              Terminal output helpers (success, error, label, dim, etc.)
     shared-args.ts     Shared CLI argument definitions
     cli.test.ts        CLI tests (runs in Node.js)
+    smoke/             E2E smoke test modules (run against a live instance)
+      cf-proxy.ts        CF proxy smoke tests (D1, KV, Workers, etc.)
   test/              Worker tests (runs in Cloudflare Workers runtime)
     helpers.ts         Shared test utilities
     *.test.ts          Test files
@@ -261,6 +275,8 @@ npm run smoke
 ```
 
 Note: when running a single worker test file you do NOT need `-c vitest.worker.config.ts` because the default workspace config includes the worker project. For CLI tests you DO need `-c vitest.cli.config.ts`.
+
+Smoke tests (`npm run smoke`) run against a live Gatekeeper instance and cover purge, S3 proxy, DNS proxy, CF proxy (`cf-proxy.ts`), analytics, bulk operations, config, and dashboard endpoints. All resources created during smoke tests (keys, S3 credentials, upstream tokens, upstream R2, DNS records, D1 databases, KV namespaces, config overrides, etc.) are tracked in `state` arrays and cleaned up in the orchestrator's `finally` block, even on crash.
 
 ### Test Conventions
 

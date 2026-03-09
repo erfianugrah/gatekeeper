@@ -122,6 +122,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	assertStatus('D1 create database -> 200', d1Create, 200);
 	const dbId = d1Create.body?.result?.uuid;
 	assertTruthy('D1 created database has uuid', dbId);
+	if (dbId) state.createdD1Databases.push({ accountId: ACCOUNT_ID, dbId });
 
 	if (dbId) {
 		// Get
@@ -138,6 +139,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		// Delete
 		const d1Delete = await cf(CF_KEY, 'DELETE', `${CF_BASE}/d1/database/${dbId}`);
 		assertStatus('D1 delete database -> 200', d1Delete, 200);
+		state.createdD1Databases = state.createdD1Databases.filter((d) => d.dbId !== dbId);
 	}
 
 	// ─── D1: Policy enforcement ────────────────────────────────────
@@ -164,6 +166,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	assertStatus('KV create namespace -> 200', kvCreate, 200);
 	const nsId = kvCreate.body?.result?.id;
 	assertTruthy('KV created namespace has id', nsId);
+	if (nsId) state.createdKvNamespaces.push({ accountId: ACCOUNT_ID, nsId });
 
 	if (nsId) {
 		// Put value
@@ -197,6 +200,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		// Delete namespace
 		const kvNsDel = await cf(CF_KEY, 'DELETE', `${CF_BASE}/storage/kv/namespaces/${nsId}`);
 		assertStatus('KV delete namespace -> 200', kvNsDel, 200);
+		state.createdKvNamespaces = state.createdKvNamespaces.filter((n) => n.nsId !== nsId);
 	}
 
 	// ─── Workers: List ─────────────────────────────────────────────

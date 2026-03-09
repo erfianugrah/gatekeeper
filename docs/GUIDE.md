@@ -463,11 +463,45 @@ curl -X POST "$GATEKEEPER_URL/admin/upstream-r2/bulk-delete" \
   }'
 ```
 
+### 2.3 CF API Tokens (for D1, KV, Workers, Queues, Vectorize, Hyperdrive)
+
+The CF API proxy proxies requests to the broader Cloudflare API (D1, KV, Workers, Queues, Vectorize, Hyperdrive). It requires an **account-scoped** upstream token -- a Cloudflare API token with the relevant permissions for the services you want to proxy.
+
+#### Register an account-scoped token
+
+**CLI:**
+
+```bash
+gk upstream-tokens create \
+  --name "cf-proxy-token" \
+  --token "$CF_API_TOKEN" \
+  --scope-type account \
+  --zone-ids "$CF_ACCOUNT_ID"
+```
+
+**curl:**
+
+```bash
+curl -X POST "$GATEKEEPER_URL/admin/upstream-tokens" \
+  -H "X-Admin-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "cf-proxy-token",
+    "token": "'"$CF_API_TOKEN"'",
+    "scope_type": "account",
+    "zone_ids": ["'"$CF_ACCOUNT_ID"'"]
+  }'
+```
+
+> `scope_type` must be `"account"` for CF proxy tokens. The `zone_ids` array contains the Cloudflare **account ID(s)** this token covers (not zone IDs). Use `["*"]` for wildcard.
+
 ---
 
 ## 3. Creating API Keys
 
 Every key requires `name` and `policy`. The policy version must be `"2025-01-01"`. Optional fields: `zone_id` (scope to one zone), `expires_in_days`, `rate_limit` (per-key overrides), `created_by` (audit trail -- SSO email is used automatically when authenticated via Cloudflare Access; non-SSO values are prefixed `unverified:`; defaults to `"via admin key"` if omitted). The same key type serves both purge and DNS operations -- actions in the policy determine what the key can do.
+
+For CF proxy services (D1, KV, Workers, Queues, Vectorize, Hyperdrive), create keys **without** a `zone_id` -- these are account-scoped. Use the `--account-scoped` CLI flag or omit `zone_id` from the API request body. The policy must use `account:<id>` resources instead of `zone:<id>`.
 
 The response includes the key ID (`gw_<hex>`) which is the Bearer token. It is shown once -- save it.
 
@@ -1975,6 +2009,50 @@ curl -H "X-Admin-Key: $ADMIN_KEY" \
   "$GATEKEEPER_URL/admin/s3/analytics/summary?bucket=my-bucket&since=1704067200000"
 ```
 
+### 7.3 CF Proxy Analytics
+
+CF proxy analytics record every D1, KV, Workers, Queues, Vectorize, and Hyperdrive operation. Events include the service name, action, account ID, upstream latency, and response size.
+
+#### Events
+
+**API:**
+
+```bash
+# Recent events
+curl -H "X-Admin-Key: $ADMIN_KEY" \
+  "$GATEKEEPER_URL/admin/cf/analytics/events"
+
+# Filtered by account + service
+curl -H "X-Admin-Key: $ADMIN_KEY" \
+  "$GATEKEEPER_URL/admin/cf/analytics/events?account_id=$CF_ACCOUNT_ID&service=d1&limit=50"
+
+# Filtered by key + action
+curl -H "X-Admin-Key: $ADMIN_KEY" \
+  "$GATEKEEPER_URL/admin/cf/analytics/events?key_id=gw_abc123&action=d1:query"
+```
+
+Query parameters: `account_id`, `key_id`, `service` (d1, kv, workers, queues, vectorize, hyperdrive), `action`, `since` (epoch ms), `until` (epoch ms), `limit` (default 100).
+
+#### Summary
+
+**API:**
+
+```bash
+# Full summary
+curl -H "X-Admin-Key: $ADMIN_KEY" \
+  "$GATEKEEPER_URL/admin/cf/analytics/summary"
+
+# Filtered by account
+curl -H "X-Admin-Key: $ADMIN_KEY" \
+  "$GATEKEEPER_URL/admin/cf/analytics/summary?account_id=$CF_ACCOUNT_ID"
+
+# Filtered by service
+curl -H "X-Admin-Key: $ADMIN_KEY" \
+  "$GATEKEEPER_URL/admin/cf/analytics/summary?service=workers"
+```
+
+Returns: `total_requests`, `by_status`, `by_service`, `by_action`, `avg_duration_ms`, `avg_upstream_latency_ms`, `avg_response_size`.
+
 ---
 
 ## 8. Configuration
@@ -1995,6 +2073,8 @@ All gateway settings live in the config registry -- a SQLite table inside the Du
 | `retention_days`     | `30`    | D1 analytics retention (cron at 03:00 UTC deletes older events) |
 | `s3_rps`             | `100`   | S3 proxy requests per second                                    |
 | `s3_burst`           | `200`   | S3 proxy burst capacity                                         |
+| `cf_proxy_rps`       | `200`   | CF API proxy requests per second                                |
+| `cf_proxy_burst`     | `400`   | CF API proxy burst capacity                                     |
 
 ### 8.1 Viewing config
 
@@ -2194,6 +2274,184 @@ gk dns-analytics summary --zone-id $ZONE_ID --json
 
 ---
 
+## 10. CF API Proxy Operations
+
+The CF API proxy forwards requests to the Cloudflare API for D1, KV, Workers, Queues, Vectorize, and Hyperdrive. Every request goes through IAM policy evaluation, account-level rate limiting (200 req/sec, burst 400), and D1 analytics logging.
+
+### Prerequisites
+
+1. Register an account-scoped upstream token (see section 2.3).
+2. Create an account-scoped API key with the relevant service actions.
+
+### Routing
+
+All CF proxy requests go through `/cf/accounts/:accountId/...`. The path mirrors the Cloudflare API:
+
+| Gatekeeper path                          | Cloudflare API path                                             |
+| ---------------------------------------- | --------------------------------------------------------------- |
+| `/cf/accounts/:id/d1/database`           | `https://api.cloudflare.com/client/v4/accounts/:id/d1/database` |
+| `/cf/accounts/:id/storage/kv/namespaces` | `...accounts/:id/storage/kv/namespaces`                         |
+| `/cf/accounts/:id/workers/scripts`       | `...accounts/:id/workers/scripts`                               |
+| `/cf/accounts/:id/queues`                | `...accounts/:id/queues`                                        |
+| `/cf/accounts/:id/vectorize/v2/indexes`  | `...accounts/:id/vectorize/v2/indexes`                          |
+| `/cf/accounts/:id/hyperdrive/configs`    | `...accounts/:id/hyperdrive/configs`                            |
+
+### Creating an account-scoped key
+
+**CLI:**
+
+```bash
+gk keys create --account-scoped --name "ci-d1-readonly" --policy @- <<'EOF'
+{
+  "version": "2025-01-01",
+  "statements": [{
+    "effect": "allow",
+    "actions": ["d1:list", "d1:get", "d1:query"],
+    "resources": ["account:25f21f141824546aa72c74451a11b419"]
+  }]
+}
+EOF
+```
+
+**curl:**
+
+```bash
+curl -X POST "$GATEKEEPER_URL/admin/keys" \
+  -H "X-Admin-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "ci-d1-readonly",
+    "policy": {
+      "version": "2025-01-01",
+      "statements": [{
+        "effect": "allow",
+        "actions": ["d1:list", "d1:get", "d1:query"],
+        "resources": ["account:25f21f141824546aa72c74451a11b419"]
+      }]
+    }
+  }'
+```
+
+> Note: no `zone_id` field -- CF proxy keys are account-scoped.
+
+### Using the proxy
+
+Pass the API key as a `Bearer` token:
+
+```bash
+# List D1 databases
+curl "$GATEKEEPER_URL/cf/accounts/$CF_ACCOUNT_ID/d1/database" \
+  -H "Authorization: Bearer gw_abc123..."
+
+# Query a D1 database
+curl -X POST "$GATEKEEPER_URL/cf/accounts/$CF_ACCOUNT_ID/d1/database/$DB_UUID/query" \
+  -H "Authorization: Bearer gw_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{"sql": "SELECT * FROM users LIMIT 10"}'
+
+# List KV namespaces
+curl "$GATEKEEPER_URL/cf/accounts/$CF_ACCOUNT_ID/storage/kv/namespaces" \
+  -H "Authorization: Bearer gw_abc123..."
+
+# List Workers scripts
+curl "$GATEKEEPER_URL/cf/accounts/$CF_ACCOUNT_ID/workers/scripts" \
+  -H "Authorization: Bearer gw_abc123..."
+```
+
+### Wrangler integration
+
+Wrangler natively supports custom API base URLs. Point it at Gatekeeper:
+
+```bash
+export CLOUDFLARE_API_BASE_URL="https://gate.erfi.io/cf"
+export CLOUDFLARE_API_TOKEN="gw_abc123..."
+export CLOUDFLARE_ACCOUNT_ID="25f21f141824546aa72c74451a11b419"
+
+wrangler d1 list --json
+wrangler kv namespace list
+wrangler queues list
+```
+
+> Do **not** set `CLOUDFLARE_API_KEY` or `CLOUDFLARE_EMAIL` -- they take precedence over `CLOUDFLARE_API_TOKEN`.
+
+### Policy examples
+
+#### Full access to all CF services
+
+```json
+{
+	"version": "2025-01-01",
+	"statements": [
+		{
+			"effect": "allow",
+			"actions": ["d1:*", "kv:*", "workers:*", "queues:*", "vectorize:*", "hyperdrive:*"],
+			"resources": ["account:25f21f141824546aa72c74451a11b419"]
+		}
+	]
+}
+```
+
+#### D1 read-only (list + get + query)
+
+```json
+{
+	"version": "2025-01-01",
+	"statements": [
+		{
+			"effect": "allow",
+			"actions": ["d1:list", "d1:get", "d1:query"],
+			"resources": ["account:25f21f141824546aa72c74451a11b419"]
+		}
+	]
+}
+```
+
+#### KV namespace admin, deny delete
+
+```json
+{
+	"version": "2025-01-01",
+	"statements": [
+		{ "effect": "allow", "actions": ["kv:*"], "resources": ["account:25f21f141824546aa72c74451a11b419"] },
+		{ "effect": "deny", "actions": ["kv:delete_namespace"], "resources": ["account:25f21f141824546aa72c74451a11b419"] }
+	]
+}
+```
+
+#### Workers deploy-only (restrict to specific script)
+
+```json
+{
+	"version": "2025-01-01",
+	"statements": [
+		{
+			"effect": "allow",
+			"actions": ["workers:update_script", "workers:update_content", "workers:create_version", "workers:create_deployment"],
+			"resources": ["account:25f21f141824546aa72c74451a11b419"],
+			"conditions": [{ "field": "workers.script_name", "operator": "eq", "value": "my-worker" }]
+		}
+	]
+}
+```
+
+#### D1 query-only with SQL command restriction
+
+```json
+{
+	"version": "2025-01-01",
+	"statements": [
+		{
+			"effect": "allow",
+			"actions": ["d1:query"],
+			"resources": ["account:25f21f141824546aa72c74451a11b419"],
+			"conditions": [{ "field": "d1.sql_command", "operator": "in", "value": "select,pragma" }]
+		}
+	]
+}
+```
+
+---
+
 ## Appendix A: Policy Reference
 
 ### Policy version
@@ -2208,8 +2466,8 @@ The current and only supported policy version is `"2025-01-01"`.
   "statements": [
     {
       "effect": "allow" | "deny",
-      "actions": ["purge:url", "s3:GetObject", ...],
-      "resources": ["zone:<id>", "bucket:<name>", ...],
+      "actions": ["purge:url", "s3:GetObject", "d1:query", ...],
+      "resources": ["zone:<id>", "bucket:<name>", "account:<id>", ...],
       "conditions": [ ... ]
     }
   ]
@@ -2234,19 +2492,44 @@ The current and only supported policy version is `"2025-01-01"`.
 
 `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket`, `s3:ListAllMyBuckets`, `s3:CreateBucket`, `s3:DeleteBucket`, `s3:AbortMultipartUpload`, `s3:ListMultipartUploadParts`, `s3:*`
 
+### D1 actions
+
+`d1:create`, `d1:list`, `d1:get`, `d1:update`, `d1:delete`, `d1:query`, `d1:raw`, `d1:export`, `d1:import`, `d1:time_travel`, `d1:*`
+
+### KV actions
+
+`kv:create_namespace`, `kv:list_namespaces`, `kv:get_namespace`, `kv:update_namespace`, `kv:delete_namespace`, `kv:list_keys`, `kv:put_value`, `kv:get_value`, `kv:delete_value`, `kv:get_metadata`, `kv:bulk_write`, `kv:bulk_delete`, `kv:bulk_get`, `kv:*`
+
+### Workers actions
+
+`workers:list_scripts`, `workers:get_script`, `workers:update_script`, `workers:delete_script`, `workers:get_content`, `workers:update_content`, `workers:get_settings`, `workers:update_settings`, `workers:get_script_settings`, `workers:update_script_settings`, `workers:list_versions`, `workers:get_version`, `workers:create_version`, `workers:list_deployments`, `workers:get_deployment`, `workers:create_deployment`, `workers:delete_deployment`, `workers:list_secrets`, `workers:get_secret`, `workers:update_secret`, `workers:delete_secret`, `workers:get_schedules`, `workers:update_schedules`, `workers:list_tails`, `workers:create_tail`, `workers:delete_tail`, `workers:get_subdomain`, `workers:update_subdomain`, `workers:delete_subdomain`, `workers:upload_assets`, `workers:get_account_subdomain`, `workers:update_account_subdomain`, `workers:delete_account_subdomain`, `workers:get_account_settings`, `workers:update_account_settings`, `workers:list_domains`, `workers:get_domain`, `workers:update_domain`, `workers:delete_domain`, `workers:telemetry`, `workers:*`
+
+### Queues actions
+
+`queues:create`, `queues:list`, `queues:get`, `queues:update`, `queues:edit`, `queues:delete`, `queues:push_message`, `queues:bulk_push`, `queues:pull_messages`, `queues:ack_messages`, `queues:purge`, `queues:purge_status`, `queues:create_consumer`, `queues:list_consumers`, `queues:get_consumer`, `queues:update_consumer`, `queues:delete_consumer`, `queues:*`
+
+### Vectorize actions
+
+`vectorize:create_index`, `vectorize:list_indexes`, `vectorize:get_index`, `vectorize:delete_index`, `vectorize:get_info`, `vectorize:query`, `vectorize:insert`, `vectorize:upsert`, `vectorize:get_by_ids`, `vectorize:delete_by_ids`, `vectorize:list_vectors`, `vectorize:create_metadata_index`, `vectorize:list_metadata_indexes`, `vectorize:delete_metadata_index`, `vectorize:*`
+
+### Hyperdrive actions
+
+`hyperdrive:create`, `hyperdrive:list`, `hyperdrive:get`, `hyperdrive:update`, `hyperdrive:edit`, `hyperdrive:delete`, `hyperdrive:*`
+
 ### Resource patterns
 
-| Pattern                    | Matches                     |
-| -------------------------- | --------------------------- |
-| `zone:<id>`                | Specific zone               |
-| `zone:*`                   | All zones                   |
-| `bucket:<name>`            | Specific bucket             |
-| `bucket:staging-*`         | Buckets matching prefix     |
-| `object:<bucket>/<key>`    | Specific object             |
-| `object:<bucket>/*`        | All objects in a bucket     |
-| `object:<bucket>/public/*` | Objects under a key prefix  |
-| `account:*`                | Account-level (ListBuckets) |
-| `*`                        | Everything                  |
+| Pattern                    | Matches                                         |
+| -------------------------- | ----------------------------------------------- |
+| `zone:<id>`                | Specific zone (purge, DNS)                      |
+| `zone:*`                   | All zones                                       |
+| `bucket:<name>`            | Specific bucket (S3)                            |
+| `bucket:staging-*`         | Buckets matching prefix                         |
+| `object:<bucket>/<key>`    | Specific object                                 |
+| `object:<bucket>/*`        | All objects in a bucket                         |
+| `object:<bucket>/public/*` | Objects under a key prefix                      |
+| `account:<id>`             | Specific account (CF proxy: D1, KV, Workers...) |
+| `account:*`                | All accounts (S3 ListBuckets, CF proxy)         |
+| `*`                        | Everything                                      |
 
 ### Condition operators
 
@@ -2288,6 +2571,30 @@ The current and only supported policy version is `"2025-01-01"`.
 ### Condition fields -- DNS
 
 `dns.name`, `dns.type`, `dns.content`, `dns.proxied`, `dns.ttl`, `dns.priority`, `dns.comment`
+
+### Condition fields -- D1
+
+`d1.database_id`, `d1.name`, `d1.sql_command` (classified: `select`, `insert`, `update`, `delete`, `create`, `drop`, `alter`, `pragma`, `other`)
+
+### Condition fields -- KV
+
+`kv.namespace_id`, `kv.key_name`, `kv.title`
+
+### Condition fields -- Workers
+
+`workers.script_name`, `workers.version_id`, `workers.deployment_id`, `workers.secret_name`, `workers.domain_id`
+
+### Condition fields -- Queues
+
+`queues.queue_id`, `queues.consumer_id`
+
+### Condition fields -- Vectorize
+
+`vectorize.index_name`
+
+### Condition fields -- Hyperdrive
+
+`hyperdrive.config_id`
 
 ### Condition fields -- request-level (all services)
 

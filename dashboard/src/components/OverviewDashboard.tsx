@@ -17,6 +17,8 @@ import {
 	ArrowRight,
 	ChevronDown,
 	ChevronRight,
+	Cpu,
+	Server,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -29,15 +31,27 @@ import {
 	getEvents,
 	getS3Events,
 	getDnsEvents,
+	getCfProxyEvents,
+	getCfProxySummary,
 	listKeys,
 	listS3Credentials,
 	listUpstreamTokens,
 	listUpstreamR2,
 } from '@/lib/api';
-import type { AnalyticsSummary, S3AnalyticsSummary, DnsAnalyticsSummary, PurgeEvent, S3Event, DnsEvent } from '@/lib/api';
+import type {
+	AnalyticsSummary,
+	S3AnalyticsSummary,
+	DnsAnalyticsSummary,
+	CfProxyAnalyticsSummary,
+	PurgeEvent,
+	S3Event,
+	DnsEvent,
+	CfProxyEvent,
+} from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { STATUS_COLORS, PURGE_TYPE_COLORS, CHART_PALETTE, CHART_TOOLTIP_STYLE } from '@/lib/utils';
 import { T } from '@/lib/typography';
+import { sourceLabel } from '@/components/analytics/analytics-badges';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -186,7 +200,7 @@ function LoadingSkeleton() {
 
 interface RecentEvent {
 	id: string;
-	source: 'purge' | 's3' | 'dns';
+	source: string;
 	status: number;
 	detail: string;
 	/** Full purge target or S3 detail for tooltip */
@@ -239,12 +253,75 @@ function fromDnsRecent(ev: DnsEvent): RecentEvent {
 	};
 }
 
+function fromCfRecent(ev: CfProxyEvent): RecentEvent {
+	const detail = `${ev.action}${ev.resource_id ? ` ${ev.resource_id}` : ''}`;
+	return {
+		id: `cf-${ev.id}`,
+		source: ev.service,
+		status: ev.status,
+		detail: truncateId(detail, 50),
+		detailFull: detail.length > 50 ? detail : null,
+		duration_ms: ev.duration_ms,
+		created_at: ev.created_at,
+		identity: truncateId(ev.key_id),
+	};
+}
+
+// ─── Source icon/tooltip lookup for recent events ───────────────────
+
+const SOURCE_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+	purge: Cloud,
+	s3: HardDrive,
+	dns: Globe,
+	d1: Database,
+	kv: Layers,
+	workers: Cpu,
+	queues: Zap,
+	vectorize: Server,
+	hyperdrive: Server,
+};
+
+const SOURCE_ICON_COLOR: Record<string, string> = {
+	purge: 'text-lv-purple',
+	s3: 'text-lv-cyan',
+	dns: 'text-lv-green',
+	d1: 'text-lv-purple',
+	kv: 'text-lv-cyan',
+	workers: 'text-lv-green',
+	queues: 'text-lv-peach',
+	vectorize: 'text-lv-blue',
+	hyperdrive: 'text-lv-red-bright',
+};
+
+const SOURCE_TIP: Record<string, string> = {
+	purge: 'Cache purge request',
+	s3: 'S3/R2 storage request',
+	dns: 'DNS record operation',
+	d1: 'D1 database operation',
+	kv: 'Workers KV operation',
+	workers: 'Workers script operation',
+	queues: 'Queues operation',
+	vectorize: 'Vectorize index operation',
+	hyperdrive: 'Hyperdrive config operation',
+};
+
+function sourceIcon(source: string): React.ReactNode {
+	const Icon = SOURCE_ICON_MAP[source] ?? Server;
+	const color = SOURCE_ICON_COLOR[source] ?? 'text-muted-foreground';
+	return <Icon className={`h-3.5 w-3.5 ${color}`} />;
+}
+
+function sourceTip(source: string): string {
+	return SOURCE_TIP[source] ?? `${sourceLabel(source)} operation`;
+}
+
 // ─── Overview Dashboard ─────────────────────────────────────────────
 
 export function OverviewDashboard() {
 	const [purgeSummary, setPurgeSummary] = useState<AnalyticsSummary | null>(null);
 	const [s3Summary, setS3Summary] = useState<S3AnalyticsSummary | null>(null);
 	const [dnsSummary, setDnsSummary] = useState<DnsAnalyticsSummary | null>(null);
+	const [cfSummary, setCfSummary] = useState<CfProxyAnalyticsSummary | null>(null);
 	const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
 	const [resourceCounts, setResourceCounts] = useState({
 		activeKeys: 0,
@@ -262,27 +339,35 @@ export function OverviewDashboard() {
 		setLoading(true);
 		setError(null);
 		try {
-			const [purge, s3, dns, purgeEvents, s3Events, dnsEvents, keys, s3Creds, upTokens, upR2] = await Promise.all([
+			const [purge, s3, dns, cf, purgeEvents, s3Events, dnsEvents, cfEvents, keys, s3Creds, upTokens, upR2] = await Promise.all([
 				getSummary().catch(() => null),
 				getS3Summary().catch(() => null),
 				getDnsSummary().catch(() => null),
+				getCfProxySummary().catch(() => null),
 				getEvents({ limit: 10 }).catch(() => [] as PurgeEvent[]),
 				getS3Events({ limit: 10 }).catch(() => [] as S3Event[]),
 				getDnsEvents({ limit: 10 }).catch(() => [] as DnsEvent[]),
+				getCfProxyEvents({ limit: 10 }).catch(() => [] as CfProxyEvent[]),
 				listKeys().catch(() => []),
 				listS3Credentials().catch(() => []),
 				listUpstreamTokens().catch(() => []),
 				listUpstreamR2().catch(() => []),
 			]);
-			if (!purge && !s3 && !dns) {
+			if (!purge && !s3 && !dns && !cf) {
 				throw new Error('Failed to load analytics from all endpoints');
 			}
 			setPurgeSummary(purge);
 			setS3Summary(s3);
 			setDnsSummary(dns);
+			setCfSummary(cf);
 
 			// Merge and sort recent events
-			const all: RecentEvent[] = [...purgeEvents.map(fromPurgeRecent), ...s3Events.map(fromS3Recent), ...dnsEvents.map(fromDnsRecent)]
+			const all: RecentEvent[] = [
+				...purgeEvents.map(fromPurgeRecent),
+				...s3Events.map(fromS3Recent),
+				...dnsEvents.map(fromDnsRecent),
+				...cfEvents.map(fromCfRecent),
+			]
 				.sort((a, b) => b.created_at - a.created_at)
 				.slice(0, 10);
 			setRecentEvents(all);
@@ -300,6 +385,7 @@ export function OverviewDashboard() {
 			setPurgeSummary(null);
 			setS3Summary(null);
 			setDnsSummary(null);
+			setCfSummary(null);
 		} finally {
 			setLoading(false);
 		}
@@ -314,10 +400,19 @@ export function OverviewDashboard() {
 	const purgeTotal = purgeSummary?.total_requests ?? 0;
 	const s3Total = s3Summary?.total_requests ?? 0;
 	const dnsTotal = dnsSummary?.total_requests ?? 0;
-	const totalRequests = purgeTotal + s3Total + dnsTotal;
+	const cfTotal = cfSummary?.total_requests ?? 0;
+	const totalRequests = purgeTotal + s3Total + dnsTotal + cfTotal;
+
+	// Per-service totals from cfSummary.by_service (d1, kv, workers, etc.)
+	const cfByService = cfSummary?.by_service ?? {};
 
 	// Combined status breakdown
-	const mergedStatus = mergeByStatus(purgeSummary?.by_status ?? {}, s3Summary?.by_status ?? {}, dnsSummary?.by_status ?? {});
+	const mergedStatus = mergeByStatus(
+		purgeSummary?.by_status ?? {},
+		s3Summary?.by_status ?? {},
+		dnsSummary?.by_status ?? {},
+		cfSummary?.by_status ?? {},
+	);
 	const barData = Object.entries(mergedStatus)
 		.map(([status, count]) => ({ status, count }))
 		.sort((a, b) => Number(a.status) - Number(b.status));
@@ -349,16 +444,49 @@ export function OverviewDashboard() {
 				.map(([name, value]) => ({ name, value }))
 		: [];
 
-	// Traffic split (purge vs s3 vs dns)
+	// CF service breakdown pie — shows per-service totals (d1, kv, workers, etc.)
+	const cfServicePie = Object.entries(cfByService)
+		.filter(([, v]) => v > 0)
+		.sort((a, b) => b[1] - a[1])
+		.map(([svc, value]) => ({ name: sourceLabel(svc), value }));
+
+	// CF action breakdown
+	const cfActionPie = cfSummary
+		? Object.entries(cfSummary.by_action)
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, 10)
+				.map(([name, value]) => ({ name, value }))
+		: [];
+
+	const CF_SERVICE_COLORS: Record<string, string> = {
+		D1: '#c574dd',
+		KV: '#79e6f3',
+		Workers: '#a6e3a1',
+		Queues: '#fab387',
+		Vectorize: '#8796f4',
+		Hyperdrive: '#f38ba8',
+	};
+
+	// Traffic split — shows each service individually (purge, s3, dns, d1, kv, workers, etc.)
 	const trafficPie = [
 		...(purgeTotal > 0 ? [{ name: 'Purge', value: purgeTotal }] : []),
 		...(s3Total > 0 ? [{ name: 'S3', value: s3Total }] : []),
 		...(dnsTotal > 0 ? [{ name: 'DNS', value: dnsTotal }] : []),
+		...Object.entries(cfByService)
+			.filter(([, v]) => v > 0)
+			.sort((a, b) => b[1] - a[1])
+			.map(([svc, v]) => ({ name: sourceLabel(svc), value: v })),
 	];
 	const TRAFFIC_COLORS: Record<string, string> = {
 		Purge: '#c574dd',
 		S3: '#79e6f3',
 		DNS: '#a6e3a1',
+		D1: '#c574dd',
+		KV: '#79e6f3',
+		Workers: '#a6e3a1',
+		Queues: '#fab387',
+		Vectorize: '#8796f4',
+		Hyperdrive: '#f38ba8',
 	};
 
 	// Combined avg latency
@@ -367,7 +495,8 @@ export function OverviewDashboard() {
 			? Math.round(
 					((purgeSummary?.avg_duration_ms ?? 0) * purgeTotal +
 						(s3Summary?.avg_duration_ms ?? 0) * s3Total +
-						(dnsSummary?.avg_duration_ms ?? 0) * dnsTotal) /
+						(dnsSummary?.avg_duration_ms ?? 0) * dnsTotal +
+						(cfSummary?.avg_duration_ms ?? 0) * cfTotal) /
 						totalRequests,
 				)
 			: 0;
@@ -429,6 +558,15 @@ export function OverviewDashboard() {
 								iconBg="bg-lv-green/15"
 								delay={150}
 							/>
+							{cfTotal > 0 && (
+								<StatCard
+									label="CF Services"
+									value={formatNumber(cfTotal)}
+									icon={<Cpu className="h-5 w-5 text-lv-blue" />}
+									iconBg="bg-lv-blue/15"
+									delay={165}
+								/>
+							)}
 							<StatCard
 								label="Avg Latency"
 								value={`${avgLatency} ms`}
@@ -719,6 +857,71 @@ export function OverviewDashboard() {
 											</CardContent>
 										</Card>
 									)}
+
+									{/* CF service breakdown */}
+									{cfTotal > 0 && cfServicePie.length > 0 && (
+										<Card>
+											<CardHeader>
+												<CardTitle className={T.sectionHeading}>CF Services</CardTitle>
+											</CardHeader>
+											<CardContent>
+												<ResponsiveContainer width="100%" height={260}>
+													<PieChart>
+														<Pie
+															data={cfServicePie}
+															cx="50%"
+															cy="50%"
+															innerRadius={60}
+															outerRadius={100}
+															paddingAngle={4}
+															dataKey="value"
+															nameKey="name"
+															label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+															labelLine={false}
+															fontSize={T.chartLabel}
+														>
+															{cfServicePie.map((entry) => (
+																<Cell key={entry.name} fill={CF_SERVICE_COLORS[entry.name] ?? '#8796f4'} />
+															))}
+														</Pie>
+														<Tooltip
+															contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
+															itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
+															labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
+														/>
+													</PieChart>
+												</ResponsiveContainer>
+											</CardContent>
+										</Card>
+									)}
+
+									{/* CF actions breakdown */}
+									{cfTotal > 0 && cfActionPie.length > 0 && (
+										<Card>
+											<CardHeader>
+												<CardTitle className={T.sectionHeading}>CF Actions</CardTitle>
+											</CardHeader>
+											<CardContent>
+												<ResponsiveContainer width="100%" height={260}>
+													<BarChart data={cfActionPie} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
+														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
+														<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={120} />
+														<Tooltip
+															contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
+															itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
+															labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
+															formatter={(value: number) => [formatNumber(value), 'Requests']}
+														/>
+														<Bar dataKey="value" radius={[0, 4, 4, 0]}>
+															{cfActionPie.map((entry, i) => (
+																<Cell key={entry.name} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />
+															))}
+														</Bar>
+													</BarChart>
+												</ResponsiveContainer>
+											</CardContent>
+										</Card>
+									)}
 								</div>
 							</>
 						)}
@@ -741,23 +944,9 @@ export function OverviewDashboard() {
 									<div className="space-y-2">
 										{recentEvents.map((ev) => (
 											<div key={ev.id} className="flex items-center gap-3 rounded-md border border-border/50 bg-card/50 px-3 py-2 text-sm">
-												<WithTip
-													tip={
-														ev.source === 'purge'
-															? 'Cache purge request'
-															: ev.source === 'dns'
-																? 'DNS record operation'
-																: 'S3/R2 storage request'
-													}
-												>
+												<WithTip tip={sourceTip(ev.source)}>
 													<div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted/50">
-														{ev.source === 'purge' ? (
-															<Cloud className="h-3.5 w-3.5 text-lv-purple" />
-														) : ev.source === 'dns' ? (
-															<Globe className="h-3.5 w-3.5 text-lv-green" />
-														) : (
-															<HardDrive className="h-3.5 w-3.5 text-lv-cyan" />
-														)}
+														{sourceIcon(ev.source)}
 													</div>
 												</WithTip>
 												<StatusBadge status={ev.status} />

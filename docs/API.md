@@ -23,9 +23,11 @@ The machine-readable OpenAPI 3.1 specification is available at [`openapi.json`](
 - [7. DNS Proxy](#7-dns-proxy)
 - [8. DNS Analytics](#8-dns-analytics)
 - [9. S3 Proxy](#9-s3-proxy)
-- [10. Upstream Tokens](#10-upstream-tokens)
-- [11. Upstream R2](#11-upstream-r2)
-- [12. Config](#12-config)
+- [10. CF API Proxy](#10-cf-api-proxy)
+- [11. CF Proxy Analytics](#11-cf-proxy-analytics)
+- [12. Upstream Tokens](#12-upstream-tokens)
+- [13. Upstream R2](#13-upstream-r2)
+- [14. Config](#14-config)
 
 ---
 
@@ -1180,7 +1182,150 @@ All other R2 responses (404, 409, etc.) are passed through unchanged.
 
 ---
 
-## 10. Upstream Tokens
+## 10. CF API Proxy
+
+### `* /cf/accounts/:accountId/*`
+
+Proxies requests to the Cloudflare API (D1, KV, Workers, Queues, Vectorize, Hyperdrive) with IAM policy enforcement and account-level rate limiting.
+
+**Auth:** `Authorization: Bearer <api-key-id>`
+
+**Rate limit:** 200 req/sec per account, burst 400 (configurable via `cf_proxy_rps` / `cf_proxy_burst`).
+
+**Upstream:** Requires an account-scoped upstream token (`scope_type: "account"`). The gateway resolves the token for the account, then forwards the request to `https://api.cloudflare.com/client/v4/...` with the upstream token.
+
+#### Supported services and route prefixes
+
+| Service    | Route prefix (under `/cf`)                            | Actions prefix |
+| ---------- | ----------------------------------------------------- | -------------- |
+| D1         | `/accounts/:id/d1/database[/:dbId][/query\|raw\|...]` | `d1:*`         |
+| KV         | `/accounts/:id/storage/kv/namespaces[/:nsId][/...]`   | `kv:*`         |
+| Workers    | `/accounts/:id/workers/scripts[/:name][/...]`         | `workers:*`    |
+| Queues     | `/accounts/:id/queues[/:queueId][/...]`               | `queues:*`     |
+| Vectorize  | `/accounts/:id/vectorize/v2/indexes[/:name][/...]`    | `vectorize:*`  |
+| Hyperdrive | `/accounts/:id/hyperdrive/configs[/:id]`              | `hyperdrive:*` |
+
+#### Wrangler integration
+
+```bash
+export CLOUDFLARE_API_BASE_URL="https://gate.erfi.io/cf"
+export CLOUDFLARE_API_TOKEN="gw_abc123..."
+export CLOUDFLARE_ACCOUNT_ID="25f21f141824546aa72c74451a11b419"
+wrangler d1 list --json
+```
+
+#### Example requests
+
+```bash
+# List D1 databases
+curl "https://gate.erfi.io/cf/accounts/25f2.../d1/database" \
+  -H "Authorization: Bearer gw_abc123..."
+
+# Query D1
+curl -X POST "https://gate.erfi.io/cf/accounts/25f2.../d1/database/$DB_UUID/query" \
+  -H "Authorization: Bearer gw_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{"sql": "SELECT 1"}'
+
+# List KV namespaces
+curl "https://gate.erfi.io/cf/accounts/25f2.../storage/kv/namespaces" \
+  -H "Authorization: Bearer gw_abc123..."
+
+# List Workers scripts
+curl "https://gate.erfi.io/cf/accounts/25f2.../workers/scripts" \
+  -H "Authorization: Bearer gw_abc123..."
+```
+
+#### Error responses
+
+| Status | Cause                                                 |
+| ------ | ----------------------------------------------------- |
+| 400    | Invalid account ID format (must be 32 hex characters) |
+| 401    | Missing/invalid API key                               |
+| 403    | Key revoked, expired, or IAM policy denial            |
+| 429    | Account-level CF proxy rate limit exceeded            |
+| 502    | No account-scoped upstream token configured           |
+
+All other Cloudflare API responses are passed through unchanged.
+
+---
+
+## 11. CF Proxy Analytics
+
+### `GET /admin/cf/analytics/events`
+
+Query recent CF proxy events.
+
+**Auth:** Admin
+
+**Query parameters:**
+
+| Param      | Type   | Description                                                        |
+| ---------- | ------ | ------------------------------------------------------------------ |
+| account_id | string | Filter by account ID                                               |
+| key_id     | string | Filter by API key ID                                               |
+| service    | string | Filter by service (d1, kv, workers, queues, vectorize, hyperdrive) |
+| action     | string | Filter by action (e.g. `d1:query`, `kv:get_value`)                 |
+| since      | number | Start time (epoch ms)                                              |
+| until      | number | End time (epoch ms)                                                |
+| limit      | number | Max results (default 100)                                          |
+
+**Example response:**
+
+```json
+{
+	"success": true,
+	"result": [
+		{
+			"id": 42,
+			"key_id": "gw_abc123...",
+			"account_id": "25f21f14...",
+			"service": "d1",
+			"action": "d1:query",
+			"resource_id": "a1b2c3d4-...",
+			"status": 200,
+			"upstream_status": 200,
+			"duration_ms": 45,
+			"upstream_latency_ms": 38,
+			"response_size": 1024,
+			"response_detail": "{\"success\":true,...}",
+			"created_by": "user@example.com",
+			"created_at": 1704067200000
+		}
+	]
+}
+```
+
+---
+
+### `GET /admin/cf/analytics/summary`
+
+Aggregated CF proxy analytics.
+
+**Auth:** Admin
+
+**Query parameters:** Same as events (except `limit`).
+
+**Example response:**
+
+```json
+{
+	"success": true,
+	"result": {
+		"total_requests": 1500,
+		"by_status": { "200": 1400, "403": 50, "429": 30, "502": 20 },
+		"by_service": { "d1": 800, "kv": 400, "workers": 200, "queues": 100 },
+		"by_action": { "d1:query": 600, "d1:list": 200, "kv:get_value": 300 },
+		"avg_duration_ms": 42,
+		"avg_upstream_latency_ms": 35,
+		"avg_response_size": 2048
+	}
+}
+```
+
+---
+
+## 12. Upstream Tokens
 
 Manage upstream Cloudflare API tokens used for proxying cache purge and DNS requests. Admin auth required.
 
@@ -1339,7 +1484,7 @@ Bulk delete upstream tokens.
 
 ---
 
-## 11. Upstream R2
+## 13. Upstream R2
 
 Manage upstream R2 endpoints for S3 proxy forwarding. Admin auth required.
 
@@ -1505,7 +1650,7 @@ Bulk delete upstream R2 endpoints.
 
 ---
 
-## 12. Config
+## 14. Config
 
 Gateway configuration management. Admin auth required.
 
@@ -1523,6 +1668,8 @@ Gateway configuration management. Admin auth required.
 | `retention_days`     | 30      | D1 analytics retention period (days)                |
 | `s3_rps`             | 100     | S3 proxy account-level requests per second          |
 | `s3_burst`           | 200     | S3 proxy account-level burst capacity               |
+| `cf_proxy_rps`       | 200     | CF API proxy account-level requests per second      |
+| `cf_proxy_burst`     | 400     | CF API proxy account-level burst capacity           |
 
 Config resolution order: admin override (highest) > env var > hardcoded default.
 
@@ -1699,6 +1846,14 @@ Returns the newly resolved config after the override is removed.
 | 42  | GET    | `/admin/upstream-r2/:id`               | UpstreamR2     | Admin       |
 | 43  | DELETE | `/admin/upstream-r2/:id`               | UpstreamR2     | Admin       |
 | 44  | POST   | `/admin/upstream-r2/bulk-delete`       | UpstreamR2     | Admin       |
-| 45  | GET    | `/admin/config`                        | Config         | Admin       |
-| 46  | PUT    | `/admin/config`                        | Config         | Admin       |
-| 47  | DELETE | `/admin/config/:key`                   | Config         | Admin       |
+| 45  | \*     | `/cf/accounts/:accountId/d1/*`         | CfProxy        | ApiKeyAuth  |
+| 46  | \*     | `/cf/accounts/:accountId/storage/kv/*` | CfProxy        | ApiKeyAuth  |
+| 47  | \*     | `/cf/accounts/:accountId/workers/*`    | CfProxy        | ApiKeyAuth  |
+| 48  | \*     | `/cf/accounts/:accountId/queues/*`     | CfProxy        | ApiKeyAuth  |
+| 49  | \*     | `/cf/accounts/:accountId/vectorize/*`  | CfProxy        | ApiKeyAuth  |
+| 50  | \*     | `/cf/accounts/:accountId/hyperdrive/*` | CfProxy        | ApiKeyAuth  |
+| 51  | GET    | `/admin/cf/analytics/events`           | CfAnalytics    | Admin       |
+| 52  | GET    | `/admin/cf/analytics/summary`          | CfAnalytics    | Admin       |
+| 53  | GET    | `/admin/config`                        | Config         | Admin       |
+| 54  | PUT    | `/admin/config`                        | Config         | Admin       |
+| 55  | DELETE | `/admin/config/:key`                   | Config         | Admin       |

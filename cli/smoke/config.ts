@@ -3,7 +3,7 @@
  */
 
 import type { SmokeContext } from './helpers.js';
-import { admin, section, assertStatus, assertJson, assertTruthy } from './helpers.js';
+import { admin, section, assertStatus, assertJson, assertTruthy, state } from './helpers.js';
 
 export async function run(_ctx: SmokeContext): Promise<void> {
 	section('Config Registry');
@@ -24,6 +24,7 @@ export async function run(_ctx: SmokeContext): Promise<void> {
 
 	const putRes = await admin('PUT', '/admin/config', { bulk_rate: 99 });
 	assertStatus('PUT /admin/config -> 200', putRes, 200);
+	state.configOverrides.push('bulk_rate');
 
 	const afterPut = await admin('GET', '/admin/config');
 	assertJson('bulk_rate overridden to 99', afterPut.body?.result?.config?.bulk_rate, 99);
@@ -36,6 +37,7 @@ export async function run(_ctx: SmokeContext): Promise<void> {
 
 	const delRes = await admin('DELETE', '/admin/config/bulk_rate');
 	assertStatus('DELETE /admin/config/bulk_rate -> 200', delRes, 200);
+	state.configOverrides = state.configOverrides.filter((k) => k !== 'bulk_rate');
 
 	const afterDel = await admin('GET', '/admin/config');
 	assertJson('bulk_rate reset to default', afterDel.body?.result?.config?.bulk_rate, defaultBulkRate);

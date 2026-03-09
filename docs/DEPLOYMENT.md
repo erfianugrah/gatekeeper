@@ -42,7 +42,7 @@ upstream credential storage. It uses SQLite for persistence.
 
 ### D1 Database
 
-A D1 database stores purge and S3 analytics events.
+A D1 database stores purge, S3, DNS, and CF proxy analytics events.
 
 ```jsonc
 "d1_databases": [
@@ -154,6 +154,11 @@ env vars or secrets. They are registered at runtime via the admin API and stored
 in the Durable Object's SQLite database. This allows managing multiple upstream
 tokens with different zone/bucket scopes, rotating credentials without
 redeploying, and auditing who registered what.
+
+Account-scoped upstream tokens (`--scope-type account`) are needed for CF proxy
+services (D1, KV, Workers, Queues, Vectorize, Hyperdrive). For smoke tests, the
+CF proxy token (`CF_PROXY_TOKEN` or `UPSTREAM_CF_TOKEN`) must be present in
+`.env` so the test orchestrator can register it at runtime.
 
 See the [CLI reference](CLI.md) for `upstream-tokens create` and
 `upstream-r2 create`.

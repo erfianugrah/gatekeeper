@@ -54,6 +54,10 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const dnsUpstreamId = dnsUpstream.body?.result?.id;
 	assertStatus('register DNS upstream token -> 200', dnsUpstream, 200);
 	assertTruthy('DNS upstream token has id', dnsUpstreamId);
+	if (dnsUpstreamId) {
+		ctx.dnsUpstreamId = dnsUpstreamId;
+		state.createdUpstreamTokens.push(dnsUpstreamId);
+	}
 
 	// ─── DNS Key Setup ──────────────────────────────────────────────
 
@@ -108,6 +112,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	assertStatus('create TXT record -> 200', created, 200);
 	const recordId = created.body?.result?.id;
 	assertTruthy('created record has id', recordId);
+	if (recordId) state.createdDnsRecords.push({ zoneId: ZONE, recordId });
 
 	if (recordId) {
 		// Read single
@@ -129,6 +134,8 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		// Delete
 		const deleted = await dns(DNS_WILDCARD_ID, 'DELETE', `${DNS_BASE}/${recordId}`);
 		assertStatus('delete record -> 200', deleted, 200);
+		// Remove from crash-cleanup list
+		state.createdDnsRecords = state.createdDnsRecords.filter((r) => r.recordId !== recordId);
 
 		// Verify deleted — GET should return 404 (CF API) or error
 		const verifyDel = await dns(DNS_WILDCARD_ID, 'GET', `${DNS_BASE}/${recordId}`);
@@ -164,6 +171,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	assertStatus('canonical: create TXT record -> 200', cfCreated, 200);
 	const cfRecordId = cfCreated.body?.result?.id;
 	assertTruthy('canonical: created record has id', cfRecordId);
+	if (cfRecordId) state.createdDnsRecords.push({ zoneId: ZONE, recordId: cfRecordId });
 
 	if (cfRecordId) {
 		// Read single via canonical path
@@ -173,6 +181,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		// Delete via canonical path
 		const cfDel = await dns(DNS_WILDCARD_ID, 'DELETE', `${CF_DNS_BASE}/${cfRecordId}`);
 		assertStatus('canonical: delete record -> 200', cfDel, 200);
+		state.createdDnsRecords = state.createdDnsRecords.filter((r) => r.recordId !== cfRecordId);
 	}
 
 	// Auth tests on canonical path
@@ -246,8 +255,10 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	assertStatus('create-only key: create -> 200', coCreated, 200);
 	// Clean up with the wildcard key
 	const coRecordId = coCreated.body?.result?.id;
+	if (coRecordId) state.createdDnsRecords.push({ zoneId: ZONE, recordId: coRecordId });
 	if (coRecordId) {
 		await dns(DNS_WILDCARD_ID, 'DELETE', `${DNS_BASE}/${coRecordId}`);
+		state.createdDnsRecords = state.createdDnsRecords.filter((r) => r.recordId !== coRecordId);
 	}
 
 	// ─── DNS Condition Scoping ──────────────────────────────────────
@@ -306,6 +317,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	});
 	assertStatus('deny-delete key: create -> 200', ddCreated, 200);
 	const ddRecordId = ddCreated.body?.result?.id;
+	if (ddRecordId) state.createdDnsRecords.push({ zoneId: ZONE, recordId: ddRecordId });
 
 	if (ddRecordId) {
 		const ddDeleteDenied = await dns(DNS_DENY_DEL_ID, 'DELETE', `${DNS_BASE}/${ddRecordId}`);
@@ -313,6 +325,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 
 		// Clean up with wildcard key
 		await dns(DNS_WILDCARD_ID, 'DELETE', `${DNS_BASE}/${ddRecordId}`);
+		state.createdDnsRecords = state.createdDnsRecords.filter((r) => r.recordId !== ddRecordId);
 	}
 
 	// Deny-only policy: deny dns:* with no allow → everything denied
@@ -422,8 +435,11 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		try {
 			await admin('DELETE', `/admin/upstream-tokens/${dnsUpstreamId}`);
 			console.log(`  Cleaned up DNS upstream token ${dnsUpstreamId}`);
+			// Remove from crash-cleanup list since we just deleted it
+			const idx = state.createdUpstreamTokens.indexOf(dnsUpstreamId);
+			if (idx >= 0) state.createdUpstreamTokens.splice(idx, 1);
 		} catch {
-			/* best effort */
+			/* best effort — crash cleanup will retry */
 		}
 	}
 }

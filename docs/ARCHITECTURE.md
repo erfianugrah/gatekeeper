@@ -1,6 +1,6 @@
 # Gatekeeper Architecture
 
-Gatekeeper is a Cloudflare Workers API gateway that sits in front of the Cloudflare purge API, DNS Records API, and R2 S3-compatible storage. It provides IAM-style access control, token-bucket rate limiting, request collapsing, and a full management dashboard -- all running on a single Worker with a single Durable Object.
+Gatekeeper is a Cloudflare Workers API gateway that sits in front of the Cloudflare purge API, DNS Records API, R2 S3-compatible storage, and the broader Cloudflare API (D1, KV, Workers, Queues, Vectorize, Hyperdrive). It provides IAM-style access control, token-bucket rate limiting, request collapsing, and a full management dashboard -- all running on a single Worker with a single Durable Object.
 
 ---
 
@@ -136,7 +136,7 @@ Upstream Cloudflare API tokens and R2 endpoint credentials are stored in the DO,
 
 ## Bounded Contexts
 
-The system is divided into ten bounded contexts, each with a clear responsibility:
+The system is divided into twelve bounded contexts, each with a clear responsibility:
 
 ### 1. IAM (API Keys)
 
@@ -170,7 +170,7 @@ An S3-compatible proxy at `/s3/*`. Receives requests signed with AWS Sig V4 (hea
 
 **Files:** `src/config-registry.ts`, `src/routes/admin-config.ts`
 
-The runtime config registry. Stores key-value overrides in DO SQLite with a three-tier resolution order: registry override (highest priority), then env var fallback, then hardcoded default. Ten config keys control rate limits (`bulk_rate`, `bulk_bucket_size`, `single_rate`, `single_bucket_size`, `bulk_max_ops`, `single_max_ops`), S3 rate limits (`s3_rps`, `s3_burst`), cache TTL (`key_cache_ttl_ms`), and analytics retention (`retention_days`). Writing a config value triggers an immediate token bucket rebuild.
+The runtime config registry. Stores key-value overrides in DO SQLite with a three-tier resolution order: registry override (highest priority), then env var fallback, then hardcoded default. Twelve config keys control rate limits (`bulk_rate`, `bulk_bucket_size`, `single_rate`, `single_bucket_size`, `bulk_max_ops`, `single_max_ops`), S3 rate limits (`s3_rps`, `s3_burst`), CF proxy rate limits (`cf_proxy_rps`, `cf_proxy_burst`), cache TTL (`key_cache_ttl_ms`), and analytics retention (`retention_days`). Writing a config value triggers an immediate token bucket rebuild.
 
 ### 6. Analytics (Purge)
 
@@ -205,6 +205,18 @@ CRUD operations: create, list, get, delete, bulk delete.
 **Files:** `src/dns/routes.ts`, `src/dns/operations.ts`, `src/dns/analytics.ts`, `src/routes/admin-dns-analytics.ts`
 
 Proxies Cloudflare DNS Records API operations (`/v1/zones/:zoneId/dns_records/*`). Uses the same API keys and upstream tokens as purge. Eight IAM actions (`dns:create`, `dns:read`, `dns:update`, `dns:delete`, `dns:batch`, `dns:export`, `dns:import`, `dns:*`) with seven condition fields (`dns.name`, `dns.type`, `dns:content`, `dns.proxied`, `dns.ttl`, `dns.comment`, `dns.tags`). DELETE operations perform a pre-flight GET to resolve record metadata for policy evaluation. Batch operations decompose into individual authorization contexts per sub-operation. DNS events are logged to D1 (`dns_events` table) and share the same retention cron as purge and S3.
+
+### 11. CF Proxy
+
+**Files:** `src/cf/router.ts`, `src/cf/service-handler.ts`, `src/cf/proxy-helpers.ts`, `src/cf/d1/routes.ts`, `src/cf/kv/routes.ts`, `src/cf/workers/routes.ts`, `src/cf/queues/routes.ts`, `src/cf/vectorize/routes.ts`, `src/cf/hyperdrive/routes.ts`, `src/cf/dns/routes.ts`
+
+Generic proxy for the broader Cloudflare API. Mounted at `/cf/*`, it covers D1 (12 endpoints), KV (13 endpoints), Workers (39 endpoints), Queues (17 endpoints), Vectorize (14 endpoints), Hyperdrive (6 endpoints), and zone-scoped DNS (9 endpoints). Each request is authenticated, authorized via the IAM policy engine, rate-limited via the `cfProxyBucket` token bucket, and forwarded to `api.cloudflare.com` using the best-matching upstream token. Per-service route files define the endpoint mappings; the shared `service-handler.ts` provides generic auth + proxy + analytics logic.
+
+### 12. CF Proxy Analytics
+
+**Files:** `src/cf/analytics.ts`, `src/routes/admin-cf-analytics.ts`
+
+Logs CF proxy events to D1 (`cf_proxy_events` table). Each event records the service, operation, status, duration, and key ID. Provides query endpoints for event listing (with filters) and summary aggregation. Shares the same retention cron as purge, DNS, and S3 analytics.
 
 ---
 
@@ -250,13 +262,15 @@ The Worker communicates with the DO via RPC (Durable Object method calls). The `
 
 **Upstream R2:** `createUpstreamR2()`, `listUpstreamR2()`, `getUpstreamR2()`, `deleteUpstreamR2()`, `bulkDeleteUpstreamR2()`, `bulkInspectUpstreamR2()`, `resolveR2ForBucket()`, `resolveR2ForListBuckets()`
 
+**CF Proxy:** `consumeCfProxyRateLimit(): Promise<ConsumeResult>`, `drainCfProxyBucket(): Promise<void>`
+
 **Config:** `getConfig()`, `setConfig()`, `resetConfigKey()`, `listConfigOverrides()`
 
 ### In-Memory State
 
 Beyond SQLite, the DO holds transient in-memory state:
 
-- **Token buckets** (`bulkBucket`, `singleBucket`, `s3Bucket`) -- lazy-refill, no I/O.
+- **Token buckets** (`bulkBucket`, `singleBucket`, `s3Bucket`, `cfProxyBucket`) -- lazy-refill, no I/O.
 - **Per-key buckets** (`keyBuckets: Map`) -- lazily created when a key with custom rate limits is first used. Cleared when account-level rate-limit config changes.
 - **Request collapser** (`RequestCollapser<PurgeResult>`) -- deduplicates identical purge requests within a 50ms grace window.
 - **Credential caches** -- each manager caches lookups in memory with a configurable TTL (default 60s).
@@ -368,16 +382,16 @@ Chart color slots: `#c574dd`, `#5adecd`, `#f37e96`, `#f1a171`, `#8796f4`.
 
 ### Pages
 
-| Route                        | Content                                                                                         |
-| ---------------------------- | ----------------------------------------------------------------------------------------------- |
-| `/dashboard`                 | Summary stats, traffic timeline (area chart), purge type donut, top zones, recent events        |
-| `/dashboard/keys`            | API key CRUD with filter tabs, search, sortable columns, expandable detail rows, policy builder |
-| `/dashboard/s3-credentials`  | S3 credential CRUD with policy preview (ALLOW/DENY badges), AWS IAM import                      |
-| `/dashboard/upstream-tokens` | Upstream CF API token registry                                                                  |
-| `/dashboard/upstream-r2`     | Upstream R2 endpoint registry                                                                   |
-| `/dashboard/analytics`       | Unified event log (purge + DNS + S3) with filters, expandable detail rows, JSON export          |
-| `/dashboard/purge`           | Manual purge form with live rate-limit status                                                   |
-| `/dashboard/settings`        | Config registry editor with inline edit, reset-to-default                                       |
+| Route                        | Content                                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------------------------- |
+| `/dashboard`                 | Summary stats, traffic timeline (area chart), purge type donut, top zones, recent events          |
+| `/dashboard/keys`            | API key CRUD with filter tabs, search, sortable columns, expandable detail rows, policy builder   |
+| `/dashboard/s3-credentials`  | S3 credential CRUD with policy preview (ALLOW/DENY badges), AWS IAM import                        |
+| `/dashboard/upstream-tokens` | Upstream CF API token registry                                                                    |
+| `/dashboard/upstream-r2`     | Upstream R2 endpoint registry                                                                     |
+| `/dashboard/analytics`       | Unified event log (purge + DNS + S3 + CF proxy) with filters, expandable detail rows, JSON export |
+| `/dashboard/purge`           | Manual purge form with live rate-limit status                                                     |
+| `/dashboard/settings`        | Config registry editor with inline edit, reset-to-default                                         |
 
 ### Component Inventory
 
@@ -460,7 +474,7 @@ Pure crypto modules (`sig-v4-verify.ts`, `sig-v4-sign.ts`) do not emit breadcrum
 
 ### D1 Analytics
 
-Purge, DNS, and S3 events are persisted to a D1 database (`gatekeeper-analytics`) for queryable history. The admin API exposes event listing (with filters for status, type, zone, time range) and summary aggregation (counts, status breakdowns, average latency).
+Purge, DNS, S3, and CF proxy events are persisted to a D1 database (`gatekeeper-analytics`) for queryable history. CF proxy events are stored in the `cf_proxy_events` table. The admin API exposes event listing (with filters for status, type, zone, time range) and summary aggregation (counts, status breakdowns, average latency).
 
 A daily cron trigger at 03:00 UTC deletes events older than the configured `retention_days` (default 30).
 
@@ -517,6 +531,18 @@ src/
     routes.ts                        Hono sub-app: auth, batch delete, analytics logging
     xml.ts                           S3 XML error responses, DeleteObjects XML parsing
     analytics.ts                     D1 analytics for S3 (logS3Event, queryS3Events, queryS3Summary)
+  cf/                              CF API proxy module
+    router.ts                      Main router (mounted at /cf)
+    service-handler.ts             Generic auth + proxy + analytics handler
+    proxy-helpers.ts               Shared utilities (validation, upstream resolution, response building)
+    analytics.ts                   CF proxy D1 analytics (cf_proxy_events table)
+    d1/routes.ts                   D1 routes (12 endpoints)
+    kv/routes.ts                   KV routes (13 endpoints)
+    workers/routes.ts              Workers routes (39 endpoints)
+    queues/routes.ts               Queues routes (17 endpoints)
+    vectorize/routes.ts            Vectorize routes (14 endpoints)
+    hyperdrive/routes.ts           Hyperdrive routes (6 endpoints)
+    dns/routes.ts                  DNS routes (zone-scoped, 9 endpoints)
 cli/
   index.ts                           Entry point (citty, 10 subcommands)
   smoke-test.ts                      E2E smoke test orchestrator
@@ -619,16 +645,16 @@ Reference values from `src/constants.ts`:
 
 From `wrangler.jsonc`:
 
-| Binding                | Type              | Purpose                                        |
-| ---------------------- | ----------------- | ---------------------------------------------- |
-| `GATEKEEPER`           | Durable Object    | Single DO instance for all gateway state       |
-| `ANALYTICS_DB`         | D1 Database       | Purge, DNS, and S3 analytics event storage     |
-| `ASSETS`               | Static Assets     | Dashboard SPA files                            |
-| `ADMIN_KEY`            | Secret            | Admin API authentication                       |
-| `CF_ACCESS_TEAM_NAME`  | Secret (optional) | Cloudflare Access team name for JWT validation |
-| `CF_ACCESS_AUD`        | Secret (optional) | Cloudflare Access audience tag                 |
-| `RBAC_ADMIN_GROUPS`    | Secret (optional) | Comma-separated IdP groups mapped to admin     |
-| `RBAC_OPERATOR_GROUPS` | Secret (optional) | Comma-separated IdP groups mapped to operator  |
-| `RBAC_VIEWER_GROUPS`   | Secret (optional) | Comma-separated IdP groups mapped to viewer    |
+| Binding                | Type              | Purpose                                              |
+| ---------------------- | ----------------- | ---------------------------------------------------- |
+| `GATEKEEPER`           | Durable Object    | Single DO instance for all gateway state             |
+| `ANALYTICS_DB`         | D1 Database       | Purge, DNS, S3, and CF proxy analytics event storage |
+| `ASSETS`               | Static Assets     | Dashboard SPA files                                  |
+| `ADMIN_KEY`            | Secret            | Admin API authentication                             |
+| `CF_ACCESS_TEAM_NAME`  | Secret (optional) | Cloudflare Access team name for JWT validation       |
+| `CF_ACCESS_AUD`        | Secret (optional) | Cloudflare Access audience tag                       |
+| `RBAC_ADMIN_GROUPS`    | Secret (optional) | Comma-separated IdP groups mapped to admin           |
+| `RBAC_OPERATOR_GROUPS` | Secret (optional) | Comma-separated IdP groups mapped to operator        |
+| `RBAC_VIEWER_GROUPS`   | Secret (optional) | Comma-separated IdP groups mapped to viewer          |
 
-Cron trigger: `0 3 * * *` (daily at 03:00 UTC) for analytics retention cleanup.
+Cron trigger: `0 3 * * *` (daily at 03:00 UTC) for analytics retention cleanup (purge, DNS, S3, and CF proxy events).

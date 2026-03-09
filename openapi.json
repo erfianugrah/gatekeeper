@@ -3184,6 +3184,14 @@
                     "type": "string",
                     "minLength": 1
                   },
+                  "scope_type": {
+                    "default": "zone",
+                    "type": "string",
+                    "enum": [
+                      "zone",
+                      "account"
+                    ]
+                  },
                   "zone_ids": {
                     "minItems": 1,
                     "type": "array",
@@ -5112,9 +5120,17 @@
           "name": {
             "type": "string"
           },
+          "scope_type": {
+            "type": "string",
+            "enum": [
+              "zone",
+              "account"
+            ],
+            "description": "'zone' for zone-scoped ops, 'account' for dev platform ops"
+          },
           "zone_ids": {
             "type": "string",
-            "description": "Comma-separated zone IDs or \"*\""
+            "description": "Comma-separated zone/account IDs or \"*\""
           },
           "token_preview": {
             "type": "string",
@@ -5137,6 +5153,7 @@
         "required": [
           "id",
           "name",
+          "scope_type",
           "zone_ids",
           "token_preview",
           "created_at",
@@ -5269,6 +5286,12 @@
           },
           "s3_burst": {
             "type": "number"
+          },
+          "cf_proxy_rps": {
+            "type": "number"
+          },
+          "cf_proxy_burst": {
+            "type": "number"
           }
         },
         "required": [
@@ -5281,7 +5304,9 @@
           "key_cache_ttl_ms",
           "retention_days",
           "s3_rps",
-          "s3_burst"
+          "s3_burst",
+          "cf_proxy_rps",
+          "cf_proxy_burst"
         ],
         "additionalProperties": false,
         "description": "Resolved gateway configuration"

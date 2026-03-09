@@ -79,14 +79,18 @@ Manage API keys. All subcommands require `--admin-key` and `--zone-id`.
 Create a new API key with a policy document.
 
 ```
-gk keys create --name <name> --policy <json|@file> [--zone-id <id>] [--expires-in-days <n>] [flags]
+gk keys create --name <name> --policy <json|@file> [--zone-id <id>] [--account-scoped] [--expires-in-days <n>] [flags]
 ```
 
-| Flag                | Type   | Required | Description                                   |
-| ------------------- | ------ | -------- | --------------------------------------------- |
-| `--name`            | string | yes      | Human-readable key name                       |
-| `--policy`          | string | yes      | Policy as JSON string or `@path/to/file.json` |
-| `--expires-in-days` | string | no       | Auto-expire after N days                      |
+| Flag                | Type    | Required | Description                                                           |
+| ------------------- | ------- | -------- | --------------------------------------------------------------------- |
+| `--name`            | string  | yes      | Human-readable key name                                               |
+| `--policy`          | string  | yes      | Policy as JSON string or `@path/to/file.json`                         |
+| `--expires-in-days` | string  | no       | Auto-expire after N days                                              |
+| `--account-scoped`  | boolean | no       | Create a key without zone scope (for CF proxy: D1, KV, Workers, etc.) |
+
+When `--account-scoped` is set, the key is not bound to a zone. The policy should
+use `account:<id>` resources instead of `zone:<id>`.
 
 ```bash
 gk keys create \
@@ -94,6 +98,16 @@ gk keys create \
   --policy '{"version":"2025-01-01","statements":[{"effect":"allow","actions":["purge:host"],"resources":["zone:abc123"],"conditions":[{"field":"host","operator":"eq","value":"staging.example.com"}]}]}' \
   --zone-id abc123 \
   --expires-in-days 90
+
+# Account-scoped key for CF proxy
+gk keys create --account-scoped --name "ci-d1-readonly" --policy '{
+  "version": "2025-01-01",
+  "statements": [{
+    "effect": "allow",
+    "actions": ["d1:list", "d1:get", "d1:query"],
+    "resources": ["account:25f21f141824546aa72c74451a11b419"]
+  }]
+}'
 ```
 
 ### keys list
@@ -488,30 +502,40 @@ gk s3-analytics summary --since 2025-01-01T00:00:00Z
 
 ## upstream-tokens
 
-Manage upstream Cloudflare API tokens for purge and DNS. Requires `--admin-key`. Not
+Manage upstream Cloudflare API tokens for purge, DNS, and CF proxy. Requires `--admin-key`. Not
 zone-scoped.
 
 ### upstream-tokens create
 
-Register a Cloudflare API token for upstream purge and DNS requests.
+Register a Cloudflare API token for upstream purge, DNS, or CF proxy requests.
 
 ```
-gk upstream-tokens create --name <name> --zone-ids <ids> [--token <token>] [flags]
+gk upstream-tokens create --name <name> --zone-ids <ids> [--scope-type <type>] [--token <token>] [flags]
 ```
 
-| Flag         | Type   | Required | Description                                                |
-| ------------ | ------ | -------- | ---------------------------------------------------------- |
-| `--name`     | string | yes      | Human-readable name for this token                         |
-| `--token`    | string | no       | Cloudflare API token value (`$UPSTREAM_CF_TOKEN`)          |
-| `--zone-ids` | string | yes      | Comma-separated zone IDs this token covers, or `*` for all |
+| Flag           | Type   | Required | Description                                                                        |
+| -------------- | ------ | -------- | ---------------------------------------------------------------------------------- |
+| `--name`       | string | yes      | Human-readable name for this token                                                 |
+| `--token`      | string | no       | Cloudflare API token value (`$UPSTREAM_CF_TOKEN`)                                  |
+| `--zone-ids`   | string | yes      | Comma-separated zone IDs this token covers, or `*` for all                         |
+| `--scope-type` | string | no       | `zone` (default, for purge/DNS) or `account` (for CF proxy: D1, KV, Workers, etc.) |
 
 If `--token` is omitted, the CLI reads from `$UPSTREAM_CF_TOKEN`.
+
+For account-scoped tokens (`--scope-type account`), the `--zone-ids` parameter
+contains Cloudflare **account IDs** (not zone IDs).
 
 ```bash
 gk upstream-tokens create \
   --name "prod-purge" \
   --token "cf-api-token-value" \
   --zone-ids "zone1,zone2"
+
+# Account-scoped token for CF proxy
+gk upstream-tokens create \
+  --name "cf-proxy-token" \
+  --scope-type account \
+  --zone-ids "$CF_ACCOUNT_ID"
 ```
 
 ### upstream-tokens list
@@ -741,6 +765,12 @@ gk dns-analytics summary --zone-id abc123
 # Summary for a time range
 gk dns-analytics summary --since 2025-01-01T00:00:00Z --json
 ```
+
+---
+
+## cf-analytics
+
+CF proxy analytics are currently available via the admin HTTP API only (no CLI command). See the [API Reference](API.md#11-cf-proxy-analytics) for endpoint details.
 
 ---
 

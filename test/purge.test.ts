@@ -319,12 +319,17 @@ describe('Purge — client-side rate limiting', () => {
 	it('multi-file purge consumes N tokens from single bucket', async () => {
 		const keyId = await createKeyWithPolicy(urlPrefixPolicy('https://example.com/'));
 
-		// Drain the single bucket completely, then the 30-URL purge should be rejected
+		// Drain the single bucket to 0 tokens.
+		// Then send a 500-URL purge that costs 500 tokens from the single bucket.
+		// Even if 100ms elapses between drain and the request (unlikely), the refill
+		// rate of 3000/sec only restores ~300 tokens — far short of the 500 needed.
+		// The original test used 30 URLs (cost = 30 tokens) which was flaky because
+		// even ~10ms of refill at 3000/sec restored exactly 30 tokens.
 		const stub = env.GATEKEEPER.get(env.GATEKEEPER.idFromName('account'));
-		await stub.consume('single', 6000);
+		await stub.drainBucket('single');
 
-		// A 30-URL purge should fail — the bucket is drained and costs 30 tokens
-		const urls = Array.from({ length: 30 }, (_, i) => `https://example.com/page-${i}.html`);
+		const FILE_COUNT = 500;
+		const urls = Array.from({ length: FILE_COUNT }, (_, i) => `https://example.com/page-${i}.html`);
 		const res = await SELF.fetch(`http://localhost/v1/zones/${ZONE_ID}/purge_cache`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },

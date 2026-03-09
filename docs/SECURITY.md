@@ -231,21 +231,78 @@ Namespaced by service. Wildcard suffix supported (`purge:*` matches all purge ac
 | `dns:import` | Import zone file (BIND format)                               |
 | `dns:*`      | All DNS actions                                              |
 
+#### D1 service (10 actions)
+
+| Action           | Description                  |
+| ---------------- | ---------------------------- |
+| `d1:create`      | Create a new database        |
+| `d1:list`        | List databases               |
+| `d1:get`         | Get database details         |
+| `d1:update`      | Update database metadata     |
+| `d1:delete`      | Delete a database            |
+| `d1:query`       | Execute SQL query            |
+| `d1:raw`         | Execute raw SQL              |
+| `d1:export`      | Export database              |
+| `d1:import`      | Import into database         |
+| `d1:time_travel` | Time travel bookmark/restore |
+
+#### KV service (13 actions)
+
+| Action                | Description            |
+| --------------------- | ---------------------- |
+| `kv:create_namespace` | Create namespace       |
+| `kv:list_namespaces`  | List namespaces        |
+| `kv:get_namespace`    | Get namespace details  |
+| `kv:update_namespace` | Update namespace       |
+| `kv:delete_namespace` | Delete namespace       |
+| `kv:list_keys`        | List keys in namespace |
+| `kv:put_value`        | Write a value          |
+| `kv:get_value`        | Read a value           |
+| `kv:delete_value`     | Delete a value         |
+| `kv:get_metadata`     | Get key metadata       |
+| `kv:bulk_write`       | Bulk write values      |
+| `kv:bulk_delete`      | Bulk delete keys       |
+| `kv:bulk_get`         | Bulk get values        |
+
+#### Workers service (39 actions)
+
+The Workers service covers 39 actions spanning the full lifecycle of Worker scripts: `workers:list_scripts`, `workers:get_script`, `workers:update_script`, `workers:delete_script`, `workers:get_content`, `workers:update_content`, `workers:get_settings`, `workers:update_settings`, and more covering scripts CRUD, content, settings, versions, deployments, secrets, schedules, tails, subdomain, assets, account settings, domains, and observability telemetry. The wildcard `workers:*` matches all 39 actions.
+
+#### Queues service (17 actions)
+
+The Queues service covers 17 actions: queue CRUD (`queues:create`, `queues:list`, `queues:get`, `queues:update`, `queues:edit`, `queues:delete`), message operations (`queues:push_message`, `queues:bulk_push_messages`, `queues:pull_messages`, `queues:ack_messages`, `queues:purge`, `queues:purge_status`), and consumer operations (`queues:create_consumer`, `queues:list_consumers`, `queues:get_consumer`, `queues:update_consumer`, `queues:delete_consumer`). The wildcard `queues:*` matches all 17 actions.
+
+#### Vectorize service (14 actions)
+
+The Vectorize service covers 14 actions: index CRUD (`vectorize:create_index`, `vectorize:list_indexes`, `vectorize:get_index`, `vectorize:update_index`, `vectorize:delete_index`), vector operations (`vectorize:query`, `vectorize:insert`, `vectorize:upsert`, `vectorize:get_by_ids`, `vectorize:delete_by_ids`, `vectorize:list_vectors`), and metadata index operations (`vectorize:create_metadata_index`, `vectorize:list_metadata_indexes`, `vectorize:delete_metadata_index`). The wildcard `vectorize:*` matches all 14 actions.
+
+#### Hyperdrive service (6 actions)
+
+| Action              | Description           |
+| ------------------- | --------------------- |
+| `hyperdrive:create` | Create a config       |
+| `hyperdrive:list`   | List configs          |
+| `hyperdrive:get`    | Get config details    |
+| `hyperdrive:update` | Update a config       |
+| `hyperdrive:edit`   | Edit (patch) a config |
+| `hyperdrive:delete` | Delete a config       |
+
 ### Resources
 
 Typed identifiers with optional wildcards.
 
-| Pattern                    | Matches                                 |
-| -------------------------- | --------------------------------------- |
-| `zone:<id>`                | Specific zone (purge service)           |
-| `zone:*`                   | All zones                               |
-| `bucket:<name>`            | Specific R2 bucket (S3 service)         |
-| `bucket:staging-*`         | Buckets matching prefix                 |
-| `object:<bucket>/<key>`    | Specific object                         |
-| `object:<bucket>/*`        | All objects in a bucket                 |
-| `object:<bucket>/public/*` | Objects under a key prefix              |
-| `account:*`                | Account-level (ListBuckets)             |
-| `*`                        | Everything (dangerous -- use sparingly) |
+| Pattern                    | Matches                                                                     |
+| -------------------------- | --------------------------------------------------------------------------- |
+| `zone:<id>`                | Specific zone (purge service)                                               |
+| `zone:*`                   | All zones                                                                   |
+| `bucket:<name>`            | Specific R2 bucket (S3 service)                                             |
+| `bucket:staging-*`         | Buckets matching prefix                                                     |
+| `object:<bucket>/<key>`    | Specific object                                                             |
+| `object:<bucket>/*`        | All objects in a bucket                                                     |
+| `object:<bucket>/public/*` | Objects under a key prefix                                                  |
+| `account:*`                | Account-level (S3 ListBuckets, CF proxy)                                    |
+| `account:<id>`             | Specific account (CF proxy: D1, KV, Workers, Queues, Vectorize, Hyperdrive) |
+| `*`                        | Everything (dangerous -- use sparingly)                                     |
 
 **Matching rules:**
 
@@ -337,6 +394,51 @@ The expression engine is service-agnostic -- it evaluates conditions against a `
 | `dns.tags`    | Record tags         | Comma-joined tags                      |
 
 DNS records also have access to the [request-level fields](#request-level-fields-6-fields-available-on-both-purge-and-s3-requests) (`client_ip`, `time.hour`, etc.).
+
+#### D1 service fields (3 fields)
+
+| Field            | Source            | Description                        |
+| ---------------- | ----------------- | ---------------------------------- |
+| `d1.database_id` | URL path          | Database UUID                      |
+| `d1.name`        | Request body/path | Database name                      |
+| `d1.sql_command` | SQL statement     | SQL command (SELECT, INSERT, etc.) |
+
+#### KV service fields (3 fields)
+
+| Field             | Source       | Description               |
+| ----------------- | ------------ | ------------------------- |
+| `kv.namespace_id` | URL path     | Namespace identifier      |
+| `kv.key_name`     | URL path     | Key name within namespace |
+| `kv.title`        | Request body | Namespace title           |
+
+#### Workers service fields (5 fields)
+
+| Field                   | Source       | Description               |
+| ----------------------- | ------------ | ------------------------- |
+| `workers.script_name`   | URL path     | Worker script name        |
+| `workers.version_id`    | URL path     | Script version identifier |
+| `workers.deployment_id` | URL path     | Deployment identifier     |
+| `workers.secret_name`   | Request body | Secret name               |
+| `workers.domain_id`     | URL path     | Custom domain identifier  |
+
+#### Queues service fields (2 fields)
+
+| Field                | Source   | Description         |
+| -------------------- | -------- | ------------------- |
+| `queues.queue_id`    | URL path | Queue identifier    |
+| `queues.consumer_id` | URL path | Consumer identifier |
+
+#### Vectorize service fields (1 field)
+
+| Field                  | Source   | Description          |
+| ---------------------- | -------- | -------------------- |
+| `vectorize.index_name` | URL path | Vectorize index name |
+
+#### Hyperdrive service fields (1 field)
+
+| Field                  | Source   | Description                 |
+| ---------------------- | -------- | --------------------------- |
+| `hyperdrive.config_id` | URL path | Hyperdrive configuration ID |
 
 ### Compound Conditions
 
@@ -713,6 +815,7 @@ admin > operator > viewer
 | `/admin/keys/*`            | viewer          | operator                |
 | `/admin/analytics/*`       | viewer          | viewer                  |
 | `/admin/s3/*`              | viewer          | operator                |
+| `/admin/cf/*`              | viewer          | operator                |
 | `/admin/upstream-tokens/*` | admin           | admin                   |
 | `/admin/upstream-r2/*`     | admin           | admin                   |
 | `/admin/config/*`          | viewer          | admin                   |

@@ -11,7 +11,7 @@
  *   npm run smoke -- --verbose                       # print response bodies
  */
 
-import { BASE, IS_REMOTE, ADMIN_KEY, CF_API_TOKEN, bold, green, red, section, state, req, admin } from './smoke/helpers.js';
+import { BASE, IS_REMOTE, ADMIN_KEY, CF_API_TOKEN, DNS_TEST_TOKEN, bold, green, red, section, state, req, admin } from './smoke/helpers.js';
 import type { SmokeContext } from './smoke/helpers.js';
 
 import { run as runAdmin } from './smoke/admin.js';
@@ -117,6 +117,7 @@ async function main(): Promise<void> {
 		await runRoutes(ctx);
 	} finally {
 		// ─── Cleanup ────────────────────────────────────────────────────
+		// All resources tracked in `state` are cleaned up here, even on crash.
 
 		section('Cleanup');
 
@@ -140,7 +141,7 @@ async function main(): Promise<void> {
 		}
 		console.log(`  Deleted ${state.createdS3Creds.length} S3 credentials`);
 
-		// Delete upstream token
+		// Delete upstream token (the main purge token)
 		try {
 			await admin('DELETE', `/admin/upstream-tokens/${UPSTREAM_TOKEN_ID}`);
 		} catch {
@@ -166,6 +167,89 @@ async function main(): Promise<void> {
 				/* ignore */
 			}
 			console.log(`  Deleted upstream R2 ${ctx.s3UpstreamId}`);
+		}
+
+		// Delete any remaining upstream tokens (DNS, bulk test leftovers)
+		for (const uid of state.createdUpstreamTokens) {
+			try {
+				await admin('DELETE', `/admin/upstream-tokens/${uid}`);
+			} catch {
+				/* ignore */
+			}
+		}
+		if (state.createdUpstreamTokens.length > 0) {
+			console.log(`  Deleted ${state.createdUpstreamTokens.length} tracked upstream tokens`);
+		}
+
+		// Delete any remaining upstream R2 (bulk test leftovers)
+		for (const rid of state.createdUpstreamR2) {
+			try {
+				await admin('DELETE', `/admin/upstream-r2/${rid}`);
+			} catch {
+				/* ignore */
+			}
+		}
+		if (state.createdUpstreamR2.length > 0) {
+			console.log(`  Deleted ${state.createdUpstreamR2.length} tracked upstream R2`);
+		}
+
+		// Delete leaked DNS records directly via CF API (gatekeeper keys may be gone)
+		if (DNS_TEST_TOKEN && state.createdDnsRecords.length > 0) {
+			for (const { zoneId, recordId } of state.createdDnsRecords) {
+				try {
+					await fetch(`https://api.cloudflare.com/client/v4/zones/${zoneId}/dns_records/${recordId}`, {
+						method: 'DELETE',
+						headers: { Authorization: `Bearer ${DNS_TEST_TOKEN}` },
+					});
+				} catch {
+					/* ignore */
+				}
+			}
+			console.log(`  Deleted ${state.createdDnsRecords.length} leaked DNS records via CF API`);
+		}
+
+		// Delete leaked D1 databases directly via CF API
+		if (CF_API_TOKEN && state.createdD1Databases.length > 0) {
+			const cfToken = process.env['CF_PROXY_TOKEN'] ?? process.env['UPSTREAM_CF_TOKEN'] ?? CF_API_TOKEN;
+			for (const { accountId, dbId } of state.createdD1Databases) {
+				try {
+					await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${dbId}`, {
+						method: 'DELETE',
+						headers: { Authorization: `Bearer ${cfToken}` },
+					});
+				} catch {
+					/* ignore */
+				}
+			}
+			console.log(`  Deleted ${state.createdD1Databases.length} leaked D1 databases via CF API`);
+		}
+
+		// Delete leaked KV namespaces directly via CF API
+		if (CF_API_TOKEN && state.createdKvNamespaces.length > 0) {
+			const cfToken = process.env['CF_PROXY_TOKEN'] ?? process.env['UPSTREAM_CF_TOKEN'] ?? CF_API_TOKEN;
+			for (const { accountId, nsId } of state.createdKvNamespaces) {
+				try {
+					await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${nsId}`, {
+						method: 'DELETE',
+						headers: { Authorization: `Bearer ${cfToken}` },
+					});
+				} catch {
+					/* ignore */
+				}
+			}
+			console.log(`  Deleted ${state.createdKvNamespaces.length} leaked KV namespaces via CF API`);
+		}
+
+		// Reset any leaked config overrides
+		for (const key of state.configOverrides) {
+			try {
+				await admin('DELETE', `/admin/config/${key}`);
+			} catch {
+				/* ignore */
+			}
+		}
+		if (state.configOverrides.length > 0) {
+			console.log(`  Reset ${state.configOverrides.length} config overrides`);
 		}
 	}
 

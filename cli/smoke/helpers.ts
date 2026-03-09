@@ -61,6 +61,12 @@ export const state = {
 	errors: [] as string[],
 	createdKeys: [] as string[],
 	createdS3Creds: [] as string[],
+	createdUpstreamTokens: [] as string[],
+	createdUpstreamR2: [] as string[],
+	createdDnsRecords: [] as { zoneId: string; recordId: string }[],
+	createdD1Databases: [] as { accountId: string; dbId: string }[],
+	createdKvNamespaces: [] as { accountId: string; nsId: string }[],
+	configOverrides: [] as string[],
 };
 
 // ─── HTTP helpers ──────────────────────────────────────────────────────────
@@ -207,6 +213,8 @@ export interface SmokeContext {
 	REVOKE_ID: string;
 	REVOKE_ID_2: string;
 	RATELIMIT_ID: string;
+	/** DNS upstream token ID, set when DNS tests run. */
+	dnsUpstreamId?: string;
 	/** CF proxy fields, set when CF proxy tests run. */
 	cfProxyUpstreamId?: string;
 	/** S3 fields, set when S3 tests run. */

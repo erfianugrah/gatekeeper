@@ -42,6 +42,9 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const hardDel = await admin('DELETE', `/admin/keys/${REVOKE_ID}?permanent=true`);
 	assertStatus('hard-delete revoked key -> 200', hardDel, 200);
 	assertJson('hard-delete result has deleted:true', hardDel.body?.result?.deleted, true);
+	// Remove from cleanup list since it's already gone
+	const revIdx = state.createdKeys.indexOf(REVOKE_ID);
+	if (revIdx >= 0) state.createdKeys.splice(revIdx, 1);
 
 	// Key no longer appears in GET
 	const getDeleted = await admin('GET', `/admin/keys/${REVOKE_ID}`);
@@ -56,6 +59,8 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	// Hard-delete the second revoked key (REVOKE_ID_2)
 	const hardDel2 = await admin('DELETE', `/admin/keys/${REVOKE_ID_2}?permanent=true`);
 	assertStatus('hard-delete second key -> 200', hardDel2, 200);
+	const rev2Idx = state.createdKeys.indexOf(REVOKE_ID_2);
+	if (rev2Idx >= 0) state.createdKeys.splice(rev2Idx, 1);
 
 	// Hard-delete nonexistent -> 404
 	const hardDelNone = await admin('DELETE', '/admin/keys/gw_00000000000000000000000000000000?permanent=true');

@@ -1,4 +1,4 @@
-import { Cloud, Globe, HardDrive, Server } from 'lucide-react';
+import { Cloud, Database, Globe, HardDrive, Server, Layers, Cpu, Zap } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -21,7 +21,51 @@ const SOURCE_TOOLTIPS: Record<string, string> = {
 	purge: 'Cloudflare cache purge request',
 	s3: 'S3/R2 object storage request',
 	dns: 'Cloudflare DNS record operation',
-	cf: 'Cloudflare management API proxy (D1, KV, Workers, etc.)',
+	d1: 'Cloudflare D1 database operation',
+	kv: 'Cloudflare Workers KV operation',
+	workers: 'Cloudflare Workers script operation',
+	queues: 'Cloudflare Queues operation',
+	vectorize: 'Cloudflare Vectorize index operation',
+	hyperdrive: 'Cloudflare Hyperdrive config operation',
+};
+
+/** Display labels for source badges. Unknown sources show as-is in uppercase. */
+const SOURCE_LABELS: Record<string, string> = {
+	purge: 'Purge',
+	s3: 'S3',
+	dns: 'DNS',
+	d1: 'D1',
+	kv: 'KV',
+	workers: 'Workers',
+	queues: 'Queues',
+	vectorize: 'Vectorize',
+	hyperdrive: 'Hyperdrive',
+};
+
+/** Badge color classes keyed by source. Falls back to neutral muted style. */
+const SOURCE_BADGE_CLASSES: Record<string, string> = {
+	purge: 'bg-lv-purple/20 text-lv-purple border-lv-purple/30',
+	s3: 'bg-lv-cyan/20 text-lv-cyan border-lv-cyan/30',
+	dns: 'bg-lv-green/20 text-lv-green border-lv-green/30',
+	d1: 'bg-lv-purple/20 text-lv-purple border-lv-purple/30',
+	kv: 'bg-lv-cyan/20 text-lv-cyan border-lv-cyan/30',
+	workers: 'bg-lv-green/20 text-lv-green border-lv-green/30',
+	queues: 'bg-lv-peach/20 text-lv-peach border-lv-peach/30',
+	vectorize: 'bg-lv-blue/20 text-lv-blue border-lv-blue/30',
+	hyperdrive: 'bg-lv-red-bright/20 text-lv-red-bright border-lv-red-bright/30',
+};
+
+/** Icon component keyed by source. */
+const SOURCE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+	purge: Cloud,
+	s3: HardDrive,
+	dns: Globe,
+	d1: Database,
+	kv: Layers,
+	workers: Cpu,
+	queues: Zap,
+	vectorize: Server,
+	hyperdrive: Server,
 };
 
 // ─── Tooltip wrapper ────────────────────────────────────────────────
@@ -84,44 +128,22 @@ export function statusBadge(status: number): React.ReactNode {
 	return <WithTooltip tip={tip}>{badge}</WithTooltip>;
 }
 
-export function sourceBadge(source: 'purge' | 's3' | 'dns' | 'cf'): React.ReactNode {
-	const tip = SOURCE_TOOLTIPS[source] ?? source;
-	if (source === 'purge') {
-		return (
-			<WithTooltip tip={tip}>
-				<Badge className="bg-lv-purple/20 text-lv-purple border-lv-purple/30 gap-1">
-					<Cloud className="h-3 w-3" />
-					Purge
-				</Badge>
-			</WithTooltip>
-		);
-	}
-	if (source === 'dns') {
-		return (
-			<WithTooltip tip={tip}>
-				<Badge className="bg-lv-green/20 text-lv-green border-lv-green/30 gap-1">
-					<Globe className="h-3 w-3" />
-					DNS
-				</Badge>
-			</WithTooltip>
-		);
-	}
-	if (source === 'cf') {
-		return (
-			<WithTooltip tip={tip}>
-				<Badge className="bg-lv-peach/20 text-lv-peach border-lv-peach/30 gap-1">
-					<Server className="h-3 w-3" />
-					CF
-				</Badge>
-			</WithTooltip>
-		);
-	}
+export function sourceBadge(source: string): React.ReactNode {
+	const tip = SOURCE_TOOLTIPS[source] ?? `${source} operation`;
+	const label = SOURCE_LABELS[source] ?? source.toUpperCase();
+	const cls = SOURCE_BADGE_CLASSES[source] ?? 'bg-muted/20 text-muted-foreground border-muted/30';
+	const Icon = SOURCE_ICONS[source] ?? Server;
 	return (
 		<WithTooltip tip={tip}>
-			<Badge className="bg-lv-cyan/20 text-lv-cyan border-lv-cyan/30 gap-1">
-				<HardDrive className="h-3 w-3" />
-				S3
+			<Badge className={`${cls} gap-1`}>
+				<Icon className="h-3 w-3" />
+				{label}
 			</Badge>
 		</WithTooltip>
 	);
+}
+
+/** Display label for a source in tab buttons. */
+export function sourceLabel(source: string): string {
+	return SOURCE_LABELS[source] ?? source.toUpperCase();
 }

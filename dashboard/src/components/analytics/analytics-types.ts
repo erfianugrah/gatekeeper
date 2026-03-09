@@ -2,9 +2,12 @@ import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent } from '@/lib/api';
 
 // ─── Unified event type ─────────────────────────────────────────────
 
+/** Known sources for display. CF proxy events use their service name directly (d1, kv, workers, etc.). */
+export type KnownSource = 'purge' | 's3' | 'dns' | 'd1' | 'kv' | 'workers' | 'queues' | 'vectorize' | 'hyperdrive';
+
 export type UnifiedEvent = {
 	id: number;
-	source: 'purge' | 's3' | 'dns' | 'cf';
+	source: string;
 	status: number;
 	duration_ms: number;
 	created_at: number;
@@ -44,7 +47,8 @@ export interface FlightGroup {
 
 export type SortField = 'created_at' | 'status' | 'duration_ms' | 'source';
 export type SortDir = 'asc' | 'desc';
-export type TabFilter = 'all' | 'purge' | 's3' | 'dns' | 'cf';
+/** Tab filter is 'all' or any source string found in the data. */
+export type TabFilter = string;
 export type StatusFilter = 'all' | '2xx' | '4xx' | '5xx';
 
 // ─── Constants ──────────────────────────────────────────────────────
@@ -113,10 +117,17 @@ export function fromDns(ev: DnsEvent): UnifiedEvent {
 	};
 }
 
+/** CF proxy sources use the service name directly (d1, kv, workers, etc.). */
+export const CF_PROXY_SOURCES = new Set(['d1', 'kv', 'workers', 'queues', 'vectorize', 'hyperdrive']);
+
+export function isCfProxySource(source: string): boolean {
+	return CF_PROXY_SOURCES.has(source);
+}
+
 export function fromCfProxy(ev: CfProxyEvent): UnifiedEvent {
 	return {
 		id: ev.id + CF_EVENT_ID_OFFSET,
-		source: 'cf',
+		source: ev.service,
 		status: ev.status,
 		duration_ms: ev.duration_ms,
 		created_at: ev.created_at,

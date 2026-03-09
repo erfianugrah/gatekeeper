@@ -642,6 +642,10 @@ export interface GatewayConfig {
 	s3_rps: number;
 	/** S3 proxy: account-level burst capacity. */
 	s3_burst: number;
+	/** CF API proxy: account-level requests per second. */
+	cf_proxy_rps: number;
+	/** CF API proxy: account-level burst capacity. */
+	cf_proxy_burst: number;
 }
 
 export interface ConfigOverride {

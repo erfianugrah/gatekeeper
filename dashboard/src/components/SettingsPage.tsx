@@ -81,9 +81,21 @@ const CONFIG_META: Record<string, ConfigKeyMeta> = {
 		unit: 'tokens',
 		section: 'S3 Proxy',
 	},
+	cf_proxy_rps: {
+		label: 'CF Proxy RPS',
+		description: 'Account-level requests per second for CF API proxy',
+		unit: 'req/s',
+		section: 'CF Proxy',
+	},
+	cf_proxy_burst: {
+		label: 'CF Proxy Burst',
+		description: 'Account-level burst capacity for CF API proxy token bucket',
+		unit: 'tokens',
+		section: 'CF Proxy',
+	},
 };
 
-const SECTION_ORDER = ['Bulk Purge', 'Single Purge', 'S3 Proxy', 'Caching', 'Retention'];
+const SECTION_ORDER = ['Bulk Purge', 'Single Purge', 'S3 Proxy', 'CF Proxy', 'Caching', 'Retention'];
 
 // ─── Helpers ────────────────────────────────────────────────────────
 

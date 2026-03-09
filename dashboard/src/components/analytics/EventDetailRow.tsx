@@ -1,5 +1,6 @@
 import { TableRow, TableCell } from '@/components/ui/table';
 import { formatTimeISO } from './analytics-helpers';
+import { isCfProxySource } from './analytics-types';
 import type { UnifiedEvent } from './analytics-types';
 import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent } from '@/lib/api';
 
@@ -87,7 +88,7 @@ export function EventDetailRow({ event }: { event: UnifiedEvent }) {
 			{ key: 'response_detail', value: (raw as DnsEvent).response_detail, type: 'string' },
 			{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
 		];
-	} else if (event.source === 'cf') {
+	} else if (isCfProxySource(event.source)) {
 		const cfRaw = raw as CfProxyEvent;
 		fields = [
 			{ key: 'id', value: cfRaw.id, type: 'number' },

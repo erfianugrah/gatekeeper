@@ -11,7 +11,7 @@ import { TablePagination } from '@/components/TablePagination';
 import { getEvents, getS3Events, getDnsEvents, getCfProxyEvents } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { T } from '@/lib/typography';
-import { fromPurge, fromS3, fromDns, fromCfProxy, groupByFlight, LIMIT_OPTIONS } from './analytics/analytics-types';
+import { fromPurge, fromS3, fromDns, fromCfProxy, isCfProxySource, groupByFlight, LIMIT_OPTIONS } from './analytics/analytics-types';
 import { formatTime, truncateId, eventSearchText, exportToJson, copyToClipboard } from './analytics/analytics-helpers';
 import {
 	WithTooltip,
@@ -20,6 +20,7 @@ import {
 	purgeTypeBadgeClass,
 	statusBadge,
 	sourceBadge,
+	sourceLabel,
 } from './analytics/analytics-badges';
 import { EventDetailRow } from './analytics/EventDetailRow';
 import { EventsTableSkeleton } from './analytics/EventsTableSkeleton';
@@ -196,13 +197,26 @@ export function AnalyticsPage() {
 		setPageSize: pgSetPageSize,
 	} = usePagination(flightGroups, { defaultPageSize: 50 });
 
-	// ── Counts for tab labels ────────────────────────────────────
+	// ── Dynamic source tabs (driven by data, not hardcoded) ─────
 
-	const purgeCount = purgeEvents.length;
-	const s3Count = s3Events.length;
-	const dnsCount = dnsEvents.length;
-	const cfCount = cfEvents.length;
 	const totalCount = allEvents.length;
+
+	/** Ordered list of unique sources present in the data, with counts. */
+	const sourceTabs = useMemo(() => {
+		const counts = new Map<string, number>();
+		for (const ev of allEvents) {
+			counts.set(ev.source, (counts.get(ev.source) ?? 0) + 1);
+		}
+		// Stable ordering: purge, s3, dns first, then CF services alphabetically
+		const fixed = ['purge', 's3', 'dns'];
+		const ordered: { source: string; count: number }[] = [];
+		for (const s of fixed) {
+			if (counts.has(s)) ordered.push({ source: s, count: counts.get(s)! });
+		}
+		const rest = [...counts.entries()].filter(([s]) => !fixed.includes(s)).sort(([a], [b]) => a.localeCompare(b));
+		for (const [s, c] of rest) ordered.push({ source: s, count: c });
+		return ordered;
+	}, [allEvents]);
 
 	const handleCopy = () => {
 		copyToClipboard(filteredEvents);
@@ -221,25 +235,30 @@ export function AnalyticsPage() {
 			<div className="space-y-6">
 				{/* ── Controls row 1: source tabs + status filter + export ── */}
 				<div className="flex flex-wrap items-center gap-3">
-					{/* Source tabs */}
+					{/* Source tabs — dynamically generated from the data */}
 					<div className="flex rounded-md border border-border">
-						{(['all', 'purge', 's3', 'dns', 'cf'] as TabFilter[]).map((t) => {
-							const count = t === 'all' ? totalCount : t === 'purge' ? purgeCount : t === 'dns' ? dnsCount : t === 'cf' ? cfCount : s3Count;
-							const labels: Record<TabFilter, string> = { all: 'All', purge: 'Purge', s3: 'S3', dns: 'DNS', cf: 'CF Proxy' };
-							return (
-								<button
-									key={t}
-									onClick={() => setTab(t)}
-									className={cn(
-										'px-3 py-1 text-xs font-data transition-colors',
-										tab === t ? 'bg-lv-purple/20 text-lv-purple' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
-										t !== 'all' && 'border-l border-border',
-									)}
-								>
-									{labels[t]} ({count})
-								</button>
-							);
-						})}
+						<button
+							key="all"
+							onClick={() => setTab('all')}
+							className={cn(
+								'px-3 py-1 text-xs font-data transition-colors',
+								tab === 'all' ? 'bg-lv-purple/20 text-lv-purple' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+							)}
+						>
+							All ({totalCount})
+						</button>
+						{sourceTabs.map(({ source, count }) => (
+							<button
+								key={source}
+								onClick={() => setTab(source)}
+								className={cn(
+									'px-3 py-1 text-xs font-data transition-colors border-l border-border',
+									tab === source ? 'bg-lv-purple/20 text-lv-purple' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+								)}
+							>
+								{sourceLabel(source)} ({count})
+							</button>
+						))}
 					</div>
 
 					{/* Status filter */}
@@ -325,7 +344,7 @@ export function AnalyticsPage() {
 							{totalCount === 0
 								? tab === 'all'
 									? 'No events recorded yet.'
-									: `No ${tab === 'purge' ? 'purge' : tab === 'dns' ? 'DNS' : tab === 'cf' ? 'CF proxy' : 'S3'} events recorded yet.`
+									: `No ${sourceLabel(tab)} events recorded yet.`
 								: 'No events match the current filters.'}
 						</p>
 					</div>
@@ -459,7 +478,7 @@ export function AnalyticsPage() {
 																	</WithTooltip>
 																) : null}
 															</div>
-														) : ev.source === 'cf' ? (
+														) : isCfProxySource(ev.source) ? (
 															<div className="flex items-center gap-2 min-w-0">
 																<WithTooltip tip={`${ev.cf_service}:${ev.cf_action?.split(':')[1] ?? ev.cf_action}`}>
 																	<Badge className="bg-lv-peach/20 text-lv-peach border-lv-peach/30 shrink-0">{ev.cf_action}</Badge>

@@ -346,18 +346,19 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	);
 
 	// PutObject only — GetObject denied
+	const putOnlyTs = Date.now();
 	await testS3ActionCred(
 		'put-only',
 		['s3:PutObject'],
 		'PUT',
-		`/${S3_TEST_BUCKET}/smoke-put-only-${Date.now()}.txt`,
+		`/${S3_TEST_BUCKET}/smoke-put-only-${putOnlyTs}.txt`,
 		'put-only test',
 		'GET',
 		`/${S3_TEST_BUCKET}/nonexistent-smoke.txt`,
 		undefined,
 	);
 	// Clean up the object we just created
-	const putOnlyCleanUrl = `${BASE}/s3/${S3_TEST_BUCKET}/smoke-put-only-${Date.now()}.txt`;
+	const putOnlyCleanUrl = `${BASE}/s3/${S3_TEST_BUCKET}/smoke-put-only-${putOnlyTs}.txt`;
 	try {
 		const cleanSigned = await fullClient.sign(putOnlyCleanUrl, {
 			method: 'DELETE',

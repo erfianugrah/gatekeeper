@@ -164,6 +164,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	});
 	assertStatus('create upstream token 1 -> 200', ut1, 200);
 	const UT1_ID = ut1.body?.result?.id;
+	if (UT1_ID) state.createdUpstreamTokens.push(UT1_ID);
 
 	const ut2 = await admin('POST', '/admin/upstream-tokens', {
 		name: 'smoke-bulk-upt-2',
@@ -172,6 +173,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	});
 	assertStatus('create upstream token 2 -> 200', ut2, 200);
 	const UT2_ID = ut2.body?.result?.id;
+	if (UT2_ID) state.createdUpstreamTokens.push(UT2_ID);
 
 	const bulkDeleteUpt = await admin('POST', '/admin/upstream-tokens/bulk-delete', {
 		ids: [UT1_ID, UT2_ID, 'upt_000000000000000000000000'],
@@ -186,6 +188,12 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	// Verify gone
 	const getUt1 = await admin('GET', `/admin/upstream-tokens/${UT1_ID}`);
 	assertStatus('UT1 gone after bulk-delete', getUt1, 404);
+
+	// Remove from cleanup list since they're already gone
+	for (const uid of [UT1_ID, UT2_ID]) {
+		const idx = state.createdUpstreamTokens.indexOf(uid);
+		if (idx >= 0) state.createdUpstreamTokens.splice(idx, 1);
+	}
 
 	// ─── 12f. Bulk Delete — Upstream R2 ─────────────────────────────
 
@@ -205,6 +213,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	});
 	assertStatus('create upstream R2 1 -> 200', ur1, 200);
 	const UR1_ID = ur1.body?.result?.id;
+	if (UR1_ID) state.createdUpstreamR2.push(UR1_ID);
 
 	const ur2 = await admin('POST', '/admin/upstream-r2', {
 		name: 'smoke-bulk-ur2-2',
@@ -215,6 +224,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	});
 	assertStatus('create upstream R2 2 -> 200', ur2, 200);
 	const UR2_ID = ur2.body?.result?.id;
+	if (UR2_ID) state.createdUpstreamR2.push(UR2_ID);
 
 	const bulkDeleteUr2 = await admin('POST', '/admin/upstream-r2/bulk-delete', {
 		ids: [UR1_ID, UR2_ID, 'upr2_000000000000000000000000'],
@@ -229,4 +239,10 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	// Verify gone
 	const getUr1 = await admin('GET', `/admin/upstream-r2/${UR1_ID}`);
 	assertStatus('UR1 gone after bulk-delete', getUr1, 404);
+
+	// Remove from cleanup list since they're already gone
+	for (const rid of [UR1_ID, UR2_ID]) {
+		const idx = state.createdUpstreamR2.indexOf(rid);
+		if (idx >= 0) state.createdUpstreamR2.splice(idx, 1);
+	}
 }
