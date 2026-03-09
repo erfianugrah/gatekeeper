@@ -5,7 +5,7 @@
  * but are generalized for account-scoped API proxying via CLOUDFLARE_API_BASE_URL.
  */
 
-import { CF_API_BASE, BEARER_PREFIX, ACCOUNT_ID_RE, MAX_LOG_VALUE_LENGTH } from '../constants';
+import { CF_API_BASE, BEARER_PREFIX, ACCOUNT_ID_RE, ZONE_ID_RE, MAX_LOG_VALUE_LENGTH } from '../constants';
 import { getStub } from '../do-stub';
 
 // ─── Upstream rate-limit headers to forward ─────────────────────────────────
@@ -18,6 +18,11 @@ const FORWARDED_HEADERS = ['Content-Type', 'Cf-Ray', 'RateLimit-Limit', 'RateLim
 /** Validate a Cloudflare account ID (32-hex-char format). */
 export function isValidAccountId(id: string): boolean {
 	return ACCOUNT_ID_RE.test(id);
+}
+
+/** Validate a Cloudflare zone ID (32-hex-char format). */
+export function isValidZoneId(id: string): boolean {
+	return ZONE_ID_RE.test(id);
 }
 
 /** Extract and validate the Bearer key from the Authorization header. Returns the key ID or null. */
@@ -50,6 +55,31 @@ export async function resolveUpstreamTokenOrError(
 		log.durationMs = Date.now() - start;
 		console.log(JSON.stringify(log));
 		return cfJsonError(502, `No upstream API token registered for account ${accountId}`);
+	}
+	return upstreamToken;
+}
+
+/**
+ * Resolve the upstream CF API token for a given zone.
+ * Zone-scoped variant for DNS and other zone-level services.
+ * Called AFTER authentication to prevent info leakage.
+ *
+ * Returns the token string on success, or a CF-style JSON error Response on failure.
+ */
+export async function resolveUpstreamZoneTokenOrError(
+	env: Env,
+	zoneId: string,
+	log: Record<string, unknown>,
+	start: number,
+): Promise<string | Response> {
+	const stub = getStub(env);
+	const upstreamToken = await stub.resolveUpstreamToken(zoneId);
+	if (!upstreamToken) {
+		log.status = 502;
+		log.error = 'no_upstream_zone_token';
+		log.durationMs = Date.now() - start;
+		console.log(JSON.stringify(log));
+		return cfJsonError(502, `No upstream API token registered for zone ${zoneId}`);
 	}
 	return upstreamToken;
 }

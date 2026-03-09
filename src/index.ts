@@ -1,11 +1,10 @@
 import { Hono } from 'hono';
 import { purgeRoute, __testClearInflightCache } from './routes/purge';
-import { dnsRoute } from './dns/routes';
 import { adminApp } from './routes/admin';
 import { s3App } from './s3/routes';
 import { deleteOldEvents } from './analytics';
 import { deleteOldS3Events } from './s3/analytics';
-import { deleteOldDnsEvents } from './dns/analytics';
+import { deleteOldDnsEvents } from './cf/dns/analytics';
 import { deleteOldCfProxyEvents } from './cf/analytics';
 import { cfApp } from './cf/router';
 import { getStub } from './do-stub';
@@ -75,10 +74,28 @@ fetch("${accessLogoutUrl}", { mode: "no-cors", credentials: "include" })
 });
 
 app.route('/', purgeRoute);
-app.route('/', dnsRoute);
 app.route('/admin', adminApp);
 app.route('/s3', s3App);
 app.route('/cf', cfApp);
+
+// Backward compatibility: /v1/zones/:zoneId/dns_records/* -> /cf/zones/:zoneId/dns_records/*
+// Old DNS clients hit /v1/zones/:zoneId/dns_records/...; the new canonical path is /cf/zones/:zoneId/dns_records/...
+// Both paths are served by the same CF proxy router so behaviour is identical.
+app.all('/v1/zones/:zoneId/dns_records/*', (c) => {
+	const zoneId = c.req.param('zoneId');
+	const rest = c.req.path.replace(`/v1/zones/${zoneId}/dns_records`, '/dns_records');
+	const url = new URL(c.req.url);
+	url.pathname = `/cf/zones/${zoneId}${rest}`;
+	const newReq = new Request(url.toString(), c.req.raw);
+	return app.fetch(newReq, c.env, c.executionCtx);
+});
+app.all('/v1/zones/:zoneId/dns_records', (c) => {
+	const zoneId = c.req.param('zoneId');
+	const url = new URL(c.req.url);
+	url.pathname = `/cf/zones/${zoneId}/dns_records`;
+	const newReq = new Request(url.toString(), c.req.raw);
+	return app.fetch(newReq, c.env, c.executionCtx);
+});
 
 // ─── Exports ────────────────────────────────────────────────────────────────
 

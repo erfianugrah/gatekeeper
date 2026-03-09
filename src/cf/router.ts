@@ -23,13 +23,14 @@
 import { Hono } from 'hono';
 import { getStub } from '../do-stub';
 import { extractRequestFields } from '../request-fields';
-import { isValidAccountId, extractBearerKey, cfJsonError } from './proxy-helpers';
+import { isValidAccountId, isValidZoneId, extractBearerKey, cfJsonError } from './proxy-helpers';
 import { d1Routes } from './d1/routes';
 import { kvRoutes } from './kv/routes';
 import { workersRoutes } from './workers/routes';
 import { queuesRoutes } from './queues/routes';
 import { vectorizeRoutes } from './vectorize/routes';
 import { hyperdriveRoutes } from './hyperdrive/routes';
+import { dnsRoutes } from './dns/routes';
 
 // ─── Shared context type ────────────────────────────────────────────────────
 
@@ -39,8 +40,10 @@ export interface CfProxyVars {
 	keyId: string;
 	/** Human-readable key name from successful auth (for audit trails). */
 	keyName: string | undefined;
-	/** The validated 32-hex-char Cloudflare account ID from the URL path. */
+	/** The validated 32-hex-char Cloudflare account ID from the URL path. Empty for zone-scoped routes. */
 	accountId: string;
+	/** The validated 32-hex-char Cloudflare zone ID from the URL path. Empty for account-scoped routes. */
+	zoneId: string;
 	/** Request start time (ms) for duration tracking. */
 	startTime: number;
 	/** Structured breadcrumb log object — route handlers append fields. */
@@ -99,6 +102,7 @@ cfApp.use('/accounts/:accountId/*', async (c, next) => {
 	// Set variables for downstream handlers
 	c.set('keyId', keyId);
 	c.set('accountId', accountId);
+	c.set('zoneId', '');
 	c.set('startTime', start);
 	c.set('log', log);
 	c.set('requestFields', requestFields);
@@ -107,11 +111,51 @@ cfApp.use('/accounts/:accountId/*', async (c, next) => {
 	await next();
 });
 
+/**
+ * Zone-scoped middleware for DNS and other zone-level services.
+ * Same pattern as account-scoped, but validates zone ID and uses the bulk rate bucket.
+ */
+cfApp.use('/zones/:zoneId/*', async (c, next) => {
+	const start = Date.now();
+	const log: Record<string, unknown> = { route: 'cf-proxy-zone', ts: new Date().toISOString() };
+
+	// 1. Extract Bearer key
+	const keyId = extractBearerKey(c.req.header('Authorization'));
+	if (!keyId) {
+		return cfJsonError(401, 'Missing or invalid Authorization: Bearer <key>');
+	}
+	log.keyId = keyId.slice(0, 12) + '...';
+
+	// 2. Validate zone ID
+	const zoneId = c.req.param('zoneId');
+	if (!isValidZoneId(zoneId)) {
+		return cfJsonError(400, 'Invalid zone ID format');
+	}
+	log.zoneId = zoneId;
+
+	// 3. Extract request fields for policy conditions
+	const requestFields = extractRequestFields(c.req.raw);
+
+	// Set variables for downstream handlers
+	c.set('keyId', keyId);
+	c.set('accountId', '');
+	c.set('zoneId', zoneId);
+	c.set('startTime', start);
+	c.set('log', log);
+	c.set('requestFields', requestFields);
+
+	await next();
+});
+
 // ─── Mount per-service routes ───────────────────────────────────────────────
 
+// Account-scoped services
 cfApp.route('/accounts/:accountId/d1', d1Routes);
 cfApp.route('/accounts/:accountId/storage/kv', kvRoutes);
 cfApp.route('/accounts/:accountId/workers', workersRoutes);
 cfApp.route('/accounts/:accountId/queues', queuesRoutes);
 cfApp.route('/accounts/:accountId/vectorize', vectorizeRoutes);
 cfApp.route('/accounts/:accountId/hyperdrive', hyperdriveRoutes);
+
+// Zone-scoped services
+cfApp.route('/zones/:zoneId', dnsRoutes);
