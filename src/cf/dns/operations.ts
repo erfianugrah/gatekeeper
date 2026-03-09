@@ -6,7 +6,7 @@
  * purgeBodyToContexts() in src/iam.ts.
  */
 
-import type { RequestContext } from '../policy-types';
+import type { RequestContext } from '../../policy-types';
 
 // ─── DNS IAM actions ────────────────────────────────────────────────────────
 

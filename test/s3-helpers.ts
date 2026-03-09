@@ -17,8 +17,41 @@ export function getR2Origin(): string {
 	return new URL(R2_TEST_ENDPOINT).origin;
 }
 
-/** Register a wildcard upstream R2 endpoint. Call in beforeAll. */
-export async function registerUpstreamR2(bucketNames: string[] = ['*']): Promise<void> {
+// ─── Cleanup tracker ────────────────────────────────────────────────────────
+
+/** IDs of upstream R2 endpoints created during tests. */
+const createdUpstreamR2Ids: string[] = [];
+
+/** Access key IDs of S3 credentials created during tests. */
+const createdS3CredentialIds: string[] = [];
+
+/** Revoke an S3 credential via the admin API. */
+async function deleteS3Credential(accessKeyId: string): Promise<void> {
+	await SELF.fetch(`http://localhost/admin/s3/credentials/${accessKeyId}`, {
+		method: 'DELETE',
+		headers: adminHeaders(),
+	});
+}
+
+/** Delete an upstream R2 endpoint via the admin API. */
+async function deleteUpstreamR2(id: string): Promise<void> {
+	await SELF.fetch(`http://localhost/admin/upstream-r2/${id}`, {
+		method: 'DELETE',
+		headers: adminHeaders(),
+	});
+}
+
+/** Revoke all S3 credentials and upstream R2 endpoints created via tracked helpers. Call in afterAll. */
+export async function cleanupCreatedS3Resources(): Promise<void> {
+	const credDeletes = createdS3CredentialIds.splice(0).map((id) => deleteS3Credential(id));
+	const r2Deletes = createdUpstreamR2Ids.splice(0).map((id) => deleteUpstreamR2(id));
+	await Promise.all([...credDeletes, ...r2Deletes]);
+}
+
+// ─── R2 upstream registration ───────────────────────────────────────────────
+
+/** Register a wildcard upstream R2 endpoint. Call in beforeAll. Auto-tracked for cleanup. */
+export async function registerUpstreamR2(bucketNames: string[] = ['*']): Promise<string> {
 	const res = await SELF.fetch('http://localhost/admin/upstream-r2', {
 		method: 'POST',
 		headers: adminHeaders(),
@@ -32,11 +65,13 @@ export async function registerUpstreamR2(bucketNames: string[] = ['*']): Promise
 	});
 	const data = await res.json<any>();
 	if (!data.success) throw new Error(`registerUpstreamR2 failed: ${JSON.stringify(data.errors)}`);
+	createdUpstreamR2Ids.push(data.result.id);
+	return data.result.id;
 }
 
 // ─── Credential management ──────────────────────────────────────────────────
 
-/** Create an S3 credential via admin API and return both keys. */
+/** Create an S3 credential via admin API and return both keys. Auto-tracked for cleanup. */
 export async function createCredential(policy: Record<string, unknown>, name = 'e2e-test-cred') {
 	const res = await SELF.fetch('http://localhost/admin/s3/credentials', {
 		method: 'POST',
@@ -45,8 +80,10 @@ export async function createCredential(policy: Record<string, unknown>, name = '
 	});
 	const data = await res.json<any>();
 	if (!data.success) throw new Error(`createCredential failed: ${JSON.stringify(data.errors)}`);
+	const accessKeyId = data.result.credential.access_key_id as string;
+	createdS3CredentialIds.push(accessKeyId);
 	return {
-		accessKeyId: data.result.credential.access_key_id as string,
+		accessKeyId,
 		secretAccessKey: data.result.credential.secret_access_key as string,
 	};
 }

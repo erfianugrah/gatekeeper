@@ -3,7 +3,7 @@
  * All writes are fire-and-forget via waitUntil() so they don't add latency.
  */
 
-import { DNS_EVENTS_TABLE_SQL, DNS_EVENTS_INDEX_KEY_SQL, DNS_EVENTS_INDEX_ZONE_SQL } from '../schema';
+import { DNS_EVENTS_TABLE_SQL, DNS_EVENTS_INDEX_KEY_SQL, DNS_EVENTS_INDEX_ZONE_SQL } from '../../schema';
 
 export interface DnsEvent {
 	key_id: string;

@@ -1,5 +1,5 @@
 import { SELF, fetchMock } from 'cloudflare:test';
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
 import {
 	ZONE_ID,
 	ADMIN_KEY,
@@ -7,6 +7,7 @@ import {
 	adminHeaders,
 	createKeyWithPolicy,
 	registerUpstreamToken,
+	cleanupCreatedResources,
 	__testClearInflightCache,
 	waitForAnalytics,
 } from './helpers';
@@ -15,6 +16,7 @@ import type { PolicyDocument } from '../src/policy-types';
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const DNS_BASE = `/v1/zones/${ZONE_ID}/dns_records`;
+const DNS_CF_BASE = `/cf/zones/${ZONE_ID}/dns_records`;
 const CF_API_DNS_PATH = `/client/v4/zones/${ZONE_ID}/dns_records`;
 const POLICY_VERSION = '2025-01-01' as const;
 
@@ -116,6 +118,10 @@ beforeEach(() => {
 
 afterEach(() => {
 	fetchMock.assertNoPendingInterceptors();
+});
+
+afterAll(async () => {
+	await cleanupCreatedResources();
 });
 
 // ─── Authentication ─────────────────────────────────────────────────────────
@@ -492,5 +498,58 @@ describe('DNS proxy — analytics', () => {
 		const event = data.result[0];
 		expect(event.zone_id).toBe(ZONE_ID);
 		expect(event.action).toBe('dns:read');
+	});
+});
+
+// ─── /cf/zones/ canonical path ──────────────────────────────────────────────
+
+describe('DNS proxy — /cf/zones/ canonical path', () => {
+	it('list via /cf/zones/:zoneId/dns_records -> 200', async () => {
+		const keyId = await createKeyWithPolicy(dnsWildcardPolicy());
+		mockDnsListUpstream([{ id: 'rec1', type: 'A', name: 'test.com', content: '1.1.1.1' }]);
+
+		const res = await SELF.fetch(`http://localhost${DNS_CF_BASE}`, {
+			headers: { Authorization: `Bearer ${keyId}` },
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.result).toBeDefined();
+	});
+
+	it('create via /cf/zones/:zoneId/dns_records -> 200', async () => {
+		const keyId = await createKeyWithPolicy(dnsWildcardPolicy());
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ path: CF_API_DNS_PATH, method: 'POST' })
+			.reply(200, JSON.stringify({ success: true, result: { id: 'new1', type: 'A', name: 'test.com', content: '2.2.2.2' } }));
+
+		const res = await SELF.fetch(`http://localhost${DNS_CF_BASE}`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ type: 'A', name: 'test.com', content: '2.2.2.2' }),
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('401 with no auth on /cf path', async () => {
+		const res = await SELF.fetch(`http://localhost${DNS_CF_BASE}`);
+		expect(res.status).toBe(401);
+	});
+
+	it('400 with invalid zone ID on /cf path', async () => {
+		const res = await SELF.fetch('http://localhost/cf/zones/not-a-hex-zone/dns_records', {
+			headers: { Authorization: 'Bearer gw_00000000000000000000000000000000' },
+		});
+		expect(res.status).toBe(400);
+	});
+
+	it('/v1/ backward compat still works', async () => {
+		const keyId = await createKeyWithPolicy(dnsWildcardPolicy());
+		mockDnsListUpstream([{ id: 'rec1', type: 'A', name: 'test.com', content: '1.1.1.1' }]);
+
+		const res = await SELF.fetch(`http://localhost${DNS_BASE}`, {
+			headers: { Authorization: `Bearer ${keyId}` },
+		});
+		expect(res.status).toBe(200);
 	});
 });

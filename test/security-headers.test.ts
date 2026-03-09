@@ -1,5 +1,5 @@
 import { SELF, env, fetchMock } from 'cloudflare:test';
-import { describe, it, expect, beforeAll, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, beforeEach, afterAll } from 'vitest';
 import {
 	ZONE_ID,
 	adminHeaders,
@@ -7,6 +7,7 @@ import {
 	createKeyWithPolicy,
 	mockUpstreamSuccess,
 	registerUpstreamToken,
+	cleanupCreatedResources,
 	__testClearInflightCache,
 } from './helpers';
 import { registerUpstreamR2 } from './s3-helpers';
@@ -41,6 +42,10 @@ beforeEach(() => {
 
 afterEach(() => {
 	fetchMock.assertNoPendingInterceptors();
+});
+
+afterAll(async () => {
+	await cleanupCreatedResources();
 });
 
 // --- Tests ---

@@ -38,6 +38,11 @@ export function resolveZoneId(args: { 'zone-id'?: string }): string {
 	return zoneId;
 }
 
+/** Like resolveZoneId but returns undefined instead of exiting when no zone is set. */
+export function resolveOptionalZoneId(args: { 'zone-id'?: string }): string | undefined {
+	return args['zone-id'] || process.env['GATEKEEPER_ZONE_ID'] || undefined;
+}
+
 export async function request(
 	config: ClientConfig,
 	method: string,

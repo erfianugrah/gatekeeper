@@ -1,7 +1,19 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { SELF, fetchMock } from 'cloudflare:test';
-import { createCredential, buildClient, signedFetch, mockR2, registerUpstreamR2, s3WildcardPolicy } from './s3-helpers';
+import {
+	createCredential,
+	buildClient,
+	signedFetch,
+	mockR2,
+	registerUpstreamR2,
+	s3WildcardPolicy,
+	cleanupCreatedS3Resources,
+} from './s3-helpers';
 import { adminHeaders, waitForAnalytics } from './helpers';
+
+afterAll(async () => {
+	await cleanupCreatedS3Resources();
+});
 
 describe('S3 proxy — credential lifecycle via admin API', () => {
 	beforeAll(async () => {

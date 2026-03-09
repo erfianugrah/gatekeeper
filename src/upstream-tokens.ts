@@ -5,10 +5,15 @@ import type { BulkResult, BulkItemResult, BulkDryRunResult, BulkInspectItem } fr
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+/** Token scope: 'zone' for zone-scoped ops (purge, DNS), 'account' for account-scoped ops (D1, KV, Workers). */
+export type UpstreamTokenScopeType = 'zone' | 'account';
+
 export interface UpstreamToken {
 	id: string;
 	name: string;
-	/** Comma-separated zone IDs, or "*" for all zones. */
+	/** 'zone' (default, legacy) or 'account'. */
+	scope_type: UpstreamTokenScopeType;
+	/** Comma-separated zone IDs or account IDs (depending on scope_type), or "*" for all. */
 	zone_ids: string;
 	/** First 4 + last 4 chars of the token for display. */
 	token_preview: string;
@@ -24,7 +29,9 @@ interface UpstreamTokenRow extends UpstreamToken {
 export interface CreateUpstreamTokenRequest {
 	name: string;
 	token: string;
-	/** Zone IDs this token can purge, or ["*"] for all. */
+	/** Scope type for this token. Defaults to 'zone' for backward compatibility. */
+	scope_type?: UpstreamTokenScopeType;
+	/** Zone IDs or account IDs this token covers (depending on scope_type), or ["*"] for all. */
 	zone_ids: string[];
 	created_by?: string;
 }
@@ -66,6 +73,12 @@ export class UpstreamTokenManager {
 			console.log(JSON.stringify({ migration: 'upstream_tokens', action: 'drop_column_revoked', ts: new Date().toISOString() }));
 			this.sql.exec(`ALTER TABLE upstream_tokens DROP COLUMN revoked`);
 		}
+
+		// Migration: add scope_type column for account-scoped tokens (dev platform proxy).
+		if (!cols.some((c) => c.name === 'scope_type')) {
+			console.log(JSON.stringify({ migration: 'upstream_tokens', action: 'add_column_scope_type', ts: new Date().toISOString() }));
+			this.sql.exec(`ALTER TABLE upstream_tokens ADD COLUMN scope_type TEXT NOT NULL DEFAULT 'zone'`);
+		}
 	}
 
 	// ─── CRUD ───────────────────────────────────────────────────────────
@@ -76,15 +89,17 @@ export class UpstreamTokenManager {
 		const now = Date.now();
 		const zoneIdsStr = req.zone_ids.join(',');
 		const preview = makePreview(req.token);
+		const scopeType = req.scope_type ?? 'zone';
 
 		this.sql.exec(
-			`INSERT INTO upstream_tokens (id, name, token, token_preview, zone_ids, created_at, created_by)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO upstream_tokens (id, name, token, token_preview, zone_ids, scope_type, created_at, created_by)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			id,
 			req.name,
 			req.token,
 			preview,
 			zoneIdsStr,
+			scopeType,
 			now,
 			req.created_by ?? null,
 		);
@@ -95,6 +110,7 @@ export class UpstreamTokenManager {
 			token: {
 				id,
 				name: req.name,
+				scope_type: scopeType,
 				zone_ids: zoneIdsStr,
 				token_preview: preview,
 				created_at: now,
@@ -107,7 +123,7 @@ export class UpstreamTokenManager {
 	listTokens(): UpstreamToken[] {
 		return queryAll<UpstreamToken>(
 			this.sql,
-			'SELECT id, name, zone_ids, token_preview, created_at, created_by FROM upstream_tokens ORDER BY created_at DESC',
+			'SELECT id, name, scope_type, zone_ids, token_preview, created_at, created_by FROM upstream_tokens ORDER BY created_at DESC',
 		);
 	}
 
@@ -115,7 +131,7 @@ export class UpstreamTokenManager {
 	getToken(id: string): { token: UpstreamToken } | null {
 		const rows = queryAll<UpstreamToken>(
 			this.sql,
-			'SELECT id, name, zone_ids, token_preview, created_at, created_by FROM upstream_tokens WHERE id = ?',
+			'SELECT id, name, scope_type, zone_ids, token_preview, created_at, created_by FROM upstream_tokens WHERE id = ?',
 			id,
 		);
 		if (rows.length === 0) return null;
@@ -202,6 +218,48 @@ export class UpstreamTokenManager {
 		}
 
 		console.log(JSON.stringify({ breadcrumb: 'upstream-token-not-found', zoneId, totalTokens: rows.length }));
+		return null;
+	}
+
+	/**
+	 * Resolve the upstream CF API token for a given account ID.
+	 * Same algorithm as resolveTokenForZone but filters on scope_type = 'account'.
+	 * Checks account-specific tokens first, then wildcard tokens.
+	 */
+	resolveTokenForAccount(accountId: string): string | null {
+		const cacheKey = `account:${accountId}`;
+		const cached = this.resolveCache.get(cacheKey);
+		if (cached && Date.now() - cached.cachedAt < this.cacheTtlMs) {
+			console.log(JSON.stringify({ breadcrumb: 'upstream-account-token-cache-hit', accountId }));
+			return cached.token;
+		}
+
+		const rows = queryAll<UpstreamTokenRow>(
+			this.sql,
+			`SELECT * FROM upstream_tokens WHERE scope_type = 'account' ORDER BY created_at DESC`,
+		);
+
+		let wildcardToken: string | null = null;
+
+		for (const row of rows) {
+			const ids = row.zone_ids.split(',');
+			if (ids.includes(accountId)) {
+				this.resolveCache.set(cacheKey, { token: row.token, cachedAt: Date.now() });
+				console.log(JSON.stringify({ breadcrumb: 'upstream-account-token-exact-match', accountId, tokenId: row.id }));
+				return row.token;
+			}
+			if (ids.includes('*') && !wildcardToken) {
+				wildcardToken = row.token;
+			}
+		}
+
+		if (wildcardToken) {
+			this.resolveCache.set(cacheKey, { token: wildcardToken, cachedAt: Date.now() });
+			console.log(JSON.stringify({ breadcrumb: 'upstream-account-token-wildcard-match', accountId }));
+			return wildcardToken;
+		}
+
+		console.log(JSON.stringify({ breadcrumb: 'upstream-account-token-not-found', accountId, totalTokens: rows.length }));
 		return null;
 	}
 

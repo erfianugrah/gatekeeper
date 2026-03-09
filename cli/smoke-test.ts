@@ -24,6 +24,7 @@ import { run as runS3 } from './smoke/s3.js';
 import { run as runDns } from './smoke/dns.js';
 import { run as runRoutes } from './smoke/routes.js';
 import { run as runConfig } from './smoke/config.js';
+import { run as runCfProxy } from './smoke/cf-proxy.js';
 
 // ─── Preflight checks ─────────────────────────────────────────────────────
 
@@ -111,6 +112,7 @@ async function main(): Promise<void> {
 		await runDashboard();
 		await runS3(ctx);
 		await runDns(ctx);
+		await runCfProxy(ctx);
 		await runConfig(ctx);
 		await runRoutes(ctx);
 	} finally {
@@ -118,42 +120,52 @@ async function main(): Promise<void> {
 
 		section('Cleanup');
 
-		// Revoke all created keys
+		// Permanently delete all created keys
 		for (const kid of state.createdKeys) {
 			try {
-				await admin('DELETE', `/admin/keys/${kid}`);
+				await admin('DELETE', `/admin/keys/${kid}?permanent=true`);
 			} catch {
 				/* ignore */
 			}
 		}
-		console.log(`  Revoked ${state.createdKeys.length} smoke-test keys`);
+		console.log(`  Deleted ${state.createdKeys.length} smoke-test keys`);
 
-		// Revoke all created S3 credentials
+		// Permanently delete all created S3 credentials
 		for (const cid of state.createdS3Creds) {
 			try {
-				await admin('DELETE', `/admin/s3/credentials/${cid}`);
+				await admin('DELETE', `/admin/s3/credentials/${cid}?permanent=true`);
 			} catch {
 				/* ignore */
 			}
 		}
-		console.log(`  Revoked ${state.createdS3Creds.length} S3 credentials`);
+		console.log(`  Deleted ${state.createdS3Creds.length} S3 credentials`);
 
-		// Revoke upstream token
+		// Delete upstream token
 		try {
 			await admin('DELETE', `/admin/upstream-tokens/${UPSTREAM_TOKEN_ID}`);
 		} catch {
 			/* ignore */
 		}
-		console.log(`  Revoked upstream token ${UPSTREAM_TOKEN_ID}`);
+		console.log(`  Deleted upstream token ${UPSTREAM_TOKEN_ID}`);
 
-		// Revoke upstream R2 endpoint
+		// Delete CF proxy upstream token
+		if (ctx.cfProxyUpstreamId) {
+			try {
+				await admin('DELETE', `/admin/upstream-tokens/${ctx.cfProxyUpstreamId}`);
+			} catch {
+				/* ignore */
+			}
+			console.log(`  Deleted CF proxy upstream token ${ctx.cfProxyUpstreamId}`);
+		}
+
+		// Delete upstream R2 endpoint
 		if (ctx.s3UpstreamId) {
 			try {
 				await admin('DELETE', `/admin/upstream-r2/${ctx.s3UpstreamId}`);
 			} catch {
 				/* ignore */
 			}
-			console.log(`  Revoked upstream R2 ${ctx.s3UpstreamId}`);
+			console.log(`  Deleted upstream R2 ${ctx.s3UpstreamId}`);
 		}
 	}
 

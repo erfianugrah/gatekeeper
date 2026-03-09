@@ -9,7 +9,7 @@
  */
 
 import { z } from 'zod';
-import { ZONE_ID_RE, DEFAULT_ANALYTICS_LIMIT, MAX_ANALYTICS_LIMIT } from '../constants';
+import { ZONE_ID_RE, ACCOUNT_ID_RE, DEFAULT_ANALYTICS_LIMIT, MAX_ANALYTICS_LIMIT } from '../constants';
 import { POLICY_VERSION } from '../policy-types';
 import { CONFIG_DEFAULTS } from '../config-registry';
 
@@ -109,13 +109,14 @@ export type CreateS3CredentialInput = z.infer<typeof createS3CredentialSchema>;
 export const createUpstreamTokenSchema = z.object({
 	name: z.string().min(1, 'Required field: name (string)'),
 	token: z.string().min(1, 'Required field: token (string)'),
+	scope_type: z.enum(['zone', 'account']).optional().default('zone'),
 	zone_ids: z
 		.array(
-			z.string().refine((v) => v === '*' || ZONE_ID_RE.test(v), {
-				message: 'Each zone_id must be a 32-char hex string or "*"',
+			z.string().refine((v) => v === '*' || ZONE_ID_RE.test(v) || ACCOUNT_ID_RE.test(v), {
+				message: 'Each ID must be a 32-char hex string or "*"',
 			}),
 		)
-		.min(1, 'Required field: zone_ids (non-empty array of strings, or ["*"])'),
+		.min(1, 'Required field: zone_ids (non-empty array of zone/account IDs, or ["*"])'),
 	created_by: z.string().optional(),
 	validate: z.boolean().optional(),
 });
@@ -540,7 +541,8 @@ export const upstreamTokenSchema = z
 	.object({
 		id: z.string(),
 		name: z.string(),
-		zone_ids: z.string().meta({ description: 'Comma-separated zone IDs or "*"' }),
+		scope_type: z.enum(['zone', 'account']).meta({ description: "'zone' for zone-scoped ops, 'account' for dev platform ops" }),
+		zone_ids: z.string().meta({ description: 'Comma-separated zone/account IDs or "*"' }),
 		token_preview: z.string().meta({ description: 'First 4 + last 4 chars of the token' }),
 		created_at: z.number(),
 		created_by: z.string().nullable(),
@@ -653,7 +655,7 @@ export const s3AnalyticsSummarySchema = z
 
 // ─── Config response schemas ────────────────────────────────────────────────
 
-/** All 10 config values. */
+/** All 12 config values. */
 export const gatewayConfigSchema = z
 	.object({
 		bulk_rate: z.number(),
@@ -666,6 +668,8 @@ export const gatewayConfigSchema = z
 		retention_days: z.number(),
 		s3_rps: z.number(),
 		s3_burst: z.number(),
+		cf_proxy_rps: z.number(),
+		cf_proxy_burst: z.number(),
 	})
 	.meta({ id: 'GatewayConfig', description: 'Resolved gateway configuration' });
 
@@ -697,6 +701,31 @@ export const validationWarningSchema = z
 	.meta({ id: 'ValidationWarning', description: 'Warning from upstream credential validation' });
 
 // ─── DNS analytics schemas ──────────────────────────────────────────────────
+
+/** CF proxy analytics: GET /admin/cf/analytics/events */
+export const cfProxyAnalyticsEventsQuerySchema = z.object({
+	account_id: z.string().optional(),
+	key_id: z.string().optional(),
+	service: z.string().optional(),
+	action: z.string().optional(),
+	since: z.coerce.number().optional(),
+	until: z.coerce.number().optional(),
+	limit: z.coerce.number().int().min(1).max(MAX_ANALYTICS_LIMIT).optional().default(DEFAULT_ANALYTICS_LIMIT),
+});
+
+export type CfProxyAnalyticsEventsQuery = z.infer<typeof cfProxyAnalyticsEventsQuerySchema>;
+
+/** CF proxy analytics: GET /admin/cf/analytics/summary */
+export const cfProxyAnalyticsSummaryQuerySchema = z.object({
+	account_id: z.string().optional(),
+	key_id: z.string().optional(),
+	service: z.string().optional(),
+	action: z.string().optional(),
+	since: z.coerce.number().optional(),
+	until: z.coerce.number().optional(),
+});
+
+export type CfProxyAnalyticsSummaryQuery = z.infer<typeof cfProxyAnalyticsSummaryQuerySchema>;
 
 /** DNS analytics: GET /admin/dns/analytics/events */
 export const dnsAnalyticsEventsQuerySchema = z.object({
@@ -741,6 +770,34 @@ export const dnsEventSchema = z
 		created_by: z.string().nullable(),
 	})
 	.meta({ id: 'DnsEvent', description: 'A single DNS proxy analytics event' });
+
+/** CF proxy event row from D1. */
+export const cfProxyEventSchema = z
+	.object({
+		key_id: z.string(),
+		account_id: z.string(),
+		service: z.string(),
+		action: z.string(),
+		resource_id: z.string().nullable(),
+		status: z.number(),
+		upstream_status: z.number().nullable(),
+		duration_ms: z.number(),
+		created_at: z.number(),
+		response_detail: z.string().nullable(),
+		created_by: z.string().nullable(),
+	})
+	.meta({ id: 'CfProxyEvent', description: 'A single CF API proxy analytics event' });
+
+/** CF proxy analytics summary. */
+export const cfProxyAnalyticsSummarySchema = z
+	.object({
+		total_requests: z.number(),
+		by_status: z.record(z.string(), z.number()),
+		by_service: z.record(z.string(), z.number()),
+		by_action: z.record(z.string(), z.number()),
+		avg_duration_ms: z.number(),
+	})
+	.meta({ id: 'CfProxyAnalyticsSummary', description: 'Aggregate CF proxy analytics' });
 
 /** DNS analytics summary. */
 export const dnsAnalyticsSummarySchema = z
