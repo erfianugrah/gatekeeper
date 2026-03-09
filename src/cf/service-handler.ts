@@ -8,7 +8,7 @@
 
 import { getStub } from '../do-stub';
 import { AUDIT_CREATED_BY_API_KEY } from '../constants';
-import { proxyToCfApi, buildProxyResponse, extractResponseDetail, cfJsonError } from './proxy-helpers';
+import { proxyToCfApi, buildProxyResponse, extractResponseDetail, cfJsonError, resolveUpstreamTokenOrError } from './proxy-helpers';
 import { logCfProxyEvent } from './analytics';
 import type { CfProxyEvent } from './analytics';
 import type { RequestContext } from '../policy-types';
@@ -16,7 +16,7 @@ import type { RequestContext } from '../policy-types';
 /**
  * Full auth + proxy + analytics flow for a CF proxy operation.
  * The shared CF proxy middleware has already handled bearer extraction,
- * account validation, upstream token resolution, and rate limiting.
+ * account validation, and rate limiting.
  */
 export async function handleCfServiceRequest(
 	c: any,
@@ -33,7 +33,6 @@ export async function handleCfServiceRequest(
 	const env = c.env;
 	const keyId: string = c.get('keyId');
 	const accountId: string = c.get('accountId');
-	const upstreamToken: string = c.get('upstreamToken');
 	const start: number = c.get('startTime');
 	const log: Record<string, unknown> = c.get('log');
 	log.service = service;
@@ -42,7 +41,8 @@ export async function handleCfServiceRequest(
 
 	const stub = getStub(env);
 
-	// Authorize
+	// Authorize BEFORE resolving the upstream token so unauthorized callers
+	// cannot probe which accounts have upstream tokens registered.
 	const authResult = await stub.authorize(keyId, accountId, contexts);
 	if (!authResult.authorized) {
 		const status = authResult.error === 'Invalid API key' ? 401 : 403;
@@ -55,6 +55,11 @@ export async function handleCfServiceRequest(
 	}
 
 	c.set('keyName', authResult.keyName);
+
+	// Resolve upstream token (post-auth)
+	const tokenOrError = await resolveUpstreamTokenOrError(env, accountId, log, start);
+	if (tokenOrError instanceof Response) return tokenOrError;
+	const upstreamToken = tokenOrError;
 
 	// Proxy to CF API
 	const queryString = new URL(c.req.url).search.slice(1);

@@ -19,7 +19,7 @@
 import { Hono } from 'hono';
 import { getStub } from '../../do-stub';
 import { AUDIT_CREATED_BY_API_KEY } from '../../constants';
-import { proxyToCfApi, buildProxyResponse, extractResponseDetail, cfJsonError } from '../proxy-helpers';
+import { proxyToCfApi, buildProxyResponse, extractResponseDetail, cfJsonError, resolveUpstreamTokenOrError } from '../proxy-helpers';
 import { logCfProxyEvent } from '../analytics';
 import {
 	workersListScriptsContext,
@@ -62,7 +62,6 @@ async function handleWorkersRequest(
 	const env = c.env;
 	const keyId: string = c.get('keyId');
 	const accountId: string = c.get('accountId');
-	const upstreamToken: string = c.get('upstreamToken');
 	const start: number = c.get('startTime');
 	const log: Record<string, unknown> = c.get('log');
 	log.service = 'workers';
@@ -71,7 +70,8 @@ async function handleWorkersRequest(
 
 	const stub = getStub(env);
 
-	// Authorize
+	// Authorize BEFORE resolving the upstream token so unauthorized callers
+	// cannot probe which accounts have upstream tokens registered.
 	const authResult = await stub.authorize(keyId, accountId, contexts);
 	if (!authResult.authorized) {
 		const status = authResult.error === 'Invalid API key' ? 401 : 403;
@@ -84,6 +84,11 @@ async function handleWorkersRequest(
 	}
 
 	c.set('keyName', authResult.keyName);
+
+	// Resolve upstream token (post-auth)
+	const tokenOrError = await resolveUpstreamTokenOrError(env, accountId, log, start);
+	if (tokenOrError instanceof Response) return tokenOrError;
+	const upstreamToken = tokenOrError;
 
 	// Proxy to CF API
 	const queryString = new URL(c.req.url).search.slice(1);

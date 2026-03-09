@@ -6,6 +6,7 @@
  */
 
 import { CF_API_BASE, BEARER_PREFIX, ACCOUNT_ID_RE, MAX_LOG_VALUE_LENGTH } from '../constants';
+import { getStub } from '../do-stub';
 
 // ─── Upstream rate-limit headers to forward ─────────────────────────────────
 
@@ -24,6 +25,33 @@ export function extractBearerKey(authHeader: string | undefined): string | null 
 	if (!authHeader || !authHeader.startsWith(BEARER_PREFIX)) return null;
 	const key = authHeader.slice(BEARER_PREFIX.length).trim();
 	return key.length > 0 ? key : null;
+}
+
+// ─── Upstream token resolution ──────────────────────────────────────────────
+
+/**
+ * Resolve the upstream CF API token for a given account.
+ * Called AFTER authentication to prevent unauthenticated callers from probing
+ * which accounts have registered tokens (would leak 502 vs 401).
+ *
+ * Returns the token string on success, or a CF-style JSON error Response on failure.
+ */
+export async function resolveUpstreamTokenOrError(
+	env: Env,
+	accountId: string,
+	log: Record<string, unknown>,
+	start: number,
+): Promise<string | Response> {
+	const stub = getStub(env);
+	const upstreamToken = await stub.resolveUpstreamAccountToken(accountId);
+	if (!upstreamToken) {
+		log.status = 502;
+		log.error = 'no_upstream_account_token';
+		log.durationMs = Date.now() - start;
+		console.log(JSON.stringify(log));
+		return cfJsonError(502, `No upstream API token registered for account ${accountId}`);
+	}
+	return upstreamToken;
 }
 
 // ─── Upstream proxy ─────────────────────────────────────────────────────────

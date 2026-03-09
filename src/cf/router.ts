@@ -10,10 +10,12 @@
  * and proxies to the real CF API.
  *
  * Shared middleware handles:
- *   1. Bearer token extraction + IAM authentication
+ *   1. Bearer token extraction
  *   2. Account ID validation
- *   3. Upstream token resolution (scope_type = 'account')
- *   4. Account-level rate limiting (cfProxyBucket)
+ *   3. Account-level rate limiting (cfProxyBucket)
+ *
+ * Upstream token resolution happens AFTER authentication in each service handler
+ * to prevent unauthenticated callers from probing which accounts have tokens.
  *
  * Per-service routes (D1, KV, Workers, etc.) are mounted as sub-apps.
  */
@@ -28,8 +30,6 @@ import { workersRoutes } from './workers/routes';
 import { queuesRoutes } from './queues/routes';
 import { vectorizeRoutes } from './vectorize/routes';
 import { hyperdriveRoutes } from './hyperdrive/routes';
-import type { HonoEnv } from '../types';
-import type { AuthResult } from '../types';
 
 // ─── Shared context type ────────────────────────────────────────────────────
 
@@ -41,8 +41,6 @@ export interface CfProxyVars {
 	keyName: string | undefined;
 	/** The validated 32-hex-char Cloudflare account ID from the URL path. */
 	accountId: string;
-	/** The resolved upstream Cloudflare API token for this account. */
-	upstreamToken: string;
 	/** Request start time (ms) for duration tracking. */
 	startTime: number;
 	/** Structured breadcrumb log object — route handlers append fields. */
@@ -63,8 +61,8 @@ export const cfApp = new Hono<CfProxyEnv>();
 
 /**
  * Shared middleware for all CF proxy routes.
- * Runs auth, account validation, upstream token resolution, and rate limiting.
- * Sets CfProxyVars on the context for downstream handlers.
+ * Runs bearer extraction, account validation, and rate limiting.
+ * Upstream token resolution is deferred to service handlers (post-auth).
  */
 cfApp.use('/accounts/:accountId/*', async (c, next) => {
 	const start = Date.now();
@@ -84,18 +82,8 @@ cfApp.use('/accounts/:accountId/*', async (c, next) => {
 	}
 	log.accountId = accountId;
 
-	// 3. Resolve upstream token for this account
+	// 3. Rate limit — account-level CF proxy bucket
 	const stub = getStub(c.env);
-	const upstreamToken = await stub.resolveUpstreamAccountToken(accountId);
-	if (!upstreamToken) {
-		log.status = 502;
-		log.error = 'no_upstream_account_token';
-		log.durationMs = Date.now() - start;
-		console.log(JSON.stringify(log));
-		return cfJsonError(502, `No upstream API token registered for account ${accountId}`);
-	}
-
-	// 4. Rate limit — account-level CF proxy bucket
 	const consumeResult = await stub.consumeCfProxyRateLimit();
 	if (!consumeResult.allowed) {
 		log.status = 429;
@@ -105,13 +93,12 @@ cfApp.use('/accounts/:accountId/*', async (c, next) => {
 		return cfJsonError(429, 'Rate limit exceeded');
 	}
 
-	// 5. Extract request fields for policy conditions
+	// 4. Extract request fields for policy conditions
 	const requestFields = extractRequestFields(c.req.raw);
 
 	// Set variables for downstream handlers
 	c.set('keyId', keyId);
 	c.set('accountId', accountId);
-	c.set('upstreamToken', upstreamToken);
 	c.set('startTime', start);
 	c.set('log', log);
 	c.set('requestFields', requestFields);
