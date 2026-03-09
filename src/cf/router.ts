@@ -23,6 +23,7 @@ import { getStub } from '../do-stub';
 import { extractRequestFields } from '../request-fields';
 import { isValidAccountId, extractBearerKey, cfJsonError } from './proxy-helpers';
 import { d1Routes } from './d1/routes';
+import { kvRoutes } from './kv/routes';
 import type { HonoEnv } from '../types';
 import type { AuthResult } from '../types';
 
@@ -118,8 +119,8 @@ cfApp.use('/accounts/:accountId/*', async (c, next) => {
 // ─── Mount per-service routes ───────────────────────────────────────────────
 
 cfApp.route('/accounts/:accountId/d1', d1Routes);
+cfApp.route('/accounts/:accountId/storage/kv', kvRoutes);
 
-// Future: cfApp.route('/accounts/:accountId/storage/kv', kvRoutes);
 // Future: cfApp.route('/accounts/:accountId/workers', workersRoutes);
 // Future: cfApp.route('/accounts/:accountId/queues', queuesRoutes);
 // Future: cfApp.route('/accounts/:accountId/vectorize', vectorizeRoutes);

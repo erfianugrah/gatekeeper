@@ -1,6 +1,14 @@
 import { SELF, fetchMock } from 'cloudflare:test';
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
-import { ADMIN_KEY, UPSTREAM_HOST, adminHeaders, __testClearInflightCache } from './helpers';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
+import {
+	UPSTREAM_HOST,
+	adminHeaders,
+	createAccountKey,
+	registerAccountUpstreamToken,
+	registerUpstreamToken,
+	cleanupCreatedResources,
+	__testClearInflightCache,
+} from './helpers';
 import { classifySqlCommand } from '../src/cf/d1/operations';
 import type { PolicyDocument } from '../src/policy-types';
 
@@ -67,34 +75,6 @@ function d1SingleDbPolicy(dbId: string): PolicyDocument {
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
 
-/** Create a key with no zone_id (for account-scoped policies). Returns the key ID. */
-async function createAccountKey(policy: PolicyDocument, name = 'cf-test-key'): Promise<string> {
-	const res = await SELF.fetch('http://localhost/admin/keys', {
-		method: 'POST',
-		headers: adminHeaders(),
-		body: JSON.stringify({ name, policy }),
-	});
-	const data = await res.json<any>();
-	if (!data.success) throw new Error(`createAccountKey failed: ${JSON.stringify(data.errors)}`);
-	return data.result.key.id;
-}
-
-/** Register an account-scoped upstream CF API token. */
-async function registerAccountUpstreamToken(): Promise<void> {
-	const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
-		method: 'POST',
-		headers: adminHeaders(),
-		body: JSON.stringify({
-			name: 'test-account-upstream',
-			token: TEST_UPSTREAM_TOKEN,
-			scope_type: 'account',
-			zone_ids: [ACCOUNT_ID],
-		}),
-	});
-	const data = await res.json<any>();
-	if (!data.success) throw new Error(`registerAccountUpstreamToken failed: ${JSON.stringify(data.errors)}`);
-}
-
 function mockD1Upstream(method: string, path: string, status = 200, body?: string) {
 	const defaultBody =
 		status < 400
@@ -128,7 +108,7 @@ function mockD1ListUpstream(databases: unknown[] = []) {
 beforeAll(async () => {
 	fetchMock.activate();
 	fetchMock.disableNetConnect();
-	await registerAccountUpstreamToken();
+	await registerAccountUpstreamToken(ACCOUNT_ID, TEST_UPSTREAM_TOKEN);
 });
 
 beforeEach(() => {
@@ -137,6 +117,10 @@ beforeEach(() => {
 
 afterEach(() => {
 	fetchMock.assertNoPendingInterceptors();
+});
+
+afterAll(async () => {
+	await cleanupCreatedResources();
 });
 
 // ─── Unit: SQL command classification ───────────────────────────────────────
@@ -638,22 +622,7 @@ describe('D1 proxy — missing upstream token', () => {
 
 describe('Upstream tokens — scope_type', () => {
 	it('create account-scoped token and verify scope_type in list', async () => {
-		const createRes = await SELF.fetch('http://localhost/admin/upstream-tokens', {
-			method: 'POST',
-			headers: adminHeaders(),
-			body: JSON.stringify({
-				name: 'scope-type-test',
-				token: 'cf-scope-type-test-token-abcdef0123456789',
-				scope_type: 'account',
-				zone_ids: ['*'],
-			}),
-		});
-		expect(createRes.status).toBe(200);
-		const createData = await createRes.json<any>();
-		expect(createData.success).toBe(true);
-		expect(createData.result.scope_type).toBe('account');
-
-		const tokenId = createData.result.id;
+		const tokenId = await registerAccountUpstreamToken('*', 'cf-scope-type-test-token-abcdef0123456789', 'scope-type-test');
 
 		// Verify in list
 		const listRes = await SELF.fetch('http://localhost/admin/upstream-tokens', {
@@ -670,32 +639,15 @@ describe('Upstream tokens — scope_type', () => {
 		});
 		const getData = await getRes.json<any>();
 		expect(getData.result.scope_type).toBe('account');
-
-		// Clean up
-		await SELF.fetch(`http://localhost/admin/upstream-tokens/${tokenId}`, {
-			method: 'DELETE',
-			headers: adminHeaders(),
-		});
 	});
 
 	it('defaults to zone scope_type when not specified', async () => {
-		const createRes = await SELF.fetch('http://localhost/admin/upstream-tokens', {
-			method: 'POST',
-			headers: adminHeaders(),
-			body: JSON.stringify({
-				name: 'default-scope-test',
-				token: 'cf-default-scope-test-token-abcdef0123456789',
-				zone_ids: ['*'],
-			}),
-		});
-		expect(createRes.status).toBe(200);
-		const createData = await createRes.json<any>();
-		expect(createData.result.scope_type).toBe('zone');
+		const tokenId = await registerUpstreamToken(['*']);
 
-		// Clean up
-		await SELF.fetch(`http://localhost/admin/upstream-tokens/${createData.result.id}`, {
-			method: 'DELETE',
+		const getRes = await SELF.fetch(`http://localhost/admin/upstream-tokens/${tokenId}`, {
 			headers: adminHeaders(),
 		});
+		const getData = await getRes.json<any>();
+		expect(getData.result.scope_type).toBe('zone');
 	});
 });

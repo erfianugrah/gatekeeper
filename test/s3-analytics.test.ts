@@ -1,9 +1,22 @@
 import { SELF, fetchMock } from 'cloudflare:test';
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { adminHeaders, waitForAnalytics } from './helpers';
-import { registerUpstreamR2, createCredential, buildClient, signedFetch, mockR2, s3WildcardPolicy, getR2Origin } from './s3-helpers';
+import {
+	registerUpstreamR2,
+	createCredential,
+	buildClient,
+	signedFetch,
+	mockR2,
+	s3WildcardPolicy,
+	getR2Origin,
+	cleanupCreatedS3Resources,
+} from './s3-helpers';
 
 // --- Setup ---
+
+afterAll(async () => {
+	await cleanupCreatedS3Resources();
+});
 
 beforeAll(async () => {
 	fetchMock.activate();

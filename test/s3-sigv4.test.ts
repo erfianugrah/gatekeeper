@@ -1,7 +1,22 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { SELF, fetchMock } from 'cloudflare:test';
 import { parseAuthHeader } from '../src/s3/sig-v4-verify';
 import { adminHeaders } from './helpers';
+
+/** Access key IDs created during tests, for cleanup in afterAll. */
+const localCreatedIds: string[] = [];
+
+afterAll(async () => {
+	const ids = localCreatedIds.splice(0);
+	await Promise.all(
+		ids.map((id) =>
+			SELF.fetch(`http://localhost/admin/s3/credentials/${id}?permanent=true`, {
+				method: 'DELETE',
+				headers: adminHeaders(),
+			}),
+		),
+	);
+});
 
 // --- parseAuthHeader unit tests (runs in Workers runtime) ---
 
@@ -108,6 +123,7 @@ describe('S3 proxy — auth flow', () => {
 		});
 		const createData = await createRes.json<any>();
 		const accessKeyId = createData.result.credential.access_key_id;
+		localCreatedIds.push(accessKeyId);
 
 		// Send request with wrong signature
 		const res = await SELF.fetch('http://localhost/s3/my-bucket/key.txt', {

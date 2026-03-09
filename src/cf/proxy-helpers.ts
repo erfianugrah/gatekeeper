@@ -53,8 +53,9 @@ export async function proxyToCfApi(
 
 // ─── Response helpers ───────────────────────────────────────────────────────
 
-/** Build a forwarded response, copying relevant upstream headers (including rate-limit headers). */
-export function buildProxyResponse(upstreamResponse: Response, responseBody: BodyInit, statusOverride?: number): Response {
+/** Build a forwarded response, copying relevant upstream headers (including rate-limit headers).
+ *  When responseBody is null, the upstream response body is streamed through directly (for binary passthrough). */
+export function buildProxyResponse(upstreamResponse: Response, responseBody: BodyInit | null, statusOverride?: number): Response {
 	const headers = new Headers();
 	for (const name of FORWARDED_HEADERS) {
 		const value = upstreamResponse.headers.get(name);
@@ -64,7 +65,7 @@ export function buildProxyResponse(upstreamResponse: Response, responseBody: Bod
 	if (!headers.has('Content-Type')) {
 		headers.set('Content-Type', 'application/json');
 	}
-	return new Response(responseBody, {
+	return new Response(responseBody ?? upstreamResponse.body, {
 		status: statusOverride ?? upstreamResponse.status,
 		headers,
 	});
