@@ -40,6 +40,9 @@ export const CF_ACCESS_COOKIE = 'CF_Authorization';
 /** Regex for a 32-hex-char Cloudflare zone ID. */
 export const ZONE_ID_RE = /^[a-f0-9]{32}$/;
 
+/** Regex for a 32-hex-char Cloudflare account ID. Same format as zone IDs. */
+export const ACCOUNT_ID_RE = /^[a-f0-9]{32}$/;
+
 // ─── Limits ─────────────────────────────────────────────────────────────────
 
 /** Max characters stored / logged for upstream response bodies and analytics targets. */
