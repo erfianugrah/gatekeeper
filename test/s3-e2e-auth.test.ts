@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { SELF, fetchMock } from 'cloudflare:test';
 import {
 	createCredential,
@@ -9,8 +9,13 @@ import {
 	registerUpstreamR2,
 	s3WildcardPolicy,
 	s3ReadOnlyPolicy,
+	cleanupCreatedS3Resources,
 } from './s3-helpers';
 import { adminHeaders } from './helpers';
+
+afterAll(async () => {
+	await cleanupCreatedS3Resources();
+});
 
 describe('S3 proxy — authentication and signature', () => {
 	beforeAll(async () => {

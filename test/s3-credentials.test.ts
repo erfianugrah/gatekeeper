@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { SELF, fetchMock } from 'cloudflare:test';
 import { s3WildcardPolicy, s3ReadOnlyPolicy } from './s3-helpers';
 import { adminHeaders } from './helpers';
 
 // --- Helpers ---
+
+/** Access key IDs created by the local helper, for cleanup in afterAll. */
+const localCreatedIds: string[] = [];
 
 async function createS3Credential(policy: Record<string, unknown>, name = 'test-s3-cred', extra?: Record<string, unknown>) {
 	const res = await SELF.fetch('http://localhost/admin/s3/credentials', {
@@ -11,8 +14,27 @@ async function createS3Credential(policy: Record<string, unknown>, name = 'test-
 		headers: adminHeaders(),
 		body: JSON.stringify({ name, policy, ...extra }),
 	});
+	if (res.status === 200) {
+		const cloned = res.clone();
+		const data = await cloned.json<any>();
+		if (data.result?.credential?.access_key_id) {
+			localCreatedIds.push(data.result.credential.access_key_id);
+		}
+	}
 	return res;
 }
+
+afterAll(async () => {
+	const ids = localCreatedIds.splice(0);
+	await Promise.all(
+		ids.map((id) =>
+			SELF.fetch(`http://localhost/admin/s3/credentials/${id}?permanent=true`, {
+				method: 'DELETE',
+				headers: adminHeaders(),
+			}),
+		),
+	);
+});
 
 // --- Tests ---
 
