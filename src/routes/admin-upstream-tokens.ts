@@ -37,12 +37,14 @@ adminUpstreamTokensApp.post('/', async (c) => {
 	const result = await stub.createUpstreamToken({
 		name: parsed.name,
 		token: parsed.token,
+		scope_type: parsed.scope_type,
 		zone_ids: parsed.zone_ids,
 		created_by: resolveCreatedBy(identity, parsed.created_by),
 	});
 
 	log.status = 200;
 	log.tokenId = result.token.id;
+	log.scopeType = parsed.scope_type;
 	log.zoneIds = parsed.zone_ids;
 	console.log(JSON.stringify(log));
 

@@ -6,6 +6,8 @@ import { s3App } from './s3/routes';
 import { deleteOldEvents } from './analytics';
 import { deleteOldS3Events } from './s3/analytics';
 import { deleteOldDnsEvents } from './dns/analytics';
+import { deleteOldCfProxyEvents } from './cf/analytics';
+import { cfApp } from './cf/router';
 import { getStub } from './do-stub';
 import type { HonoEnv } from './types';
 
@@ -76,6 +78,7 @@ app.route('/', purgeRoute);
 app.route('/', dnsRoute);
 app.route('/admin', adminApp);
 app.route('/s3', s3App);
+app.route('/cf', cfApp);
 
 // ─── Exports ────────────────────────────────────────────────────────────────
 
@@ -89,10 +92,11 @@ export default {
 			const gwConfig = await stub.getConfig();
 			const retentionDays = gwConfig.retention_days;
 
-			const [purgeDeleted, s3Deleted, dnsDeleted] = await Promise.all([
+			const [purgeDeleted, s3Deleted, dnsDeleted, cfProxyDeleted] = await Promise.all([
 				deleteOldEvents(env.ANALYTICS_DB, retentionDays),
 				deleteOldS3Events(env.ANALYTICS_DB, retentionDays),
 				deleteOldDnsEvents(env.ANALYTICS_DB, retentionDays),
+				deleteOldCfProxyEvents(env.ANALYTICS_DB, retentionDays),
 			]);
 			console.log(
 				JSON.stringify({
@@ -102,6 +106,7 @@ export default {
 					purgeDeleted,
 					s3Deleted,
 					dnsDeleted,
+					cfProxyDeleted,
 					ts: new Date(controller.scheduledTime).toISOString(),
 				}),
 			);
