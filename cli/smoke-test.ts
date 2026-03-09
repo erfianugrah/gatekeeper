@@ -24,6 +24,7 @@ import { run as runS3 } from './smoke/s3.js';
 import { run as runDns } from './smoke/dns.js';
 import { run as runRoutes } from './smoke/routes.js';
 import { run as runConfig } from './smoke/config.js';
+import { run as runCfProxy } from './smoke/cf-proxy.js';
 
 // ─── Preflight checks ─────────────────────────────────────────────────────
 
@@ -111,6 +112,7 @@ async function main(): Promise<void> {
 		await runDashboard();
 		await runS3(ctx);
 		await runDns(ctx);
+		await runCfProxy(ctx);
 		await runConfig(ctx);
 		await runRoutes(ctx);
 	} finally {
@@ -145,6 +147,16 @@ async function main(): Promise<void> {
 			/* ignore */
 		}
 		console.log(`  Revoked upstream token ${UPSTREAM_TOKEN_ID}`);
+
+		// Revoke CF proxy upstream token
+		if (ctx.cfProxyUpstreamId) {
+			try {
+				await admin('DELETE', `/admin/upstream-tokens/${ctx.cfProxyUpstreamId}`);
+			} catch {
+				/* ignore */
+			}
+			console.log(`  Revoked CF proxy upstream token ${ctx.cfProxyUpstreamId}`);
+		}
 
 		// Revoke upstream R2 endpoint
 		if (ctx.s3UpstreamId) {
