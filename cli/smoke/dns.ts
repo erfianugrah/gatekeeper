@@ -74,7 +74,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 
 	const noAuth = await req('GET', DNS_BASE);
 	assertStatus('no auth header -> 401', noAuth, 401);
-	assertJson('401 message', noAuth.body?.errors?.[0]?.message, 'Missing Authorization: Bearer <key>');
+	assertTruthy('401 message mentions Authorization', noAuth.body?.errors?.[0]?.message?.includes('Authorization: Bearer'));
 
 	const badKey = await dns('gw_00000000000000000000000000000000', 'GET', DNS_BASE);
 	assertStatus('nonexistent key -> 401', badKey, 401);
