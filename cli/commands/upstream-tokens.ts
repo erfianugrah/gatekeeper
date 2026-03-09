@@ -10,7 +10,7 @@ const globalArgs = baseArgs;
 const create = defineCommand({
 	meta: {
 		name: 'create',
-		description: 'Register a Cloudflare API token for upstream purge requests',
+		description: 'Register a Cloudflare API token for upstream requests',
 	},
 	args: {
 		...globalArgs,
@@ -23,9 +23,14 @@ const create = defineCommand({
 			type: 'string',
 			description: 'Cloudflare API token value ($UPSTREAM_CF_TOKEN). Prefer UPSTREAM_CF_TOKEN env var to avoid shell history exposure',
 		},
+		'scope-type': {
+			type: 'string',
+			description: 'Token scope: "zone" (purge/DNS) or "account" (CF proxy: D1, KV, Workers, etc.)',
+			default: 'zone',
+		},
 		'zone-ids': {
 			type: 'string',
-			description: 'Comma-separated zone IDs this token covers, or "*" for all',
+			description: 'Comma-separated zone/account IDs this token covers, or "*" for all',
 			required: true,
 		},
 		validate: {
@@ -42,11 +47,18 @@ const create = defineCommand({
 			process.exit(1);
 		}
 
+		const scopeType = args['scope-type'] ?? 'zone';
+		if (scopeType !== 'zone' && scopeType !== 'account') {
+			error('--scope-type must be "zone" or "account".');
+			process.exit(1);
+		}
+
 		const zoneIds = args['zone-ids'] === '*' ? ['*'] : args['zone-ids'].split(',').map((s) => s.trim());
 
 		const body: Record<string, unknown> = {
 			name: args.name,
 			token: tokenValue,
+			scope_type: scopeType,
 			zone_ids: zoneIds,
 		};
 
@@ -123,11 +135,12 @@ const list = defineCommand({
 		const rows = result.map((t) => {
 			const created = new Date(t.created_at as number).toISOString().slice(0, 19).replace('T', ' ');
 			const zones = t.zone_ids as string;
+			const scope = (t.scope_type as string) ?? 'zone';
 
-			return [cyan(t.id as string), t.name as string, zones, created];
+			return [cyan(t.id as string), t.name as string, scope, zones, created];
 		});
 
-		table(['ID', 'Name', 'Zone IDs', 'Created'], rows);
+		table(['ID', 'Name', 'Scope', 'Zone/Account IDs', 'Created'], rows);
 		console.error('');
 	},
 });
@@ -222,8 +235,9 @@ const bulkDelete = makeBulkSubcommand({
 function formatUpstreamToken(token: Record<string, unknown>): void {
 	label('ID', bold(token.id as string));
 	label('Name', token.name as string);
+	label('Scope type', (token.scope_type as string) ?? 'zone');
 	label('Token preview', dim(token.token_preview as string));
-	label('Zone IDs', token.zone_ids as string);
+	label('Zone/Account IDs', token.zone_ids as string);
 	label('Created', new Date(token.created_at as number).toISOString());
 	if (token.created_by) {
 		label('Created by', token.created_by as string);
@@ -232,6 +246,6 @@ function formatUpstreamToken(token: Record<string, unknown>): void {
 
 // --- upstream-tokens (parent) ---
 export default defineCommand({
-	meta: { name: 'upstream-tokens', description: 'Manage upstream Cloudflare API tokens for purge' },
+	meta: { name: 'upstream-tokens', description: 'Manage upstream Cloudflare API tokens (purge, DNS, CF proxy)' },
 	subCommands: { create, list, get, delete: del, 'bulk-delete': bulkDelete },
 });

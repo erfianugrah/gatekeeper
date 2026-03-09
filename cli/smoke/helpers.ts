@@ -207,6 +207,8 @@ export interface SmokeContext {
 	REVOKE_ID: string;
 	REVOKE_ID_2: string;
 	RATELIMIT_ID: string;
+	/** CF proxy fields, set when CF proxy tests run. */
+	cfProxyUpstreamId?: string;
 	/** S3 fields, set when S3 tests run. */
 	s3UpstreamId?: string;
 	S3_FULL_AK?: string;

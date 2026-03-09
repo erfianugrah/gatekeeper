@@ -92,3 +92,37 @@ export const DNS_EVENTS_INDEX_ZONE_SQL = `
 CREATE INDEX IF NOT EXISTS idx_dns_events_zone_created
 ON dns_events (zone_id, created_at DESC);
 `;
+
+// ─── CF proxy events ────────────────────────────────────────────────────────
+
+export const CF_PROXY_EVENTS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS cf_proxy_events (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	key_id TEXT NOT NULL,
+	account_id TEXT NOT NULL,
+	service TEXT NOT NULL,
+	action TEXT NOT NULL,
+	resource_id TEXT,
+	status INTEGER NOT NULL,
+	upstream_status INTEGER,
+	duration_ms INTEGER NOT NULL,
+	response_detail TEXT,
+	created_by TEXT,
+	created_at INTEGER NOT NULL
+);
+`;
+
+export const CF_PROXY_EVENTS_INDEX_KEY_SQL = `
+CREATE INDEX IF NOT EXISTS idx_cf_proxy_key_created
+ON cf_proxy_events (key_id, created_at DESC);
+`;
+
+export const CF_PROXY_EVENTS_INDEX_ACCOUNT_SQL = `
+CREATE INDEX IF NOT EXISTS idx_cf_proxy_account_created
+ON cf_proxy_events (account_id, created_at DESC);
+`;
+
+export const CF_PROXY_EVENTS_INDEX_SERVICE_SQL = `
+CREATE INDEX IF NOT EXISTS idx_cf_proxy_service_created
+ON cf_proxy_events (service, created_at DESC);
+`;

@@ -6,9 +6,9 @@
  */
 
 import { Hono } from 'hono';
-import { queryDnsEvents, queryDnsSummary } from '../dns/analytics';
+import { queryDnsEvents, queryDnsSummary } from '../cf/dns/analytics';
 import { jsonError, parseQueryParams, dnsAnalyticsEventsQuerySchema, dnsAnalyticsSummaryQuerySchema } from './admin-schemas';
-import type { DnsAnalyticsQuery } from '../dns/analytics';
+import type { DnsAnalyticsQuery } from '../cf/dns/analytics';
 import type { HonoEnv } from '../types';
 
 // ─── Admin: DNS Analytics ───────────────────────────────────────────────────

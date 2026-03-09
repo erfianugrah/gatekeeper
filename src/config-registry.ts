@@ -14,6 +14,10 @@ export const CONFIG_DEFAULTS: Record<string, number> = {
 	retention_days: 30,
 	s3_rps: 100,
 	s3_burst: 200,
+	/** CF API proxy: account-level requests per second (generous — CF's own limits are the real ceiling). */
+	cf_proxy_rps: 200,
+	/** CF API proxy: account-level burst capacity. */
+	cf_proxy_burst: 400,
 };
 
 /** The full resolved config object. */
@@ -30,6 +34,10 @@ export interface GatewayConfig {
 	s3_rps: number;
 	/** S3 proxy: account-level burst capacity. */
 	s3_burst: number;
+	/** CF API proxy: account-level requests per second. */
+	cf_proxy_rps: number;
+	/** CF API proxy: account-level burst capacity. */
+	cf_proxy_burst: number;
 }
 
 /** A single override entry from the registry (for admin display). */
@@ -52,6 +60,8 @@ const ENV_TO_CONFIG: Record<string, string> = {
 	RETENTION_DAYS: 'retention_days',
 	S3_RPS: 's3_rps',
 	S3_BURST: 's3_burst',
+	CF_PROXY_RPS: 'cf_proxy_rps',
+	CF_PROXY_BURST: 'cf_proxy_burst',
 };
 
 // ─── ConfigManager ──────────────────────────────────────────────────────────

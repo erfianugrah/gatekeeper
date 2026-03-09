@@ -74,7 +74,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 
 	const noAuth = await req('GET', DNS_BASE);
 	assertStatus('no auth header -> 401', noAuth, 401);
-	assertJson('401 message', noAuth.body?.errors?.[0]?.message, 'Missing Authorization: Bearer <key>');
+	assertTruthy('401 message mentions Authorization', noAuth.body?.errors?.[0]?.message?.includes('Authorization: Bearer'));
 
 	const badKey = await dns('gw_00000000000000000000000000000000', 'GET', DNS_BASE);
 	assertStatus('nonexistent key -> 401', badKey, 401);
@@ -143,6 +143,45 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		}
 	}
 
+	// ─── DNS Canonical Path (/cf/zones/) ───────────────────────────
+
+	section('DNS Canonical Path (/cf/zones/)');
+
+	const CF_DNS_BASE = `/cf/zones/${ZONE}/dns_records`;
+
+	const cfList = await dns(DNS_WILDCARD_ID, 'GET', CF_DNS_BASE);
+	assertStatus('canonical: list records -> 200', cfList, 200);
+	assertTruthy('canonical: list returns result array', Array.isArray(cfList.body?.result));
+
+	// Create via canonical path
+	const CF_SMOKE_NAME = `_gk-cfpath-${Date.now()}.erfi.io`;
+	const cfCreated = await dns(DNS_WILDCARD_ID, 'POST', CF_DNS_BASE, {
+		type: 'TXT',
+		name: CF_SMOKE_NAME,
+		content: '"gatekeeper cf-path smoke"',
+		ttl: 1,
+	});
+	assertStatus('canonical: create TXT record -> 200', cfCreated, 200);
+	const cfRecordId = cfCreated.body?.result?.id;
+	assertTruthy('canonical: created record has id', cfRecordId);
+
+	if (cfRecordId) {
+		// Read single via canonical path
+		const cfGet = await dns(DNS_WILDCARD_ID, 'GET', `${CF_DNS_BASE}/${cfRecordId}`);
+		assertStatus('canonical: get single record -> 200', cfGet, 200);
+
+		// Delete via canonical path
+		const cfDel = await dns(DNS_WILDCARD_ID, 'DELETE', `${CF_DNS_BASE}/${cfRecordId}`);
+		assertStatus('canonical: delete record -> 200', cfDel, 200);
+	}
+
+	// Auth tests on canonical path
+	const cfNoAuth = await req('GET', CF_DNS_BASE);
+	assertStatus('canonical: no auth -> 401', cfNoAuth, 401);
+
+	const cfBadZone = await dns(DNS_WILDCARD_ID, 'GET', '/cf/zones/not-a-hex-zone/dns_records');
+	assertStatus('canonical: invalid zone -> 400', cfBadZone, 400);
+
 	// ─── DNS Export ─────────────────────────────────────────────────
 
 	section('DNS Export');
@@ -151,6 +190,10 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	assertStatus('export zone file -> 200', exported, 200);
 	// Export returns BIND zone file format (text), not JSON
 	assertTruthy('export has content', exported.raw.length > 0);
+
+	const cfExported = await dns(DNS_WILDCARD_ID, 'GET', `${CF_DNS_BASE}/export`);
+	assertStatus('canonical: export zone file -> 200', cfExported, 200);
+	assertTruthy('canonical: export has content', cfExported.raw.length > 0);
 
 	// ─── DNS IAM Scoped Keys ────────────────────────────────────────
 

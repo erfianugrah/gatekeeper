@@ -10,6 +10,37 @@ export const TEST_UPSTREAM_TOKEN = 'cf-test-upstream-token-abcdef1234567890';
 
 export { __testClearInflightCache };
 
+// ─── Cleanup tracker ────────────────────────────────────────────────────────
+
+/** IDs of keys created during tests, for bulk cleanup in afterAll. */
+const createdKeyIds: string[] = [];
+
+/** IDs of upstream tokens created during tests, for bulk cleanup in afterAll. */
+const createdUpstreamTokenIds: string[] = [];
+
+/** Revoke a key via the admin API. */
+export async function deleteKey(keyId: string): Promise<void> {
+	await SELF.fetch(`http://localhost/admin/keys/${keyId}`, {
+		method: 'DELETE',
+		headers: adminHeaders(),
+	});
+}
+
+/** Delete an upstream token via the admin API. */
+export async function deleteUpstreamToken(tokenId: string): Promise<void> {
+	await SELF.fetch(`http://localhost/admin/upstream-tokens/${tokenId}`, {
+		method: 'DELETE',
+		headers: adminHeaders(),
+	});
+}
+
+/** Revoke all keys and upstream tokens created via tracked helpers. Call in afterAll. */
+export async function cleanupCreatedResources(): Promise<void> {
+	const keyDeletes = createdKeyIds.splice(0).map((id) => deleteKey(id));
+	const tokenDeletes = createdUpstreamTokenIds.splice(0).map((id) => deleteUpstreamToken(id));
+	await Promise.all([...keyDeletes, ...tokenDeletes]);
+}
+
 // ─── HTTP helpers ───────────────────────────────────────────────────────────
 
 export function adminHeaders(extra?: Record<string, string>) {
@@ -20,9 +51,9 @@ export function adminHeaders(extra?: Record<string, string>) {
 	};
 }
 
-/** Create a key via the admin API with a policy document. Returns the key ID. */
+/** Create a key via the admin API with a policy document. Returns the key ID. Auto-tracked for cleanup. */
 export async function createKeyWithPolicy(
-	policy: Record<string, unknown>,
+	policy: PolicyDocument | Record<string, unknown>,
 	name = 'test-key',
 	extra?: Record<string, unknown>,
 ): Promise<string> {
@@ -38,13 +69,27 @@ export async function createKeyWithPolicy(
 	});
 	const data = await res.json<any>();
 	if (!data.success) throw new Error(`createKeyWithPolicy failed: ${JSON.stringify(data.errors)}`);
+	createdKeyIds.push(data.result.key.id);
+	return data.result.key.id;
+}
+
+/** Create a key with no zone_id (for account-scoped policies). Returns the key ID. Auto-tracked for cleanup. */
+export async function createAccountKey(policy: PolicyDocument, name = 'cf-test-key'): Promise<string> {
+	const res = await SELF.fetch('http://localhost/admin/keys', {
+		method: 'POST',
+		headers: adminHeaders(),
+		body: JSON.stringify({ name, policy }),
+	});
+	const data = await res.json<any>();
+	if (!data.success) throw new Error(`createAccountKey failed: ${JSON.stringify(data.errors)}`);
+	createdKeyIds.push(data.result.key.id);
 	return data.result.key.id;
 }
 
 // ─── Upstream token registration ────────────────────────────────────────────
 
-/** Register a wildcard upstream CF API token. Call in beforeAll. */
-export async function registerUpstreamToken(zoneIds: string[] = ['*']): Promise<void> {
+/** Register a wildcard upstream CF API token. Call in beforeAll. Auto-tracked for cleanup. */
+export async function registerUpstreamToken(zoneIds: string[] = ['*']): Promise<string> {
 	const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
 		method: 'POST',
 		headers: adminHeaders(),
@@ -56,6 +101,26 @@ export async function registerUpstreamToken(zoneIds: string[] = ['*']): Promise<
 	});
 	const data = await res.json<any>();
 	if (!data.success) throw new Error(`registerUpstreamToken failed: ${JSON.stringify(data.errors)}`);
+	createdUpstreamTokenIds.push(data.result.id);
+	return data.result.id;
+}
+
+/** Register an account-scoped upstream CF API token. Call in beforeAll. Auto-tracked for cleanup. */
+export async function registerAccountUpstreamToken(accountId: string, token: string, name = 'test-account-upstream'): Promise<string> {
+	const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+		method: 'POST',
+		headers: adminHeaders(),
+		body: JSON.stringify({
+			name,
+			token,
+			scope_type: 'account',
+			zone_ids: [accountId],
+		}),
+	});
+	const data = await res.json<any>();
+	if (!data.success) throw new Error(`registerAccountUpstreamToken failed: ${JSON.stringify(data.errors)}`);
+	createdUpstreamTokenIds.push(data.result.id);
+	return data.result.id;
 }
 
 // ─── Upstream mocks ─────────────────────────────────────────────────────────
