@@ -1,5 +1,5 @@
 import { SELF, fetchMock, env } from 'cloudflare:test';
-import { describe, it, expect, beforeAll, afterEach, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, beforeEach, afterAll, vi } from 'vitest';
 import {
 	ZONE_ID,
 	adminHeaders,
@@ -297,24 +297,33 @@ describe('Purge — client-side rate limiting', () => {
 	it('exhausting bucket returns 429 with Retry-After', async () => {
 		const keyId = await createKeyWithPolicy(wildcardPolicy());
 
-		const stub = env.GATEKEEPER.get(env.GATEKEEPER.idFromName('account'));
-		await stub.consume('bulk', 500);
+		// Use fake timers to freeze Date.now() so the token bucket cannot refill
+		// between draining and the purge request. Without this, at a bulk rate of
+		// 50 tokens/sec even 20ms of real-time delay refills 1 token — enough for
+		// a cost-1 host purge to slip through, causing a flaky 502.
+		vi.useFakeTimers();
+		try {
+			const stub = env.GATEKEEPER.get(env.GATEKEEPER.idFromName('account'));
+			await stub.drainBucket('bulk');
 
-		const res = await SELF.fetch(`http://localhost/v1/zones/${ZONE_ID}/purge_cache`, {
-			method: 'POST',
-			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
-			body: JSON.stringify({ hosts: ['example.com'] }),
-		});
-		expect(res.status).toBe(429);
+			const res = await SELF.fetch(`http://localhost/v1/zones/${ZONE_ID}/purge_cache`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+				body: JSON.stringify({ hosts: ['example.com'] }),
+			});
+			expect(res.status).toBe(429);
 
-		const retryAfter = res.headers.get('Retry-After');
-		expect(retryAfter).not.toBeNull();
-		expect(Number(retryAfter)).toBeGreaterThan(0);
-		expect(res.headers.get('Ratelimit')).toMatch(/;r=0/);
+			const retryAfter = res.headers.get('Retry-After');
+			expect(retryAfter).not.toBeNull();
+			expect(Number(retryAfter)).toBeGreaterThan(0);
+			expect(res.headers.get('Ratelimit')).toMatch(/;r=0/);
 
-		const data = await res.json<any>();
-		expect(data.success).toBe(false);
-		expect(data.errors[0].code).toBe(429);
+			const data = await res.json<any>();
+			expect(data.success).toBe(false);
+			expect(data.errors[0].code).toBe(429);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('multi-file purge consumes N tokens from single bucket', async () => {

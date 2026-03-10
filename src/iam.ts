@@ -112,6 +112,132 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 		return { key };
 	}
 
+	/**
+	 * Atomically rotate a key: create a new key with inherited config, then revoke the old one.
+	 * Optional overrides let the caller change name or expiry on the new key.
+	 */
+	rotateKey(id: string, overrides?: { name?: string; expires_in_days?: number }): { oldKey: ApiKey; newKey: ApiKey } | null {
+		const existing = this.getKey(id);
+		if (!existing) return null;
+
+		const oldKey = existing.key;
+
+		// Cannot rotate a key that is already revoked or expired
+		if (oldKey.revoked) return null;
+		if (oldKey.expires_at && oldKey.expires_at < Date.now()) return null;
+
+		// Parse the existing policy back into a PolicyDocument
+		let policy: PolicyDocument;
+		try {
+			policy = JSON.parse(oldKey.policy) as PolicyDocument;
+		} catch {
+			return null;
+		}
+
+		// Build the create request, inheriting all config from the old key
+		const req: CreateKeyRequest = {
+			name: overrides?.name ?? `${oldKey.name} (rotated)`,
+			zone_id: oldKey.zone_id ?? undefined,
+			policy,
+			created_by: oldKey.created_by ?? undefined,
+			expires_in_days: overrides?.expires_in_days,
+			rate_limit:
+				oldKey.bulk_rate !== null || oldKey.single_rate !== null
+					? {
+							bulk_rate: oldKey.bulk_rate ?? undefined,
+							bulk_bucket: oldKey.bulk_bucket ?? undefined,
+							single_rate: oldKey.single_rate ?? undefined,
+							single_bucket: oldKey.single_bucket ?? undefined,
+						}
+					: undefined,
+			upstream_token_id: oldKey.upstream_token_id ?? '',
+		};
+
+		const { key: newKey } = this.createKey(req);
+		this.revokeKey(id);
+
+		console.log(
+			JSON.stringify({
+				breadcrumb: 'iam-rotate-key',
+				oldKeyId: id,
+				newKeyId: newKey.id,
+			}),
+		);
+
+		return { oldKey: { ...oldKey, revoked: 1 }, newKey };
+	}
+
+	/**
+	 * Update mutable fields on an existing key.
+	 * Supports: name, expires_at (extend only), rate limits.
+	 * Policy changes are NOT allowed — create a new key for that.
+	 */
+	updateKey(
+		id: string,
+		updates: {
+			name?: string;
+			expires_at?: number | null;
+			bulk_rate?: number | null;
+			bulk_bucket?: number | null;
+			single_rate?: number | null;
+			single_bucket?: number | null;
+		},
+	): { key: ApiKey } | null {
+		const existing = this.getKey(id);
+		if (!existing) return null;
+
+		const key = existing.key;
+
+		// Cannot update revoked keys
+		if (key.revoked) return null;
+
+		const sets: string[] = [];
+		const params: unknown[] = [];
+
+		if (updates.name !== undefined) {
+			sets.push('name = ?');
+			params.push(updates.name);
+		}
+
+		if (updates.expires_at !== undefined) {
+			sets.push('expires_at = ?');
+			params.push(updates.expires_at);
+		}
+
+		if (updates.bulk_rate !== undefined) {
+			sets.push('bulk_rate = ?');
+			params.push(updates.bulk_rate);
+		}
+		if (updates.bulk_bucket !== undefined) {
+			sets.push('bulk_bucket = ?');
+			params.push(updates.bulk_bucket);
+		}
+		if (updates.single_rate !== undefined) {
+			sets.push('single_rate = ?');
+			params.push(updates.single_rate);
+		}
+		if (updates.single_bucket !== undefined) {
+			sets.push('single_bucket = ?');
+			params.push(updates.single_bucket);
+		}
+
+		if (sets.length === 0) return existing;
+
+		params.push(id);
+		this.sql.exec(`UPDATE api_keys SET ${sets.join(', ')} WHERE id = ?`, ...params);
+		this.cache.delete(id);
+
+		console.log(
+			JSON.stringify({
+				breadcrumb: 'iam-update-key',
+				keyId: id,
+				updatedFields: Object.keys(updates).filter((k) => (updates as Record<string, unknown>)[k] !== undefined),
+			}),
+		);
+
+		return this.getKey(id);
+	}
+
 	// ─── Key queries ────────────────────────────────────────────────────
 
 	/** List keys. zoneId filters by zone. Optional status filter. */
@@ -136,6 +262,16 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 		return queryAll<ApiKey>(this.sql, `SELECT * FROM api_keys${where} ORDER BY created_at DESC`, ...params);
 	}
 
+	/** Count active (non-revoked) keys bound to a given upstream token. */
+	countKeysByUpstreamToken(upstreamTokenId: string): number {
+		const rows = queryAll<{ cnt: number }>(
+			this.sql,
+			'SELECT COUNT(*) as cnt FROM api_keys WHERE upstream_token_id = ? AND revoked = 0',
+			upstreamTokenId,
+		);
+		return rows.length > 0 ? rows[0].cnt : 0;
+	}
+
 	/** Get a single key. */
 	getKey(id: string): { key: ApiKey } | null {
 		const rows = queryAll<ApiKey>(this.sql, 'SELECT * FROM api_keys WHERE id = ?', id);
@@ -151,6 +287,16 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 	/** Permanently delete a key. Returns true if the row existed and was removed. */
 	deleteKey(id: string): boolean {
 		return this.deleteById(id);
+	}
+
+	/** Revoke all non-revoked keys that have expired. Returns the count of revoked keys. */
+	revokeExpired(): number {
+		const now = Date.now();
+		const result = this.sql.exec('UPDATE api_keys SET revoked = 1 WHERE revoked = 0 AND expires_at IS NOT NULL AND expires_at <= ?', now);
+		if (result.rowsWritten > 0) {
+			this.cache.clear();
+		}
+		return result.rowsWritten;
 	}
 
 	// ─── Authorization ──────────────────────────────────────────────────

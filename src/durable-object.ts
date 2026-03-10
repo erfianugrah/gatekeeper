@@ -465,6 +465,33 @@ export class Gatekeeper extends DurableObject<Env> {
 		return this.iam.deleteKey(id);
 	}
 
+	async rotateKey(id: string, overrides?: { name?: string; expires_in_days?: number }): Promise<{ oldKey: ApiKey; newKey: ApiKey } | null> {
+		const result = this.iam.rotateKey(id, overrides);
+		if (result) {
+			this.keyBuckets.delete(id);
+		}
+		return result;
+	}
+
+	async updateKey(
+		id: string,
+		updates: {
+			name?: string;
+			expires_at?: number | null;
+			bulk_rate?: number | null;
+			bulk_bucket?: number | null;
+			single_rate?: number | null;
+			single_bucket?: number | null;
+		},
+	): Promise<{ key: ApiKey } | null> {
+		const result = this.iam.updateKey(id, updates);
+		if (result) {
+			// Clear per-key bucket cache so updated rate limits take effect immediately
+			this.keyBuckets.delete(id);
+		}
+		return result;
+	}
+
 	async bulkRevokeKeys(ids: string[]): Promise<BulkResult> {
 		const result = this.iam.bulkRevoke(ids);
 		for (const item of result.results) {
@@ -507,6 +534,23 @@ export class Gatekeeper extends DurableObject<Env> {
 		return this.s3Iam.deleteCredential(accessKeyId);
 	}
 
+	async rotateS3Credential(
+		accessKeyId: string,
+		overrides?: { name?: string; expires_in_days?: number },
+	): Promise<{ oldCredential: S3Credential; newCredential: S3Credential } | null> {
+		return this.s3Iam.rotateCredential(accessKeyId, overrides);
+	}
+
+	async updateS3Credential(
+		accessKeyId: string,
+		updates: {
+			name?: string;
+			expires_at?: number | null;
+		},
+	): Promise<{ credential: S3Credential } | null> {
+		return this.s3Iam.updateCredential(accessKeyId, updates);
+	}
+
 	async bulkRevokeS3Credentials(accessKeyIds: string[]): Promise<BulkResult> {
 		return this.s3Iam.bulkRevoke(accessKeyIds);
 	}
@@ -544,6 +588,18 @@ export class Gatekeeper extends DurableObject<Env> {
 		this.cfProxyBucket.drain();
 	}
 
+	// ─── Referential integrity queries ──────────────────────────────────
+
+	/** Count active API keys bound to a given upstream token. */
+	async countKeysByUpstreamToken(upstreamTokenId: string): Promise<number> {
+		return this.iam.countKeysByUpstreamToken(upstreamTokenId);
+	}
+
+	/** Count active S3 credentials bound to a given upstream R2 endpoint. */
+	async countS3CredentialsByUpstreamToken(upstreamTokenId: string): Promise<number> {
+		return this.s3Iam.countCredentialsByUpstreamToken(upstreamTokenId);
+	}
+
 	// ─── Upstream Token RPC methods ─────────────────────────────────────
 
 	async createUpstreamToken(req: CreateUpstreamTokenRequest): Promise<{ token: UpstreamToken }> {
@@ -556,6 +612,10 @@ export class Gatekeeper extends DurableObject<Env> {
 
 	async getUpstreamToken(id: string): Promise<{ token: UpstreamToken } | null> {
 		return this.upstreamTokens.getToken(id);
+	}
+
+	async updateUpstreamToken(id: string, updates: { name?: string; expires_at?: number | null }): Promise<{ token: UpstreamToken } | null> {
+		return this.upstreamTokens.updateToken(id, updates);
 	}
 
 	async deleteUpstreamToken(id: string): Promise<boolean> {
@@ -599,6 +659,10 @@ export class Gatekeeper extends DurableObject<Env> {
 		return this.upstreamR2.getEndpoint(id);
 	}
 
+	async updateUpstreamR2(id: string, updates: { name?: string; expires_at?: number | null }): Promise<{ endpoint: UpstreamR2 } | null> {
+		return this.upstreamR2.updateEndpoint(id, updates);
+	}
+
 	async deleteUpstreamR2(id: string): Promise<boolean> {
 		return this.upstreamR2.deleteEndpoint(id);
 	}
@@ -624,6 +688,22 @@ export class Gatekeeper extends DurableObject<Env> {
 	/** Resolve R2 credentials by upstream R2 endpoint ID. Returns null if not found. */
 	async resolveR2ById(endpointId: string): Promise<R2Credentials | null> {
 		return this.upstreamR2.resolveR2ById(endpointId);
+	}
+
+	// ─── Expired entity cleanup ────────────────────────────────────────
+
+	/** Revoke expired API keys + S3 credentials, delete expired upstream tokens + R2 endpoints. */
+	async cleanupExpired(): Promise<{
+		keysRevoked: number;
+		s3CredsRevoked: number;
+		upstreamTokensDeleted: number;
+		upstreamR2Deleted: number;
+	}> {
+		const keysRevoked = this.iam.revokeExpired();
+		const s3CredsRevoked = this.s3Iam.revokeExpired();
+		const upstreamTokensDeleted = this.upstreamTokens.deleteExpired();
+		const upstreamR2Deleted = this.upstreamR2.deleteExpired();
+		return { keysRevoked, s3CredsRevoked, upstreamTokensDeleted, upstreamR2Deleted };
 	}
 
 	// ─── Config Registry RPC methods ────────────────────────────────────

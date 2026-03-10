@@ -94,6 +94,39 @@ export const createKeySchema = z.object({
 
 export type CreateKeyInput = z.infer<typeof createKeySchema>;
 
+// ─── Rotate key schema ──────────────────────────────────────────────────────
+
+export const rotateKeySchema = z.object({
+	name: z.string().min(1).optional(),
+	expires_in_days: positiveFiniteNumber.optional(),
+});
+
+export type RotateKeyInput = z.infer<typeof rotateKeySchema>;
+
+// ─── Update key schema ──────────────────────────────────────────────────────
+
+export const updateKeySchema = z
+	.object({
+		name: z.string().min(1).optional(),
+		expires_at: z.number().positive().finite().nullable().optional(),
+		rate_limit: z
+			.object({
+				bulk_rate: z.number().positive().finite().nullable().optional(),
+				bulk_bucket: z.number().positive().finite().nullable().optional(),
+				single_rate: z.number().positive().finite().nullable().optional(),
+				single_bucket: z.number().positive().finite().nullable().optional(),
+			})
+			.optional(),
+	})
+	.refine(
+		(data) => {
+			return data.name !== undefined || data.expires_at !== undefined || data.rate_limit !== undefined;
+		},
+		{ message: 'At least one field must be provided (name, expires_at, rate_limit)' },
+	);
+
+export type UpdateKeyInput = z.infer<typeof updateKeySchema>;
+
 // ─── Create S3 credential schema ────────────────────────────────────────────
 
 export const createS3CredentialSchema = z.object({
@@ -105,6 +138,31 @@ export const createS3CredentialSchema = z.object({
 });
 
 export type CreateS3CredentialInput = z.infer<typeof createS3CredentialSchema>;
+
+// ─── Rotate S3 credential schema ────────────────────────────────────────────
+
+export const rotateS3CredentialSchema = z.object({
+	name: z.string().min(1).optional(),
+	expires_in_days: positiveFiniteNumber.optional(),
+});
+
+export type RotateS3CredentialInput = z.infer<typeof rotateS3CredentialSchema>;
+
+// ─── Update S3 credential schema ────────────────────────────────────────────
+
+export const updateS3CredentialSchema = z
+	.object({
+		name: z.string().min(1).optional(),
+		expires_at: z.number().positive().finite().nullable().optional(),
+	})
+	.refine(
+		(data) => {
+			return data.name !== undefined || data.expires_at !== undefined;
+		},
+		{ message: 'At least one field must be provided (name, expires_at)' },
+	);
+
+export type UpdateS3CredentialInput = z.infer<typeof updateS3CredentialSchema>;
 
 // ─── Create upstream token schema ───────────────────────────────────────────
 
@@ -119,11 +177,28 @@ export const createUpstreamTokenSchema = z.object({
 			}),
 		)
 		.min(1, 'Required field: zone_ids (non-empty array of zone/account IDs, or ["*"])'),
+	expires_in_days: positiveFiniteNumber.optional(),
 	created_by: z.string().optional(),
 	validate: z.boolean().optional(),
 });
 
 export type CreateUpstreamTokenInput = z.infer<typeof createUpstreamTokenSchema>;
+
+// ─── Update upstream token schema ───────────────────────────────────────────
+
+export const updateUpstreamTokenSchema = z
+	.object({
+		name: z.string().min(1).optional(),
+		expires_at: z.number().positive().finite().nullable().optional(),
+	})
+	.refine(
+		(data) => {
+			return data.name !== undefined || data.expires_at !== undefined;
+		},
+		{ message: 'At least one field must be provided (name, expires_at)' },
+	);
+
+export type UpdateUpstreamTokenInput = z.infer<typeof updateUpstreamTokenSchema>;
 
 // ─── Create upstream R2 schema ──────────────────────────────────────────────
 
@@ -145,11 +220,28 @@ export const createUpstreamR2Schema = z.object({
 			{ message: 'endpoint must be a valid HTTPS URL' },
 		),
 	bucket_names: z.array(z.string().min(1)).min(1, 'Required field: bucket_names (non-empty array of strings, or ["*"])'),
+	expires_in_days: positiveFiniteNumber.optional(),
 	created_by: z.string().optional(),
 	validate: z.boolean().optional(),
 });
 
 export type CreateUpstreamR2Input = z.infer<typeof createUpstreamR2Schema>;
+
+// ─── Update upstream R2 schema ──────────────────────────────────────────────
+
+export const updateUpstreamR2Schema = z
+	.object({
+		name: z.string().min(1).optional(),
+		expires_at: z.number().positive().finite().nullable().optional(),
+	})
+	.refine(
+		(data) => {
+			return data.name !== undefined || data.expires_at !== undefined;
+		},
+		{ message: 'At least one field must be provided (name, expires_at)' },
+	);
+
+export type UpdateUpstreamR2Input = z.infer<typeof updateUpstreamR2Schema>;
 
 // ─── Purge body schema ──────────────────────────────────────────────────────
 
@@ -261,6 +353,61 @@ export const s3AnalyticsSummaryQuerySchema = z.object({
 });
 
 export type S3AnalyticsSummaryQuery = z.infer<typeof s3AnalyticsSummaryQuerySchema>;
+
+// ─── Timeseries query schema ────────────────────────────────────────────────
+
+/** Shared schema for all /timeseries endpoints. */
+export const timeseriesQuerySchema = z.object({
+	since: optionalNumericQuery,
+	until: optionalNumericQuery,
+});
+
+export type TimeseriesQuery = z.infer<typeof timeseriesQuerySchema>;
+
+/** Purge timeseries: with zone_id and key_id filters. */
+export const purgeTimeseriesQuerySchema = z.object({
+	since: optionalNumericQuery,
+	until: optionalNumericQuery,
+	zone_id: z.string().optional(),
+	key_id: z.string().optional(),
+});
+
+export type PurgeTimeseriesQuery = z.infer<typeof purgeTimeseriesQuerySchema>;
+
+/** S3 timeseries: with credential_id, bucket, operation filters. */
+export const s3TimeseriesQuerySchema = z.object({
+	since: optionalNumericQuery,
+	until: optionalNumericQuery,
+	credential_id: z.string().optional(),
+	bucket: z.string().optional(),
+	operation: z.string().optional(),
+});
+
+export type S3TimeseriesQuery = z.infer<typeof s3TimeseriesQuerySchema>;
+
+/** DNS timeseries: with zone_id, key_id, action, record_type filters. */
+export const dnsTimeseriesQuerySchema = z.object({
+	since: optionalNumericQuery,
+	until: optionalNumericQuery,
+	zone_id: z.string().optional(),
+	key_id: z.string().optional(),
+	action: z.string().optional(),
+	record_type: z.string().optional(),
+});
+
+export type DnsTimeseriesQuery = z.infer<typeof dnsTimeseriesQuerySchema>;
+
+/** CF proxy timeseries: with account_id, key_id, service, action filters. */
+export const cfProxyTimeseriesQuerySchema = z.object({
+	since: optionalNumericQuery,
+	until: optionalNumericQuery,
+	account_id: z.string().optional(),
+	key_id: z.string().optional(),
+	service: z.string().optional(),
+	action: z.string().optional(),
+});
+
+export type CfProxyTimeseriesQuery = z.infer<typeof cfProxyTimeseriesQuerySchema>;
 
 // ─── List / filter query schemas ────────────────────────────────────────────
 
@@ -549,6 +696,7 @@ export const upstreamTokenSchema = z
 		zone_ids: z.string().meta({ description: 'Comma-separated zone/account IDs or "*"' }),
 		token_preview: z.string().meta({ description: 'First 4 + last 4 chars of the token' }),
 		created_at: z.number(),
+		expires_at: z.number().nullable(),
 		created_by: z.string().nullable(),
 	})
 	.meta({ id: 'UpstreamToken', description: 'A registered upstream Cloudflare API token' });
@@ -562,6 +710,7 @@ export const upstreamR2Schema = z
 		access_key_preview: z.string(),
 		endpoint: z.string(),
 		created_at: z.number(),
+		expires_at: z.number().nullable(),
 		created_by: z.string().nullable(),
 	})
 	.meta({ id: 'UpstreamR2', description: 'A registered upstream R2 endpoint' });

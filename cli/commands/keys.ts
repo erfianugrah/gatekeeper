@@ -9,6 +9,7 @@ import {
 	green,
 	red,
 	table,
+	label,
 	printJson,
 	formatKey,
 	formatPolicy,
@@ -19,6 +20,7 @@ import {
 } from '../ui.js';
 import { zoneArgs, forceArg } from '../shared-args.js';
 import { makeBulkSubcommand } from '../bulk-helpers.js';
+import { buildCfPolicy } from '../policy-wizard.js';
 
 const globalArgs = zoneArgs;
 
@@ -42,8 +44,7 @@ const create = defineCommand({
 		},
 		policy: {
 			type: 'string',
-			description: 'Policy document as JSON string or @path/to/file.json',
-			required: true,
+			description: 'Policy document as JSON string or @path/to/file.json (omit for interactive builder)',
 		},
 		'account-scoped': {
 			type: 'boolean',
@@ -58,10 +59,18 @@ const create = defineCommand({
 		const config = resolveConfig(args);
 		const zoneId = args['account-scoped'] ? undefined : resolveOptionalZoneId(args);
 
+		// Resolve policy: from --policy flag or interactive builder
+		let policy: unknown;
+		if (args.policy) {
+			policy = parsePolicy(args.policy);
+		} else {
+			policy = await buildCfPolicy();
+		}
+
 		const body: Record<string, unknown> = {
 			name: args.name,
 			upstream_token_id: args['upstream-token-id'],
-			policy: parsePolicy(args.policy),
+			policy,
 		};
 
 		if (zoneId) {
@@ -202,6 +211,149 @@ const get = defineCommand({
 	},
 });
 
+// --- keys rotate ---
+const rotate = defineCommand({
+	meta: { name: 'rotate', description: 'Rotate an API key (create new + revoke old)' },
+	args: {
+		...globalArgs,
+		'key-id': {
+			type: 'string',
+			description: 'The API key ID to rotate (gw_...)',
+			required: true,
+		},
+		name: {
+			type: 'string',
+			description: 'Name for the new key (defaults to "<old name> (rotated)")',
+		},
+		'expires-in-days': {
+			type: 'string',
+			description: 'Expiry for the new key in days',
+		},
+		...forceArg,
+	},
+	async run({ args }) {
+		const config = resolveConfig(args);
+		const keyId = args['key-id'];
+
+		if (!args.force) {
+			const confirmed = await confirmAction(`You are about to rotate key ${bold(keyId)}. The old key will be revoked immediately.`);
+			if (!confirmed) {
+				info('Aborted.');
+				return;
+			}
+		}
+
+		const body: Record<string, unknown> = {};
+		if (args.name) body.name = args.name;
+		if (args['expires-in-days']) body.expires_in_days = Number(args['expires-in-days']);
+
+		const { status, data, durationMs } = await request(config, 'POST', `/admin/keys/${encodeURIComponent(keyId)}/rotate`, {
+			body,
+			auth: 'admin',
+			label: 'Rotating key...',
+		});
+
+		if (args.json) {
+			assertOk(status, data);
+			printJson(data);
+			return;
+		}
+
+		assertOk(status, data);
+		const result = (data as Record<string, unknown>).result as Record<string, unknown>;
+		const oldKey = result.old_key as Record<string, unknown>;
+		const newKey = result.new_key as Record<string, unknown>;
+
+		console.error('');
+		success(`Key rotated ${dim(`(${formatDuration(durationMs)})`)}`);
+		console.error('');
+		info('Old key (now revoked):');
+		label('  ID', red(oldKey.id as string));
+		label('  Name', oldKey.name as string);
+		console.error('');
+		info('New key:');
+		formatKey(newKey as Parameters<typeof formatKey>[0]);
+		console.error('');
+		console.error(`  ${symbols.arrow} Use as: ${cyan(`Authorization: Bearer ${newKey.id}`)}`);
+		console.error('');
+	},
+});
+
+// --- keys update ---
+const update = defineCommand({
+	meta: { name: 'update', description: 'Update mutable fields on an API key (name, expiry, rate limits)' },
+	args: {
+		...globalArgs,
+		'key-id': {
+			type: 'string',
+			description: 'The API key ID to update (gw_...)',
+			required: true,
+		},
+		name: {
+			type: 'string',
+			description: 'New name for the key',
+		},
+		'expires-at': {
+			type: 'string',
+			description: 'New expiry timestamp (ISO 8601 or unix ms). Use "null" to remove expiry.',
+		},
+		'bulk-rate': {
+			type: 'string',
+			description: 'Per-key bulk rate limit (req/sec). Use "null" to remove override.',
+		},
+		'single-rate': {
+			type: 'string',
+			description: 'Per-key single-file rate limit (URLs/sec). Use "null" to remove override.',
+		},
+	},
+	async run({ args }) {
+		const config = resolveConfig(args);
+		const keyId = args['key-id'];
+
+		const body: Record<string, unknown> = {};
+		if (args.name) body.name = args.name;
+		if (args['expires-at'] !== undefined) {
+			body.expires_at = args['expires-at'] === 'null' ? null : Number(args['expires-at']);
+		}
+
+		const rateLimit: Record<string, unknown> = {};
+		if (args['bulk-rate'] !== undefined) {
+			rateLimit.bulk_rate = args['bulk-rate'] === 'null' ? null : Number(args['bulk-rate']);
+		}
+		if (args['single-rate'] !== undefined) {
+			rateLimit.single_rate = args['single-rate'] === 'null' ? null : Number(args['single-rate']);
+		}
+		if (Object.keys(rateLimit).length > 0) body.rate_limit = rateLimit;
+
+		if (Object.keys(body).length === 0) {
+			info('No fields to update. Provide at least one of: --name, --expires-at, --bulk-rate, --single-rate');
+			return;
+		}
+
+		const { status, data, durationMs } = await request(config, 'PATCH', `/admin/keys/${encodeURIComponent(keyId)}`, {
+			body,
+			auth: 'admin',
+			label: 'Updating key...',
+		});
+
+		if (args.json) {
+			assertOk(status, data);
+			printJson(data);
+			return;
+		}
+
+		assertOk(status, data);
+		const result = (data as Record<string, unknown>).result as Record<string, unknown>;
+		const key = result.key as Record<string, unknown>;
+
+		console.error('');
+		success(`Key updated ${dim(`(${formatDuration(durationMs)})`)}`);
+		console.error('');
+		formatKey(key as Parameters<typeof formatKey>[0]);
+		console.error('');
+	},
+});
+
 // --- keys revoke ---
 const revoke = defineCommand({
 	meta: { name: 'revoke', description: 'Revoke or permanently delete an API key' },
@@ -280,5 +432,5 @@ const bulkDelete = makeBulkSubcommand({
 // --- keys (parent) ---
 export default defineCommand({
 	meta: { name: 'keys', description: 'Manage API keys' },
-	subCommands: { create, list, get, revoke, 'bulk-revoke': bulkRevoke, 'bulk-delete': bulkDelete },
+	subCommands: { create, list, get, rotate, update, revoke, 'bulk-revoke': bulkRevoke, 'bulk-delete': bulkDelete },
 });

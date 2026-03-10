@@ -394,4 +394,55 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	// For now, just verify the endpoint works and returns a proper array.
 	const getNoR2 = await admin('GET', '/admin/upstream-r2/upr2_does_not_exist_smoke');
 	assertStatus('get nonexistent upstream R2 -> 404', getNoR2, 404);
+
+	// ─── 9. Upstream Token — PATCH update ──────────────────────────
+
+	section('Upstream Token PATCH');
+
+	const patchTokenName = await admin('PATCH', `/admin/upstream-tokens/${ctx.UPSTREAM_TOKEN_ID}`, { name: 'smoke-test-token-renamed' });
+	assertStatus('PATCH upstream token name -> 200', patchTokenName, 200);
+	assertJson('PATCH name applied', patchTokenName.body?.result?.name, 'smoke-test-token-renamed');
+
+	const futureTs = Date.now() + 365 * 24 * 60 * 60 * 1000;
+	const patchTokenExpiry = await admin('PATCH', `/admin/upstream-tokens/${ctx.UPSTREAM_TOKEN_ID}`, { expires_at: futureTs });
+	assertStatus('PATCH upstream token expires_at -> 200', patchTokenExpiry, 200);
+	assertJson('PATCH expires_at applied', patchTokenExpiry.body?.result?.expires_at, futureTs);
+
+	const clearTokenExpiry = await admin('PATCH', `/admin/upstream-tokens/${ctx.UPSTREAM_TOKEN_ID}`, { expires_at: null });
+	assertStatus('PATCH clear upstream token expires_at -> 200', clearTokenExpiry, 200);
+	assertJson('PATCH expires_at cleared', clearTokenExpiry.body?.result?.expires_at, null);
+
+	// Restore the name back
+	await admin('PATCH', `/admin/upstream-tokens/${ctx.UPSTREAM_TOKEN_ID}`, { name: 'smoke-test-token' });
+
+	const patchTokenNotFound = await admin('PATCH', '/admin/upstream-tokens/upt_doesnotexist12345', { name: 'nope' });
+	assertStatus('PATCH nonexistent token -> 404', patchTokenNotFound, 404);
+
+	const patchTokenEmpty = await admin('PATCH', `/admin/upstream-tokens/${ctx.UPSTREAM_TOKEN_ID}`, {});
+	assertStatus('PATCH token empty body -> 400', patchTokenEmpty, 400);
+
+	// ─── 10. Upstream Token — create with expiry ───────────────────
+
+	section('Upstream Token Expiry');
+
+	const tokenWithExpiry = await admin('POST', '/admin/upstream-tokens', {
+		name: 'smoke-expiry-token',
+		token: 'cf-smoke-expiry-token-' + Date.now().toString(36) + '-abcdefgh',
+		zone_ids: ['*'],
+		expires_in_days: 30,
+	});
+	assertStatus('create token with expires_in_days -> 200', tokenWithExpiry, 200);
+	assertTruthy('expires_at is set', tokenWithExpiry.body?.result?.expires_at > Date.now());
+	const expiryTokenId = tokenWithExpiry.body?.result?.id;
+	if (expiryTokenId) state.createdUpstreamTokens.push(expiryTokenId);
+
+	const tokenNoExpiry = await admin('POST', '/admin/upstream-tokens', {
+		name: 'smoke-no-expiry-token',
+		token: 'cf-smoke-no-expiry-token-' + Date.now().toString(36) + '-abcdef',
+		zone_ids: ['*'],
+	});
+	assertStatus('create token without expires_in_days -> 200', tokenNoExpiry, 200);
+	assertJson('expires_at is null', tokenNoExpiry.body?.result?.expires_at, null);
+	const noExpiryTokenId = tokenNoExpiry.body?.result?.id;
+	if (noExpiryTokenId) state.createdUpstreamTokens.push(noExpiryTokenId);
 }

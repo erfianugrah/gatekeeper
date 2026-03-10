@@ -45,4 +45,34 @@ export async function run(ctx: SmokeContext): Promise<void> {
 
 	const summaryNoZone = await admin('GET', '/admin/analytics/summary');
 	assertStatus('summary without zone_id -> 200 (returns all)', summaryNoZone, 200);
+
+	// ─── Timeseries endpoints ──────────────────────────────────────────
+
+	section('Analytics — Timeseries');
+
+	const purgeTsRes = await admin('GET', '/admin/analytics/timeseries');
+	assertStatus('purge timeseries -> 200', purgeTsRes, 200);
+	assertTruthy('purge timeseries result is array', Array.isArray(purgeTsRes.body?.result));
+	const purgeBuckets = purgeTsRes.body?.result ?? [];
+	if (purgeBuckets.length > 0) {
+		assertTruthy('purge timeseries bucket has .bucket', typeof purgeBuckets[0].bucket === 'number');
+		assertTruthy('purge timeseries bucket has .count', typeof purgeBuckets[0].count === 'number');
+		assertTruthy('purge timeseries bucket has .errors', typeof purgeBuckets[0].errors === 'number');
+		assertTruthy('purge timeseries bucket aligned to hour', purgeBuckets[0].bucket % 3600000 === 0);
+	}
+
+	const purgeTsFiltered = await admin('GET', `/admin/analytics/timeseries?zone_id=${ZONE}`);
+	assertStatus('purge timeseries filtered by zone -> 200', purgeTsFiltered, 200);
+
+	const s3TsRes = await admin('GET', '/admin/s3/analytics/timeseries');
+	assertStatus('S3 timeseries -> 200', s3TsRes, 200);
+	assertTruthy('S3 timeseries result is array', Array.isArray(s3TsRes.body?.result));
+
+	const dnsTsRes = await admin('GET', '/admin/dns/analytics/timeseries');
+	assertStatus('DNS timeseries -> 200', dnsTsRes, 200);
+	assertTruthy('DNS timeseries result is array', Array.isArray(dnsTsRes.body?.result));
+
+	const cfTsRes = await admin('GET', '/admin/cf/analytics/timeseries');
+	assertStatus('CF proxy timeseries -> 200', cfTsRes, 200);
+	assertTruthy('CF proxy timeseries result is array', Array.isArray(cfTsRes.body?.result));
 }

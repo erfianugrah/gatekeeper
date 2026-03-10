@@ -25,6 +25,7 @@ const main = defineCommand({
 		config: () => import('./commands/config.js').then((m) => m.default),
 		audit: () => import('./commands/audit.js').then((m) => m.default),
 		me: () => import('./commands/me.js').then((m) => m.default),
+		completions: () => import('./commands/completions.js').then((m) => m.default),
 	},
 });
 

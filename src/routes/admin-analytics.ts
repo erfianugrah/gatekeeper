@@ -1,6 +1,13 @@
 import { Hono } from 'hono';
 import { queryEvents, querySummary } from '../analytics';
-import { purgeAnalyticsEventsQuerySchema, purgeAnalyticsSummaryQuerySchema, jsonError, parseQueryParams } from './admin-schemas';
+import { queryTimeseries } from '../analytics-timeseries';
+import {
+	purgeAnalyticsEventsQuerySchema,
+	purgeAnalyticsSummaryQuerySchema,
+	purgeTimeseriesQuerySchema,
+	jsonError,
+	parseQueryParams,
+} from './admin-schemas';
 import type { AnalyticsQuery } from '../analytics';
 import type { HonoEnv } from '../types';
 
@@ -71,4 +78,36 @@ adminAnalyticsApp.get('/summary', async (c) => {
 	);
 
 	return c.json({ success: true, result: summary });
+});
+
+// ─── Timeseries ─────────────────────────────────────────────────────────────
+
+adminAnalyticsApp.get('/timeseries', async (c) => {
+	if (!c.env.ANALYTICS_DB) {
+		return jsonError(c, 503, 'Analytics not configured');
+	}
+
+	const query = parseQueryParams(c, purgeTimeseriesQuerySchema);
+	if (query instanceof Response) return query;
+
+	const conditions: string[] = [];
+	const params: (string | number)[] = [];
+
+	if (query.zone_id) {
+		conditions.push('zone_id = ?');
+		params.push(query.zone_id);
+	}
+	if (query.key_id) {
+		conditions.push('key_id = ?');
+		params.push(query.key_id);
+	}
+
+	const buckets = await queryTimeseries(
+		c.env.ANALYTICS_DB,
+		'purge_events',
+		{ conditions, params },
+		{ since: query.since, until: query.until },
+	);
+
+	return c.json({ success: true, result: buckets });
 });

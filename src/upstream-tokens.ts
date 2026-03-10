@@ -1,5 +1,5 @@
 import { queryAll } from './sql';
-import { DEFAULT_CACHE_TTL_MS } from './constants';
+import { DEFAULT_CACHE_TTL_MS, MS_PER_DAY } from './constants';
 import { generateHexId, makePreview } from './crypto';
 import type { BulkResult, BulkItemResult, BulkDryRunResult, BulkInspectItem } from './types';
 
@@ -18,6 +18,8 @@ export interface UpstreamToken {
 	/** First 4 + last 4 chars of the token for display. */
 	token_preview: string;
 	created_at: number;
+	/** Unix ms timestamp when this token expires, or null for no expiry. */
+	expires_at: number | null;
 	created_by: string | null;
 }
 
@@ -33,6 +35,8 @@ export interface CreateUpstreamTokenRequest {
 	scope_type?: UpstreamTokenScopeType;
 	/** Zone IDs or account IDs this token covers (depending on scope_type), or ["*"] for all. */
 	zone_ids: string[];
+	/** Optional expiry in days from now. */
+	expires_in_days?: number;
 	created_by?: string;
 }
 
@@ -79,6 +83,13 @@ export class UpstreamTokenManager {
 			console.log(JSON.stringify({ migration: 'upstream_tokens', action: 'add_column_scope_type', ts: new Date().toISOString() }));
 			this.sql.exec(`ALTER TABLE upstream_tokens ADD COLUMN scope_type TEXT NOT NULL DEFAULT 'zone'`);
 		}
+
+		// Migration: add expires_at column for token expiry.
+		const colsAfter = queryAll<{ name: string }>(this.sql, `PRAGMA table_info('upstream_tokens')`);
+		if (!colsAfter.some((c) => c.name === 'expires_at')) {
+			console.log(JSON.stringify({ migration: 'upstream_tokens', action: 'add_column_expires_at', ts: new Date().toISOString() }));
+			this.sql.exec(`ALTER TABLE upstream_tokens ADD COLUMN expires_at INTEGER`);
+		}
 	}
 
 	// ─── CRUD ───────────────────────────────────────────────────────────
@@ -90,10 +101,11 @@ export class UpstreamTokenManager {
 		const zoneIdsStr = req.zone_ids.join(',');
 		const preview = makePreview(req.token);
 		const scopeType = req.scope_type ?? 'zone';
+		const expiresAt = req.expires_in_days ? now + req.expires_in_days * MS_PER_DAY : null;
 
 		this.sql.exec(
-			`INSERT INTO upstream_tokens (id, name, token, token_preview, zone_ids, scope_type, created_at, created_by)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO upstream_tokens (id, name, token, token_preview, zone_ids, scope_type, created_at, expires_at, created_by)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id,
 			req.name,
 			req.token,
@@ -101,6 +113,7 @@ export class UpstreamTokenManager {
 			zoneIdsStr,
 			scopeType,
 			now,
+			expiresAt,
 			req.created_by ?? null,
 		);
 
@@ -114,6 +127,7 @@ export class UpstreamTokenManager {
 				zone_ids: zoneIdsStr,
 				token_preview: preview,
 				created_at: now,
+				expires_at: expiresAt,
 				created_by: req.created_by ?? null,
 			},
 		};
@@ -123,7 +137,7 @@ export class UpstreamTokenManager {
 	listTokens(): UpstreamToken[] {
 		return queryAll<UpstreamToken>(
 			this.sql,
-			'SELECT id, name, scope_type, zone_ids, token_preview, created_at, created_by FROM upstream_tokens ORDER BY created_at DESC',
+			'SELECT id, name, scope_type, zone_ids, token_preview, created_at, expires_at, created_by FROM upstream_tokens ORDER BY created_at DESC',
 		);
 	}
 
@@ -131,11 +145,58 @@ export class UpstreamTokenManager {
 	getToken(id: string): { token: UpstreamToken } | null {
 		const rows = queryAll<UpstreamToken>(
 			this.sql,
-			'SELECT id, name, scope_type, zone_ids, token_preview, created_at, created_by FROM upstream_tokens WHERE id = ?',
+			'SELECT id, name, scope_type, zone_ids, token_preview, created_at, expires_at, created_by FROM upstream_tokens WHERE id = ?',
 			id,
 		);
 		if (rows.length === 0) return null;
 		return { token: rows[0] };
+	}
+
+	/** Update mutable fields on an upstream token. Returns the updated token or null if not found. */
+	updateToken(id: string, updates: { name?: string; expires_at?: number | null }): { token: UpstreamToken } | null {
+		const existing = this.getToken(id);
+		if (!existing) return null;
+
+		const sets: string[] = [];
+		const params: (string | number | null)[] = [];
+
+		if (updates.name !== undefined) {
+			sets.push('name = ?');
+			params.push(updates.name);
+		}
+		if (updates.expires_at !== undefined) {
+			sets.push('expires_at = ?');
+			params.push(updates.expires_at);
+		}
+
+		if (sets.length === 0) return existing;
+
+		params.push(id);
+		this.sql.exec(`UPDATE upstream_tokens SET ${sets.join(', ')} WHERE id = ?`, ...params);
+		this.invalidateCache();
+
+		return this.getToken(id);
+	}
+
+	/** Count the number of non-expired upstream tokens. Used by cleanup. */
+	countExpired(): number {
+		const now = Date.now();
+		const rows = queryAll<{ cnt: number }>(
+			this.sql,
+			'SELECT COUNT(*) as cnt FROM upstream_tokens WHERE expires_at IS NOT NULL AND expires_at <= ?',
+			now,
+		);
+		return rows[0]?.cnt ?? 0;
+	}
+
+	/** Delete all expired upstream tokens. Returns the number deleted. */
+	deleteExpired(): number {
+		const now = Date.now();
+		const result = this.sql.exec('DELETE FROM upstream_tokens WHERE expires_at IS NOT NULL AND expires_at <= ?', now);
+		if (result.rowsWritten > 0) {
+			this.invalidateCache();
+		}
+		return result.rowsWritten;
 	}
 
 	/** Permanently delete an upstream token. Returns true if the row existed and was removed. */
@@ -196,10 +257,14 @@ export class UpstreamTokenManager {
 		// Look for a token that covers this zone — prefer exact match over wildcard.
 		// ORDER BY created_at DESC so newest registration wins when multiple tokens claim the same zone.
 		const rows = queryAll<UpstreamTokenRow>(this.sql, 'SELECT * FROM upstream_tokens ORDER BY created_at DESC');
+		const now = Date.now();
 
 		let wildcardToken: string | null = null;
 
 		for (const row of rows) {
+			// Skip expired tokens
+			if (row.expires_at && row.expires_at <= now) continue;
+
 			const zones = row.zone_ids.split(',');
 			if (zones.includes(zoneId)) {
 				this.resolveCache.set(zoneId, { token: row.token, cachedAt: Date.now() });
@@ -238,10 +303,14 @@ export class UpstreamTokenManager {
 			this.sql,
 			`SELECT * FROM upstream_tokens WHERE scope_type = 'account' ORDER BY created_at DESC`,
 		);
+		const now = Date.now();
 
 		let wildcardToken: string | null = null;
 
 		for (const row of rows) {
+			// Skip expired tokens
+			if (row.expires_at && row.expires_at <= now) continue;
+
 			const ids = row.zone_ids.split(',');
 			if (ids.includes(accountId)) {
 				this.resolveCache.set(cacheKey, { token: row.token, cachedAt: Date.now() });
@@ -283,6 +352,13 @@ export class UpstreamTokenManager {
 		}
 
 		const row = rows[0];
+
+		// Check expiry
+		if (row.expires_at && row.expires_at <= Date.now()) {
+			console.log(JSON.stringify({ breadcrumb: 'upstream-token-by-id-expired', tokenId }));
+			return null;
+		}
+
 		this.resolveCache.set(cacheKey, { token: row.token, cachedAt: Date.now() });
 		console.log(JSON.stringify({ breadcrumb: 'upstream-token-by-id-resolved', tokenId }));
 		return row.token;

@@ -3209,6 +3209,10 @@
                       "type": "string"
                     }
                   },
+                  "expires_in_days": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
                   "created_by": {
                     "type": "string"
                   },
@@ -3603,6 +3607,10 @@
                       "type": "string",
                       "minLength": 1
                     }
+                  },
+                  "expires_in_days": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
                   },
                   "created_by": {
                     "type": "string"
@@ -5171,6 +5179,16 @@
           "created_at": {
             "type": "number"
           },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_by": {
             "anyOf": [
               {
@@ -5189,6 +5207,7 @@
           "zone_ids",
           "token_preview",
           "created_at",
+          "expires_at",
           "created_by"
         ],
         "additionalProperties": false,
@@ -5233,6 +5252,16 @@
           "created_at": {
             "type": "number"
           },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_by": {
             "anyOf": [
               {
@@ -5251,6 +5280,7 @@
           "access_key_preview",
           "endpoint",
           "created_at",
+          "expires_at",
           "created_by"
         ],
         "additionalProperties": false,

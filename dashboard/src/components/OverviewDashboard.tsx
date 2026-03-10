@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import {
 	Activity,
 	Link,
@@ -33,6 +33,10 @@ import {
 	getDnsEvents,
 	getCfProxyEvents,
 	getCfProxySummary,
+	getPurgeTimeseries,
+	getS3Timeseries,
+	getDnsTimeseries,
+	getCfProxyTimeseries,
 	listKeys,
 	listS3Credentials,
 	listUpstreamTokens,
@@ -43,6 +47,7 @@ import type {
 	S3AnalyticsSummary,
 	DnsAnalyticsSummary,
 	CfProxyAnalyticsSummary,
+	TimeseriesBucket,
 	PurgeEvent,
 	S3Event,
 	DnsEvent,
@@ -322,6 +327,7 @@ export function OverviewDashboard() {
 	const [s3Summary, setS3Summary] = useState<S3AnalyticsSummary | null>(null);
 	const [dnsSummary, setDnsSummary] = useState<DnsAnalyticsSummary | null>(null);
 	const [cfSummary, setCfSummary] = useState<CfProxyAnalyticsSummary | null>(null);
+	const [timeseries, setTimeseries] = useState<{ bucket: number; total: number; errors: number }[]>([]);
 	const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
 	const [resourceCounts, setResourceCounts] = useState({
 		activeKeys: 0,
@@ -339,20 +345,25 @@ export function OverviewDashboard() {
 		setLoading(true);
 		setError(null);
 		try {
-			const [purge, s3, dns, cf, purgeEvents, s3Events, dnsEvents, cfEvents, keys, s3Creds, upTokens, upR2] = await Promise.all([
-				getSummary().catch(() => null),
-				getS3Summary().catch(() => null),
-				getDnsSummary().catch(() => null),
-				getCfProxySummary().catch(() => null),
-				getEvents({ limit: 10 }).catch(() => [] as PurgeEvent[]),
-				getS3Events({ limit: 10 }).catch(() => [] as S3Event[]),
-				getDnsEvents({ limit: 10 }).catch(() => [] as DnsEvent[]),
-				getCfProxyEvents({ limit: 10 }).catch(() => [] as CfProxyEvent[]),
-				listKeys().catch(() => []),
-				listS3Credentials().catch(() => []),
-				listUpstreamTokens().catch(() => []),
-				listUpstreamR2().catch(() => []),
-			]);
+			const [purge, s3, dns, cf, purgeEvents, s3Events, dnsEvents, cfEvents, purgeTs, s3Ts, dnsTs, cfTs, keys, s3Creds, upTokens, upR2] =
+				await Promise.all([
+					getSummary().catch(() => null),
+					getS3Summary().catch(() => null),
+					getDnsSummary().catch(() => null),
+					getCfProxySummary().catch(() => null),
+					getEvents({ limit: 10 }).catch(() => [] as PurgeEvent[]),
+					getS3Events({ limit: 10 }).catch(() => [] as S3Event[]),
+					getDnsEvents({ limit: 10 }).catch(() => [] as DnsEvent[]),
+					getCfProxyEvents({ limit: 10 }).catch(() => [] as CfProxyEvent[]),
+					getPurgeTimeseries().catch(() => [] as TimeseriesBucket[]),
+					getS3Timeseries().catch(() => [] as TimeseriesBucket[]),
+					getDnsTimeseries().catch(() => [] as TimeseriesBucket[]),
+					getCfProxyTimeseries().catch(() => [] as TimeseriesBucket[]),
+					listKeys().catch(() => []),
+					listS3Credentials().catch(() => []),
+					listUpstreamTokens().catch(() => []),
+					listUpstreamR2().catch(() => []),
+				]);
 			if (!purge && !s3 && !dns && !cf) {
 				throw new Error('Failed to load analytics from all endpoints');
 			}
@@ -360,6 +371,22 @@ export function OverviewDashboard() {
 			setS3Summary(s3);
 			setDnsSummary(dns);
 			setCfSummary(cf);
+
+			// Merge all timeseries into a single array keyed by bucket
+			const tsMap = new Map<number, { bucket: number; total: number; errors: number }>();
+			for (const series of [purgeTs, s3Ts, dnsTs, cfTs]) {
+				for (const b of series) {
+					const existing = tsMap.get(b.bucket);
+					if (existing) {
+						existing.total += b.count;
+						existing.errors += b.errors;
+					} else {
+						tsMap.set(b.bucket, { bucket: b.bucket, total: b.count, errors: b.errors });
+					}
+				}
+			}
+			const mergedTs = Array.from(tsMap.values()).sort((a, b) => a.bucket - b.bucket);
+			setTimeseries(mergedTs);
 
 			// Merge and sort recent events
 			const all: RecentEvent[] = [
@@ -628,6 +655,60 @@ export function OverviewDashboard() {
 								delay={260}
 							/>
 						</div>
+
+						{/* Row 3: Request Volume Over Time */}
+						{timeseries.length > 1 && (
+							<Card>
+								<CardHeader>
+									<CardTitle className={T.sectionHeading}>Request Volume (Last 7 Days)</CardTitle>
+								</CardHeader>
+								<CardContent>
+									<ResponsiveContainer width="100%" height={280}>
+										<AreaChart data={timeseries} margin={{ top: 4, right: 12, bottom: 0, left: 8 }}>
+											<defs>
+												<linearGradient id="gradTotal" x1="0" y1="0" x2="0" y2="1">
+													<stop offset="0%" stopColor="#a6e3a1" stopOpacity={0.4} />
+													<stop offset="100%" stopColor="#a6e3a1" stopOpacity={0} />
+												</linearGradient>
+												<linearGradient id="gradErrors" x1="0" y1="0" x2="0" y2="1">
+													<stop offset="0%" stopColor="#f38ba8" stopOpacity={0.4} />
+													<stop offset="100%" stopColor="#f38ba8" stopOpacity={0} />
+												</linearGradient>
+											</defs>
+											<CartesianGrid strokeDasharray="3 3" stroke="#313244" />
+											<XAxis
+												dataKey="bucket"
+												tick={{ fontSize: 10, fill: '#bdbdc1' }}
+												tickFormatter={(v: number) => {
+													const d = new Date(v);
+													return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+												}}
+												interval="preserveStartEnd"
+												minTickGap={60}
+											/>
+											<YAxis tick={{ fontSize: 10, fill: '#bdbdc1' }} width={50} />
+											<Tooltip
+												contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
+												itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
+												labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
+												labelFormatter={(v: number) =>
+													new Date(v).toLocaleString('en-US', {
+														month: 'short',
+														day: 'numeric',
+														hour: '2-digit',
+														minute: '2-digit',
+														hour12: false,
+													})
+												}
+												formatter={(value: number, name: string) => [formatNumber(value), name === 'total' ? 'Requests' : 'Errors']}
+											/>
+											<Area type="monotone" dataKey="total" stroke="#a6e3a1" fill="url(#gradTotal)" strokeWidth={2} dot={false} />
+											<Area type="monotone" dataKey="errors" stroke="#f38ba8" fill="url(#gradErrors)" strokeWidth={1.5} dot={false} />
+										</AreaChart>
+									</ResponsiveContainer>
+								</CardContent>
+							</Card>
+						)}
 
 						{/* Collapsible Analytics Breakdown */}
 						<button

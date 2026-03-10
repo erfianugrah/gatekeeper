@@ -33,6 +33,10 @@ const create = defineCommand({
 			description: 'Comma-separated zone/account IDs this token covers, or "*" for all',
 			required: true,
 		},
+		'expires-in-days': {
+			type: 'string',
+			description: 'Token expires in N days from now (optional)',
+		},
 		validate: {
 			type: 'boolean',
 			description: 'Validate the token against Cloudflare API on creation',
@@ -61,6 +65,15 @@ const create = defineCommand({
 			scope_type: scopeType,
 			zone_ids: zoneIds,
 		};
+
+		if (args['expires-in-days']) {
+			const days = Number(args['expires-in-days']);
+			if (!Number.isFinite(days) || days <= 0) {
+				error('--expires-in-days must be a positive number.');
+				process.exit(1);
+			}
+			body.expires_in_days = days;
+		}
 
 		if (args.validate) {
 			body.validate = true;
@@ -179,6 +192,73 @@ const get = defineCommand({
 	},
 });
 
+// --- upstream-tokens update ---
+const update = defineCommand({
+	meta: { name: 'update', description: 'Update an upstream token (name, expiry)' },
+	args: {
+		...globalArgs,
+		id: {
+			type: 'string',
+			description: 'The upstream token ID (upt_...)',
+			required: true,
+		},
+		name: {
+			type: 'string',
+			description: 'New name for the token',
+		},
+		'expires-at': {
+			type: 'string',
+			description: 'New expiry (ISO 8601 or unix ms). Set to "none" to remove expiry',
+		},
+	},
+	async run({ args }) {
+		const config = resolveConfig(args);
+
+		const body: Record<string, unknown> = {};
+
+		if (args.name) body.name = args.name;
+
+		if (args['expires-at'] !== undefined) {
+			if (args['expires-at'] === 'none') {
+				body.expires_at = null;
+			} else {
+				const ts = Number(args['expires-at']) || new Date(args['expires-at']).getTime();
+				if (!Number.isFinite(ts) || ts <= 0) {
+					error('--expires-at must be a valid ISO 8601 date, unix timestamp, or "none".');
+					process.exit(1);
+				}
+				body.expires_at = ts;
+			}
+		}
+
+		if (Object.keys(body).length === 0) {
+			error('At least one field must be provided (--name, --expires-at).');
+			process.exit(1);
+		}
+
+		const { status, data, durationMs } = await request(config, 'PATCH', `/admin/upstream-tokens/${encodeURIComponent(args.id)}`, {
+			body,
+			auth: 'admin',
+			label: 'Updating upstream token...',
+		});
+
+		if (args.json) {
+			assertOk(status, data);
+			printJson(data);
+			return;
+		}
+
+		assertOk(status, data);
+		const result = (data as Record<string, unknown>).result as Record<string, unknown>;
+
+		console.error('');
+		success(`Upstream token updated ${dim(`(${formatDuration(durationMs)})`)}`);
+		console.error('');
+		formatUpstreamToken(result);
+		console.error('');
+	},
+});
+
 // --- upstream-tokens delete ---
 const del = defineCommand({
 	meta: { name: 'delete', description: 'Delete an upstream token (permanent, irreversible)' },
@@ -239,6 +319,13 @@ function formatUpstreamToken(token: Record<string, unknown>): void {
 	label('Token preview', dim(token.token_preview as string));
 	label('Zone/Account IDs', token.zone_ids as string);
 	label('Created', new Date(token.created_at as number).toISOString());
+	if (token.expires_at) {
+		const exp = new Date(token.expires_at as number);
+		const isExpired = exp.getTime() <= Date.now();
+		label('Expires', isExpired ? bold(`${exp.toISOString()} (EXPIRED)`) : exp.toISOString());
+	} else {
+		label('Expires', dim('never'));
+	}
 	if (token.created_by) {
 		label('Created by', token.created_by as string);
 	}
@@ -247,5 +334,5 @@ function formatUpstreamToken(token: Record<string, unknown>): void {
 // --- upstream-tokens (parent) ---
 export default defineCommand({
 	meta: { name: 'upstream-tokens', description: 'Manage upstream Cloudflare API tokens (purge, DNS, CF proxy)' },
-	subCommands: { create, list, get, delete: del, 'bulk-delete': bulkDelete },
+	subCommands: { create, list, get, update, delete: del, 'bulk-delete': bulkDelete },
 });
