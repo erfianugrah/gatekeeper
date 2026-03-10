@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import {
 	wildcardPolicy as _wildcardPolicy,
 	hostPolicy as _hostPolicy,
@@ -9,6 +9,7 @@ import {
 	purgeEverythingPolicy as _purgeEverythingPolicy,
 } from './helpers';
 import type { CreateKeyRequest } from '../src/types';
+import type { CreateUpstreamTokenRequest } from '../src/upstream-tokens';
 import type { PolicyDocument } from '../src/policy-types';
 
 // IAM tests use a dedicated zone ID (different from the purge/e2e test ZONE_ID)
@@ -22,10 +23,24 @@ const urlPrefixPolicy = (prefix: string): PolicyDocument => _urlPrefixPolicy(pre
 const prefixPolicy = (prefix: string): PolicyDocument => _prefixPolicy(prefix, ZONE_ID);
 const purgeEverythingPolicy = (): PolicyDocument => _purgeEverythingPolicy(ZONE_ID);
 
+/** Upstream token ID registered once for the entire test suite. */
+let upstreamTokenId: string;
+
 function getStub() {
 	const id = env.GATEKEEPER.idFromName('account');
 	return env.GATEKEEPER.get(id);
 }
+
+beforeAll(async () => {
+	const stub = getStub();
+	const req: CreateUpstreamTokenRequest = {
+		name: 'iam-test-upstream',
+		token: 'iam-test-token-00000000000000000000',
+		zone_ids: [ZONE_ID],
+	};
+	const { token } = await stub.createUpstreamToken(req);
+	upstreamTokenId = token.id;
+});
 
 /** Shorthand: create a key with a policy and return the key object. */
 async function createKeyWithPolicy(
@@ -37,6 +52,7 @@ async function createKeyWithPolicy(
 	const req: CreateKeyRequest = {
 		name,
 		zone_id: ZONE_ID,
+		upstream_token_id: upstreamTokenId,
 		policy,
 		...opts,
 	};

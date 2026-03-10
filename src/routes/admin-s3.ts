@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { validatePolicy } from '../policy-engine';
 import { getStub } from '../do-stub';
 import { resolveCreatedBy } from './admin-helpers';
+import { validateR2Binding } from './r2-binding';
 import {
 	createS3CredentialSchema,
 	listS3CredentialsQuerySchema,
@@ -55,18 +56,36 @@ adminS3App.post('/credentials', async (c) => {
 		);
 	}
 
+	const stub = getStub(c.env);
+
+	// Validate upstream R2 endpoint binding — resources must match endpoint's bucket scope
+	const bindingResult = await validateR2Binding(stub, parsed.upstream_token_id, parsed.policy as PolicyDocument);
+	if (!bindingResult.valid) {
+		log.status = 400;
+		log.error = 'r2_binding_invalid';
+		log.bindingErrors = bindingResult.errors;
+		console.log(JSON.stringify(log));
+		return c.json(
+			{
+				success: false,
+				errors: bindingResult.errors.map((e) => ({ code: 400, message: e })),
+			},
+			400,
+		);
+	}
+
 	const identity = c.get('accessIdentity');
 	const req: CreateS3CredentialRequest = {
 		name: parsed.name,
 		policy: parsed.policy as PolicyDocument,
 		created_by: resolveCreatedBy(identity, parsed.created_by),
 		expires_in_days: parsed.expires_in_days,
+		upstream_token_id: parsed.upstream_token_id,
 	};
 
 	log.credentialName = req.name;
 	log.statementCount = req.policy.statements.length;
 
-	const stub = getStub(c.env);
 	const result = await stub.createS3Credential(req);
 
 	log.status = 200;

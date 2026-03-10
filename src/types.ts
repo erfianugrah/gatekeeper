@@ -86,6 +86,8 @@ export interface ApiKey {
 	single_rate: number | null;
 	/** Per-key single-file bucket size. NULL = use account default. */
 	single_bucket: number | null;
+	/** Pin this key to a specific upstream token. NULL = resolve by zone/account as usual. */
+	upstream_token_id: string | null;
 }
 
 /** Key creation request with policy document. */
@@ -104,6 +106,8 @@ export interface CreateKeyRequest {
 		single_rate?: number;
 		single_bucket?: number;
 	};
+	/** Upstream token ID — every key must be bound to exactly one upstream token. */
+	upstream_token_id: string;
 }
 
 export interface AuthResult {
@@ -113,6 +117,8 @@ export interface AuthResult {
 	denied?: string[];
 	/** Human-readable key name, populated on successful auth for audit trails. */
 	keyName?: string;
+	/** If the key is pinned to a specific upstream token, this is its ID. */
+	upstreamTokenId?: string;
 }
 
 // ─── Cached key for hot path ────────────────────────────────────────────────

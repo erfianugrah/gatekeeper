@@ -78,7 +78,7 @@ export function queuesQueueContext(
 	}
 	return {
 		action,
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/queues/${queueId}`,
 		fields,
 	};
 }

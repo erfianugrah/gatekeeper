@@ -14,6 +14,8 @@ export interface S3Credential {
 	policy: string;
 	/** Email of the user who created this credential (from Access SSO or request body). NULL if not provided. */
 	created_by: string | null;
+	/** Pin this credential to a specific upstream R2 endpoint. NULL = resolve by bucket as usual. */
+	upstream_token_id: string | null;
 }
 
 /** Request body for creating an S3 credential. */
@@ -22,6 +24,8 @@ export interface CreateS3CredentialRequest {
 	policy: PolicyDocument;
 	expires_in_days?: number;
 	created_by?: string;
+	/** Upstream R2 endpoint ID — every credential must be bound to exactly one R2 endpoint. */
+	upstream_token_id: string;
 }
 
 /** Cached credential for the hot auth path. */

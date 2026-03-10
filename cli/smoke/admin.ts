@@ -118,6 +118,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		name: 'smoke-with-ratelimit',
 		zone_id: ctx.ZONE,
 		policy: ctx.WILDCARD_POLICY,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
 		rate_limit: { bulk_rate: 10, bulk_bucket: 100 },
 	});
 	const RATELIMIT_ID = rlr.body?.result?.key?.id;
@@ -131,20 +132,33 @@ export async function run(ctx: SmokeContext): Promise<void> {
 
 	section('Key Creation Validation');
 
-	const noName = await admin('POST', '/admin/keys', { zone_id: ctx.ZONE, policy: ctx.WILDCARD_POLICY });
+	const noName = await admin('POST', '/admin/keys', {
+		zone_id: ctx.ZONE,
+		policy: ctx.WILDCARD_POLICY,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
+	});
 	assertStatus('missing name -> 400', noName, 400);
 
-	const noZone = await admin('POST', '/admin/keys', { name: 'smoke-no-zone', policy: ctx.WILDCARD_POLICY });
+	const noZone = await admin('POST', '/admin/keys', {
+		name: 'smoke-no-zone',
+		policy: ctx.WILDCARD_POLICY,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
+	});
 	assertStatus('missing zone_id -> 200 (zone_id is optional)', noZone, 200);
 	const noZoneKeyId = noZone.body?.result?.key?.id;
 	if (noZoneKeyId) state.createdKeys.push(noZoneKeyId);
 
-	const noPol = await admin('POST', '/admin/keys', { name: 'x', zone_id: ctx.ZONE });
+	const noPol = await admin('POST', '/admin/keys', {
+		name: 'x',
+		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
+	});
 	assertStatus('missing policy -> 400', noPol, 400);
 
 	const badVer = await admin('POST', '/admin/keys', {
 		name: 'x',
 		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
 		policy: { version: 'wrong', statements: [] },
 	});
 	assertStatus('invalid policy version -> 400', badVer, 400);
@@ -152,6 +166,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const emptyStmt = await admin('POST', '/admin/keys', {
 		name: 'x',
 		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
 		policy: { version: '2025-01-01', statements: [] },
 	});
 	assertStatus('empty statements -> 400', emptyStmt, 400);
@@ -159,6 +174,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const badRegex = await admin('POST', '/admin/keys', {
 		name: 'x',
 		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
 		policy: {
 			version: '2025-01-01',
 			statements: [
@@ -178,6 +194,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const denyEffect = await admin('POST', '/admin/keys', {
 		name: 'smoke-deny-valid',
 		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
 		policy: {
 			version: '2025-01-01',
 			statements: [
@@ -194,6 +211,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const badEffect = await admin('POST', '/admin/keys', {
 		name: 'x',
 		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
 		policy: {
 			version: '2025-01-01',
 			statements: [{ effect: 'block', actions: ['purge:*'], resources: [`zone:${ctx.ZONE}`] }],
@@ -210,6 +228,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const bigRate = await admin('POST', '/admin/keys', {
 		name: 'x',
 		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
 		policy: ctx.WILDCARD_POLICY,
 		rate_limit: { bulk_rate: 99999 },
 	});

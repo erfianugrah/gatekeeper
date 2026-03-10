@@ -6,6 +6,7 @@ import {
 	signedFetch,
 	mockR2,
 	registerUpstreamR2,
+	getR2EndpointId,
 	s3WildcardPolicy,
 	cleanupCreatedS3Resources,
 } from './s3-helpers';
@@ -34,6 +35,7 @@ describe('S3 proxy — credential lifecycle via admin API', () => {
 			body: JSON.stringify({
 				name: 'lifecycle-test',
 				policy: s3WildcardPolicy(),
+				upstream_token_id: getR2EndpointId(),
 			}),
 		});
 		const createData = await createRes.json<any>();
@@ -116,6 +118,7 @@ describe('S3 proxy — credential lifecycle via admin API', () => {
 			body: JSON.stringify({
 				name: 'bad-policy',
 				policy: { version: '2025-01-01', statements: [] },
+				upstream_token_id: getR2EndpointId(),
 			}),
 		});
 		expect(res.status).toBe(400);
@@ -127,6 +130,7 @@ describe('S3 proxy — credential lifecycle via admin API', () => {
 			headers: adminHeaders(),
 			body: JSON.stringify({
 				policy: s3WildcardPolicy(),
+				upstream_token_id: getR2EndpointId(),
 			}),
 		});
 		expect(res.status).toBe(400);

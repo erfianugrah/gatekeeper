@@ -55,6 +55,13 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 			this.sql.exec(`INSERT INTO api_keys SELECT * FROM api_keys_old`);
 			this.sql.exec(`DROP TABLE api_keys_old`);
 		}
+
+		// Migration: add upstream_token_id column for key-to-upstream-token binding.
+		const cols = queryAll<{ name: string }>(this.sql, `PRAGMA table_info('api_keys')`);
+		if (!cols.some((c) => c.name === 'upstream_token_id')) {
+			console.log(JSON.stringify({ migration: 'api_keys', action: 'add_column_upstream_token_id', ts: new Date().toISOString() }));
+			this.sql.exec(`ALTER TABLE api_keys ADD COLUMN upstream_token_id TEXT`);
+		}
 	}
 
 	// ─── Key creation ───────────────────────────────────────────────────
@@ -68,9 +75,10 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 		const policyJson = JSON.stringify(req.policy);
 
 		const rl = req.rate_limit;
+		const upstreamTokenId = req.upstream_token_id ?? null;
 		this.sql.exec(
-			`INSERT INTO api_keys (id, name, zone_id, created_at, expires_at, revoked, bulk_rate, bulk_bucket, single_rate, single_bucket, policy, created_by)
-			 VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO api_keys (id, name, zone_id, created_at, expires_at, revoked, bulk_rate, bulk_bucket, single_rate, single_bucket, policy, created_by, upstream_token_id)
+			 VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
 			id,
 			req.name,
 			req.zone_id ?? null,
@@ -82,6 +90,7 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 			rl?.single_bucket ?? null,
 			policyJson,
 			req.created_by ?? null,
+			upstreamTokenId,
 		);
 
 		const key: ApiKey = {
@@ -97,6 +106,7 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 			bulk_bucket: rl?.bulk_bucket ?? null,
 			single_rate: rl?.single_rate ?? null,
 			single_bucket: rl?.single_bucket ?? null,
+			upstream_token_id: upstreamTokenId,
 		};
 
 		return { key };
@@ -188,7 +198,7 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 		}
 
 		console.log(JSON.stringify({ breadcrumb: 'iam-authorize-ok', keyId, zoneId, actions: contexts.map((c) => c.action) }));
-		return { authorized: true, keyName: key.name };
+		return { authorized: true, keyName: key.name, upstreamTokenId: key.upstream_token_id ?? undefined };
 	}
 
 	/**

@@ -109,14 +109,22 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	// Create 2 S3 creds
 	const s3Policy = {
 		version: '2025-01-01',
-		statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['*'] }],
+		statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['account:*', 'bucket:*', 'object:*'] }],
 	};
-	const sc1 = await admin('POST', '/admin/s3/credentials', { name: 'smoke-bulk-s3-1', policy: s3Policy });
+	const sc1 = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-bulk-s3-1',
+		policy: s3Policy,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
 	assertStatus('create S3 cred 1 -> 200', sc1, 200);
 	const SC1_ID = sc1.body?.result?.credential?.access_key_id;
 	if (SC1_ID) state.createdS3Creds.push(SC1_ID);
 
-	const sc2 = await admin('POST', '/admin/s3/credentials', { name: 'smoke-bulk-s3-2', policy: s3Policy });
+	const sc2 = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-bulk-s3-2',
+		policy: s3Policy,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
 	assertStatus('create S3 cred 2 -> 200', sc2, 200);
 	const SC2_ID = sc2.body?.result?.credential?.access_key_id;
 	if (SC2_ID) state.createdS3Creds.push(SC2_ID);

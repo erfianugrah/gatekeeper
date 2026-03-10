@@ -25,8 +25,12 @@ function cf(keyId: string, method: string, path: string, body?: unknown): Promis
 }
 
 /** Create a CF proxy key (no zone_id) with given policy. */
-async function createCfKey(name: string, policy: object): Promise<{ r: import('./helpers.js').Resp; keyId: string }> {
-	const r = await admin('POST', '/admin/keys', { name, policy });
+async function createCfKey(
+	name: string,
+	policy: object,
+	upstreamTokenId?: string,
+): Promise<{ r: import('./helpers.js').Resp; keyId: string }> {
+	const r = await admin('POST', '/admin/keys', { name, policy, upstream_token_id: upstreamTokenId });
 	const keyId = r.body?.result?.key?.id ?? '';
 	if (keyId) state.createdKeys.push(keyId);
 	return { r, keyId };
@@ -71,7 +75,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		],
 	};
 
-	const { r: wcCreate, keyId: CF_KEY } = await createCfKey('smoke-cf-wildcard', WILDCARD_POLICY);
+	const { r: wcCreate, keyId: CF_KEY } = await createCfKey('smoke-cf-wildcard', WILDCARD_POLICY, ctx.cfProxyUpstreamId);
 	assertStatus('create CF proxy wildcard key -> 200', wcCreate, 200);
 	assertTruthy('CF key starts with gw_', CF_KEY.startsWith('gw_'));
 
@@ -86,7 +90,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 			},
 		],
 	};
-	const { r: roCreate, keyId: D1_RO_KEY } = await createCfKey('smoke-cf-d1-readonly', D1_RO_POLICY);
+	const { r: roCreate, keyId: D1_RO_KEY } = await createCfKey('smoke-cf-d1-readonly', D1_RO_POLICY, ctx.cfProxyUpstreamId);
 	assertStatus('create D1 read-only key -> 200', roCreate, 200);
 
 	// ─── Authentication ────────────────────────────────────────────

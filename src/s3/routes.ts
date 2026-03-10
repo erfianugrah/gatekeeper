@@ -261,8 +261,11 @@ s3App.all('/*', async (c) => {
 	}
 
 	// 4. Resolve upstream R2 credentials for this bucket
+	//    Key-pinned upstream R2 endpoint takes priority over bucket-based resolution
 	let r2Creds: R2Credentials | null;
-	if (op.bucket) {
+	if (authResult.upstreamTokenId) {
+		r2Creds = await stub.resolveR2ById(authResult.upstreamTokenId);
+	} else if (op.bucket) {
 		r2Creds = await stub.resolveR2ForBucket(op.bucket);
 	} else {
 		// ListBuckets or root-level operation
@@ -270,11 +273,14 @@ s3App.all('/*', async (c) => {
 	}
 
 	if (!r2Creds) {
+		const detail = authResult.upstreamTokenId
+			? `Pinned upstream R2 endpoint ${authResult.upstreamTokenId} not found`
+			: `No upstream R2 endpoint registered for bucket: ${op.bucket ?? '(none)'}`;
 		log.status = 502;
-		log.error = 'no_upstream_r2';
+		log.error = authResult.upstreamTokenId ? 'pinned_upstream_r2_not_found' : 'no_upstream_r2';
 		log.durationMs = Date.now() - start;
 		console.log(JSON.stringify(log));
-		return s3XmlError('InternalError', `No upstream R2 endpoint registered for bucket: ${op.bucket ?? '(none)'}`, 502);
+		return s3XmlError('InternalError', detail, 502);
 	}
 
 	// 5. Forward to R2 — let R2 handle its own errors (501 NotImplemented, 404, etc.)

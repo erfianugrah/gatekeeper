@@ -71,10 +71,16 @@ function matchesAction(patterns: string[], action: string): boolean {
 
 /**
  * Check if the targeted resource matches any of the statement's resource patterns.
- * Supports exact match and wildcard patterns:
+ * Supports exact match, wildcard patterns, and hierarchical parent matching:
  * - "*" matches everything
  * - "zone:*" matches any zone
  * - "bucket:prod-*" matches "bucket:prod-images"
+ * - "account:abc123" matches "account:abc123/d1/db-uuid" (parent encompasses children)
+ *
+ * The parent-match rule allows policies with `resources: ["account:<id>"]` to
+ * authorize requests targeting `account:<id>/d1/<db>` without requiring an
+ * explicit trailing wildcard. This ensures backward compatibility when services
+ * adopt hierarchical resource strings.
  */
 function matchesResource(patterns: string[], resource: string): boolean {
 	for (const pattern of patterns) {
@@ -83,6 +89,8 @@ function matchesResource(patterns: string[], resource: string): boolean {
 			const prefix = pattern.slice(0, -1);
 			if (resource.startsWith(prefix)) return true;
 		}
+		// Parent-match: "account:abc" matches "account:abc/d1/db" (child resources)
+		if (resource.startsWith(pattern + '/')) return true;
 	}
 	return false;
 }

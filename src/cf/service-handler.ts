@@ -56,8 +56,8 @@ export async function handleCfServiceRequest(
 
 	c.set('keyName', authResult.keyName);
 
-	// Resolve upstream token (post-auth)
-	const tokenOrError = await resolveUpstreamTokenOrError(env, accountId, log, start);
+	// Resolve upstream token (post-auth) — key-pinned upstream takes priority
+	const tokenOrError = await resolveUpstreamTokenOrError(env, accountId, log, start, authResult.upstreamTokenId);
 	if (tokenOrError instanceof Response) return tokenOrError;
 	const upstreamToken = tokenOrError;
 

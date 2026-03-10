@@ -105,6 +105,7 @@ export interface AnalyticsSummary {
 export interface CreateKeyRequest {
 	name: string;
 	zone_id?: string;
+	upstream_token_id: string;
 	policy: PolicyDocument;
 	expires_in_days?: number;
 	rate_limit?: {
@@ -411,7 +412,8 @@ export async function getS3Summary(query: Omit<S3EventsQuery, 'limit'> = {}): Pr
 export interface UpstreamToken {
 	id: string;
 	name: string;
-	/** Comma-separated zone IDs, or "*" for all zones. */
+	scope_type: 'zone' | 'account';
+	/** Comma-separated zone IDs or account ID (depending on scope_type), or "*" for all. */
 	zone_ids: string;
 	token_preview: string;
 	created_at: number;

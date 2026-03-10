@@ -161,11 +161,27 @@ export function section(name: string): void {
 
 // ─── Key creation helper ───────────────────────────────────────────────────
 
-export async function createKey(name: string, zone: string, policy: object, extra?: object): Promise<{ r: Resp; keyId: string }> {
-	const r = await admin('POST', '/admin/keys', { name, zone_id: zone, policy, ...extra });
+export async function createKey(
+	name: string,
+	zone: string,
+	policy: object,
+	extra?: object & { upstream_token_id?: string },
+): Promise<{ r: Resp; keyId: string }> {
+	const upstreamTokenId = extra?.upstream_token_id ?? currentSmokeUpstreamTokenId;
+	const r = await admin('POST', '/admin/keys', { name, zone_id: zone, policy, upstream_token_id: upstreamTokenId, ...extra });
 	const keyId = r.body?.result?.key?.id ?? '';
 	if (keyId) state.createdKeys.push(keyId);
 	return { r, keyId };
+}
+
+// ─── Upstream token binding state ──────────────────────────────────────────
+
+/** Current zone-scoped upstream token ID for smoke tests. Set by setSmokeUpstreamTokenId(). */
+let currentSmokeUpstreamTokenId = '';
+
+/** Set the upstream token ID used by createKey(). Call from the orchestrator after registering. */
+export function setSmokeUpstreamTokenId(id: string): void {
+	currentSmokeUpstreamTokenId = id;
 }
 
 // ─── S3 client helpers ─────────────────────────────────────────────────────

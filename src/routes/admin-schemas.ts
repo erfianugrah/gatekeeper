@@ -89,6 +89,7 @@ export const createKeySchema = z.object({
 	expires_in_days: positiveFiniteNumber.optional(),
 	created_by: z.string().optional(),
 	rate_limit: rateLimitSchema,
+	upstream_token_id: z.string().min(1, 'Required field: upstream_token_id (string)'),
 });
 
 export type CreateKeyInput = z.infer<typeof createKeySchema>;
@@ -100,6 +101,7 @@ export const createS3CredentialSchema = z.object({
 	policy: policyDocumentSchema,
 	expires_in_days: positiveFiniteNumber.optional(),
 	created_by: z.string().optional(),
+	upstream_token_id: z.string().min(1, 'Required field: upstream_token_id (string)'),
 });
 
 export type CreateS3CredentialInput = z.infer<typeof createS3CredentialSchema>;
@@ -519,6 +521,7 @@ export const apiKeySchema = z
 		bulk_bucket: z.number().nullable(),
 		single_rate: z.number().nullable(),
 		single_bucket: z.number().nullable(),
+		upstream_token_id: z.string().nullable(),
 	})
 	.meta({ id: 'ApiKey', description: 'A purge API key' });
 
@@ -533,6 +536,7 @@ export const s3CredentialSchema = z
 		revoked: z.number(),
 		policy: z.string().meta({ description: 'JSON-serialized PolicyDocument' }),
 		created_by: z.string().nullable(),
+		upstream_token_id: z.string().nullable(),
 	})
 	.meta({ id: 'S3Credential', description: 'An S3-compatible credential' });
 

@@ -11,7 +11,21 @@
  *   npm run smoke -- --verbose                       # print response bodies
  */
 
-import { BASE, IS_REMOTE, ADMIN_KEY, CF_API_TOKEN, DNS_TEST_TOKEN, bold, green, red, section, state, req, admin } from './smoke/helpers.js';
+import {
+	BASE,
+	IS_REMOTE,
+	ADMIN_KEY,
+	CF_API_TOKEN,
+	DNS_TEST_TOKEN,
+	bold,
+	green,
+	red,
+	section,
+	state,
+	req,
+	admin,
+	setSmokeUpstreamTokenId,
+} from './smoke/helpers.js';
 import type { SmokeContext } from './smoke/helpers.js';
 
 import { run as runAdmin } from './smoke/admin.js';
@@ -79,6 +93,7 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 	const UPSTREAM_TOKEN_ID: string = upstreamReg.body.result.id;
+	setSmokeUpstreamTokenId(UPSTREAM_TOKEN_ID);
 	console.log(`Upstream token: ${UPSTREAM_TOKEN_ID}`);
 
 	const PURGE_URL = `/v1/zones/${ZONE}/purge_cache`;
@@ -107,10 +122,10 @@ async function main(): Promise<void> {
 		await runAdmin(ctx);
 		await runPurge(ctx);
 		await runRevoke(ctx);
-		await runBulk(ctx);
 		await runAnalytics(ctx);
 		await runDashboard();
 		await runS3(ctx);
+		await runBulk(ctx);
 		await runDns(ctx);
 		await runCfProxy(ctx);
 		await runConfig(ctx);

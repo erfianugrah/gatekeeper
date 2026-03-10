@@ -25,6 +25,13 @@ export class S3CredentialManager extends CredentialManager<S3Credential, CachedS
 				created_by TEXT
 			);
 		`);
+
+		// Migration: add upstream_token_id column for credential-to-upstream-R2 binding.
+		const cols = queryAll<{ name: string }>(this.sql, `PRAGMA table_info('s3_credentials')`);
+		if (!cols.some((c) => c.name === 'upstream_token_id')) {
+			console.log(JSON.stringify({ migration: 's3_credentials', action: 'add_column_upstream_token_id', ts: new Date().toISOString() }));
+			this.sql.exec(`ALTER TABLE s3_credentials ADD COLUMN upstream_token_id TEXT`);
+		}
 	}
 
 	// ─── Credential creation ────────────────────────────────────────────
@@ -38,9 +45,10 @@ export class S3CredentialManager extends CredentialManager<S3Credential, CachedS
 
 		const policyJson = JSON.stringify(req.policy);
 
+		const upstreamTokenId = req.upstream_token_id ?? null;
 		this.sql.exec(
-			`INSERT INTO s3_credentials (access_key_id, secret_access_key, name, created_at, expires_at, revoked, policy, created_by)
-			 VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+			`INSERT INTO s3_credentials (access_key_id, secret_access_key, name, created_at, expires_at, revoked, policy, created_by, upstream_token_id)
+			 VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
 			accessKeyId,
 			secretAccessKey,
 			req.name,
@@ -48,6 +56,7 @@ export class S3CredentialManager extends CredentialManager<S3Credential, CachedS
 			expiresAt,
 			policyJson,
 			req.created_by ?? null,
+			upstreamTokenId,
 		);
 
 		const credential: S3Credential = {
@@ -59,6 +68,7 @@ export class S3CredentialManager extends CredentialManager<S3Credential, CachedS
 			revoked: 0,
 			policy: policyJson,
 			created_by: req.created_by ?? null,
+			upstream_token_id: upstreamTokenId,
 		};
 
 		return { credential };
@@ -127,7 +137,15 @@ export class S3CredentialManager extends CredentialManager<S3Credential, CachedS
 
 	/** Authorize a request against the credential's policy. */
 	authorize(accessKeyId: string, contexts: RequestContext[]): AuthResult {
-		return this.authorizeWithContexts(accessKeyId, contexts);
+		const result = this.authorizeWithContexts(accessKeyId, contexts);
+		if (result.authorized) {
+			// Attach upstream_token_id so the S3 handler can use a pinned upstream
+			const cached = this.getCachedOrLoad(accessKeyId);
+			if (cached?.credential.upstream_token_id) {
+				result.upstreamTokenId = cached.credential.upstream_token_id;
+			}
+		}
+		return result;
 	}
 
 	// ─── Protected overrides ────────────────────────────────────────────

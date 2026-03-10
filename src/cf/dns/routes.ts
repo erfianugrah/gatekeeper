@@ -22,7 +22,7 @@
 
 import { Hono } from 'hono';
 import { getStub } from '../../do-stub';
-import { CF_API_BASE, AUDIT_CREATED_BY_API_KEY } from '../../constants';
+import { AUDIT_CREATED_BY_API_KEY } from '../../constants';
 import { proxyToCfApi, buildProxyResponse, extractResponseDetail, cfJsonError, resolveUpstreamZoneTokenOrError } from '../proxy-helpers';
 import { logDnsEvent } from './analytics';
 import {
@@ -119,8 +119,8 @@ async function handleDnsRequest(
 
 	c.set('keyName', authResult.keyName);
 
-	// Resolve zone-scoped upstream token (post-auth)
-	const tokenOrError = await resolveUpstreamZoneTokenOrError(env, zoneId, log, start);
+	// Resolve zone-scoped upstream token (post-auth) — key-pinned upstream takes priority
+	const tokenOrError = await resolveUpstreamZoneTokenOrError(env, zoneId, log, start, authResult.upstreamTokenId);
 	if (tokenOrError instanceof Response) return tokenOrError;
 	const upstreamToken = tokenOrError;
 
@@ -245,31 +245,25 @@ dnsRoutes.post('/dns_records/batch', async (c) => {
 			return cfJsonError(400, 'Invalid JSON body');
 		}
 
-		// Pre-flight: fetch existing records for deletes/patches/puts so we can extract
-		// condition fields (name, type, etc.) for policy evaluation.
-		const recordIdsToFetch = new Set<string>();
-		if (batch.deletes) batch.deletes.forEach((d) => recordIdsToFetch.add(d.id));
-		if (batch.patches) batch.patches.forEach((p) => recordIdsToFetch.add(p.id));
-		if (batch.puts) batch.puts.forEach((p) => recordIdsToFetch.add(p.id));
-
-		let prefetchedRecords: Map<string, DnsRecordFields> | undefined;
-		if (recordIdsToFetch.size > 0) {
-			const stub = getStub(c.env);
-			const upstreamToken = await stub.resolveUpstreamToken(zoneId);
-			if (upstreamToken) {
-				prefetchedRecords = await prefetchRecords(zoneId, [...recordIdsToFetch], upstreamToken);
-			}
-		}
-
-		const contexts = dnsBatchToContexts(zoneId, batch, requestFields, prefetchedRecords);
+		// Build contexts WITHOUT pre-fetched record data first — auth must happen
+		// BEFORE we resolve any upstream tokens (avoids unauthenticated callers
+		// probing which zones have registered tokens).
+		const basicContexts = dnsBatchToContexts(zoneId, batch, requestFields);
 		const subOps = (batch.deletes?.length ?? 0) + (batch.patches?.length ?? 0) + (batch.puts?.length ?? 0) + (batch.posts?.length ?? 0);
 		const log: Record<string, unknown> = c.get('log');
 		log.subOps = subOps;
 
+		// Auth + upstream resolution happens inside handleDnsRequest.
+		// Post-auth, the handler resolves the upstream token which is also used
+		// for the actual batch proxy call — no separate pre-flight needed.
+		// Note: condition fields from pre-existing records (dns.type, dns.name)
+		// won't be available for delete/patch/put sub-ops in the auth check.
+		// This is the secure default — condition-based policies won't match
+		// without record data, so they become more restrictive rather than more permissive.
 		return handleDnsRequest(
 			c,
 			'dns:batch',
-			contexts,
+			basicContexts,
 			zoneId,
 			`/zones/${zoneId}/dns_records/batch`,
 			'POST',
@@ -410,78 +404,14 @@ dnsRoutes.delete('/dns_records/:recordId', async (c) => {
 	const recordId = c.req.param('recordId');
 
 	try {
-		// Pre-flight GET to extract condition fields for the record being deleted
-		const stub = getStub(c.env);
-		let recordFields: DnsRecordFields | undefined;
-		const upstreamToken = await stub.resolveUpstreamToken(zoneId);
-		if (upstreamToken) {
-			try {
-				const getResp = await fetch(`${CF_API_BASE}/zones/${zoneId}/dns_records/${recordId}`, {
-					headers: { Authorization: `Bearer ${upstreamToken}` },
-				});
-				if (getResp.ok) {
-					const data = (await getResp.json()) as { result?: DnsRecordFields };
-					if (data.result) recordFields = data.result;
-				}
-			} catch {
-				console.log(JSON.stringify({ breadcrumb: 'dns-preflight-failed', zoneId, recordId }));
-			}
-		}
-
-		const contexts = [dnsDeleteContext(zoneId, requestFields, recordFields)];
-		return handleDnsRequest(
-			c,
-			'dns:delete',
-			contexts,
-			zoneId,
-			`/zones/${zoneId}/dns_records/${recordId}`,
-			'DELETE',
-			null,
-			recordFields?.name ?? null,
-			recordFields?.type ?? null,
-		);
+		// Auth first with basic context (no pre-fetched record fields).
+		// Record-specific condition fields (dns.type, dns.name) won't be available,
+		// making condition-based policies more restrictive — the secure default.
+		// The upstream token is resolved AFTER auth inside handleDnsRequest.
+		const contexts = [dnsDeleteContext(zoneId, requestFields)];
+		return handleDnsRequest(c, 'dns:delete', contexts, zoneId, `/zones/${zoneId}/dns_records/${recordId}`, 'DELETE', null, null, null);
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'dns.delete', error: e.message, ts: new Date().toISOString() }));
 		return cfJsonError(500, 'Internal server error');
 	}
 });
-
-// ─── Batch pre-flight helper ────────────────────────────────────────────────
-
-/**
- * Pre-fetch existing records by ID for batch authorization.
- * Uses individual GET calls (CF API doesn't have a batch-get).
- * Failures are silently ignored — the record just won't have condition fields.
- */
-async function prefetchRecords(zoneId: string, recordIds: string[], upstreamToken: string): Promise<Map<string, DnsRecordFields>> {
-	const results = new Map<string, DnsRecordFields>();
-	// Fetch in parallel, cap at 50 to avoid overwhelming upstream
-	const batch = recordIds.slice(0, 50);
-	const fetches = batch.map(async (id) => {
-		try {
-			const resp = await fetch(`${CF_API_BASE}/zones/${zoneId}/dns_records/${id}`, {
-				headers: { Authorization: `Bearer ${upstreamToken}` },
-			});
-			if (resp.ok) {
-				const data = (await resp.json()) as { result?: DnsRecordFields };
-				if (data.result) results.set(id, data.result);
-			}
-		} catch {
-			// Silently ignore — proceed without fields for this record
-		}
-	});
-	await Promise.all(fetches);
-
-	if (results.size < recordIds.length) {
-		console.log(
-			JSON.stringify({
-				breadcrumb: 'dns-batch-preflight-partial',
-				zoneId,
-				requested: recordIds.length,
-				resolved: results.size,
-			}),
-		);
-	}
-
-	return results;
-}
