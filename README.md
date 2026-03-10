@@ -46,7 +46,7 @@ See [Deployment](docs/DEPLOYMENT.md) for production setup.
 - **Dashboard**: Astro 5 + React 19 + Tailwind CSS 4 + shadcn/ui
 - **CLI**: citty
 - **S3 signing**: aws4fetch
-- **Tests**: Vitest + @cloudflare/vitest-pool-workers (885 unit tests, 422 e2e smoke tests)
+- **Tests**: Vitest + @cloudflare/vitest-pool-workers (981 unit tests, 548 e2e smoke tests)
 
 ## Commands
 

@@ -28,6 +28,8 @@ The machine-readable OpenAPI 3.1 specification is available at [`openapi.json`](
 - [12. Upstream Tokens](#12-upstream-tokens)
 - [13. Upstream R2](#13-upstream-r2)
 - [14. Config](#14-config)
+- [15. Audit Log](#115-audit-log)
+- [Timeseries Endpoints](#timeseries) — available under purge, S3, DNS, and CF analytics
 
 ---
 
@@ -488,6 +490,82 @@ With `permanent=true`: hard delete. Removes the key row entirely. Works on keys 
 
 ---
 
+### `PATCH /admin/keys/:id`
+
+Update mutable fields on a key (name, expiry, per-key rate limits). Policy changes require creating a new key.
+
+**Path parameters:**
+
+| Param | Type   | Required | Description |
+| ----- | ------ | -------- | ----------- |
+| `id`  | string | yes      | Key ID      |
+
+**Request body:**
+
+| Field                      | Type    | Required | Description                                                             |
+| -------------------------- | ------- | -------- | ----------------------------------------------------------------------- |
+| `name`                     | string  | no       | New human-readable name                                                 |
+| `expires_in_days`          | number  | no       | Set expiry to N days from now (positive number)                         |
+| `clear_expiry`             | boolean | no       | Remove expiry (set to null). Mutually exclusive with `expires_in_days`. |
+| `rate_limit`               | object  | no       | Per-key rate limit overrides                                            |
+| `rate_limit.bulk_rate`     | number  | no       | Bulk token refill rate                                                  |
+| `rate_limit.bulk_bucket`   | number  | no       | Bulk bucket capacity                                                    |
+| `rate_limit.single_rate`   | number  | no       | Single-file token refill rate                                           |
+| `rate_limit.single_bucket` | number  | no       | Single-file bucket capacity                                             |
+
+**Example request:**
+
+```json
+{ "name": "renamed-key", "expires_in_days": 30 }
+```
+
+**Response `200`:**
+
+```json
+{
+	"success": true,
+	"result": { "key": { "id": "gw_...", "name": "renamed-key", "expires_at": 1714521600000, "..." } }
+}
+```
+
+**Error codes:** 400 (validation), 404 (key not found)
+
+---
+
+### `POST /admin/keys/:id/rotate`
+
+Atomically creates a new key inheriting the old key's config (policy, zone, rate limits) and revokes the old key.
+
+**Path parameters:**
+
+| Param | Type   | Required | Description      |
+| ----- | ------ | -------- | ---------------- |
+| `id`  | string | yes      | Key ID to rotate |
+
+**Request body** (optional):
+
+| Field             | Type   | Required | Description                    |
+| ----------------- | ------ | -------- | ------------------------------ |
+| `expires_in_days` | number | no       | Override expiry on the new key |
+
+**Response `200`:**
+
+```json
+{
+	"success": true,
+	"result": {
+		"old_key": { "id": "gw_old...", "revoked": 1, "..." },
+		"new_key": { "id": "gw_new...", "revoked": 0, "..." }
+	}
+}
+```
+
+The new key ID is the Bearer token. Show it once — it cannot be retrieved again.
+
+**Error codes:** 404 (key not found or already revoked)
+
+---
+
 ### `POST /admin/keys/bulk-revoke`
 
 Bulk revoke multiple keys. Supports dry-run preview.
@@ -654,6 +732,35 @@ Aggregate purge analytics summary.
 	}
 }
 ```
+
+**Error codes:** 401 (unauthorized), 503 (analytics not configured)
+
+---
+
+### `GET /admin/analytics/timeseries`
+
+Purge request volume over time in hourly buckets. Default window is 7 days.
+
+**Query parameters:**
+
+| Param   | Type   | Required | Description          |
+| ------- | ------ | -------- | -------------------- |
+| `since` | number | no       | Start time (unix ms) |
+| `until` | number | no       | End time (unix ms)   |
+
+**Response `200`:**
+
+```json
+{
+	"success": true,
+	"result": [
+		{ "bucket": 1704067200000, "count": 42, "errors": 3 },
+		{ "bucket": 1704070800000, "count": 18, "errors": 0 }
+	]
+}
+```
+
+Each entry represents one hour. `bucket` is the start of the hourly bucket (unix ms). `errors` counts requests with status >= 400.
 
 **Error codes:** 401 (unauthorized), 503 (analytics not configured)
 
@@ -826,6 +933,69 @@ With `permanent=true`: hard delete. Removes the credential row entirely. D1 anal
 
 ---
 
+### `PATCH /admin/s3/credentials/:id`
+
+Update mutable fields on an S3 credential (name, expiry).
+
+**Path parameters:**
+
+| Param | Type   | Required | Description   |
+| ----- | ------ | -------- | ------------- |
+| `id`  | string | yes      | Access key ID |
+
+**Request body:**
+
+| Field             | Type    | Required | Description                                               |
+| ----------------- | ------- | -------- | --------------------------------------------------------- |
+| `name`            | string  | no       | New human-readable name                                   |
+| `expires_in_days` | number  | no       | Set expiry to N days from now                             |
+| `clear_expiry`    | boolean | no       | Remove expiry. Mutually exclusive with `expires_in_days`. |
+
+**Response `200`:**
+
+```json
+{
+	"success": true,
+	"result": { "credential": { "access_key_id": "GK...", "name": "updated-name", "..." } }
+}
+```
+
+**Error codes:** 400 (validation), 404 (credential not found)
+
+---
+
+### `POST /admin/s3/credentials/:id/rotate`
+
+Atomically creates a new credential inheriting the old one's config (policy, name) and revokes the old credential. Returns the new `secret_access_key` only once.
+
+**Path parameters:**
+
+| Param | Type   | Required | Description             |
+| ----- | ------ | -------- | ----------------------- |
+| `id`  | string | yes      | Access key ID to rotate |
+
+**Request body** (optional):
+
+| Field             | Type   | Required | Description                           |
+| ----------------- | ------ | -------- | ------------------------------------- |
+| `expires_in_days` | number | no       | Override expiry on the new credential |
+
+**Response `200`:**
+
+```json
+{
+	"success": true,
+	"result": {
+		"old_credential": { "access_key_id": "GKold...", "revoked": 1, "..." },
+		"new_credential": { "access_key_id": "GKnew...", "secret_access_key": "...", "revoked": 0, "..." }
+	}
+}
+```
+
+**Error codes:** 404 (credential not found or already revoked)
+
+---
+
 ### `POST /admin/s3/credentials/bulk-revoke`
 
 Bulk revoke S3 credentials.
@@ -956,6 +1126,18 @@ Aggregate S3 proxy analytics summary.
 ```
 
 `by_operation` and `by_bucket` return the top 20 entries each.
+
+**Error codes:** 401 (unauthorized), 503 (analytics not configured)
+
+---
+
+### `GET /admin/s3/analytics/timeseries`
+
+S3 request volume over time in hourly buckets. Same shape as purge timeseries.
+
+**Query parameters:** `since`, `until` (unix ms, optional).
+
+**Response `200`:** `{ "success": true, "result": [{ "bucket": ..., "count": ..., "errors": ... }] }`
 
 **Error codes:** 401 (unauthorized), 503 (analytics not configured)
 
@@ -1112,6 +1294,18 @@ Aggregated DNS analytics summary.
 	}
 }
 ```
+
+---
+
+### `GET /admin/dns/analytics/timeseries`
+
+DNS request volume over time in hourly buckets. Same shape as purge timeseries.
+
+**Query parameters:** `since`, `until` (unix ms, optional).
+
+**Response `200`:** `{ "success": true, "result": [{ "bucket": ..., "count": ..., "errors": ... }] }`
+
+**Error codes:** 401 (unauthorized), 503 (analytics not configured)
 
 ---
 
@@ -1325,6 +1519,59 @@ Aggregated CF proxy analytics.
 
 ---
 
+### `GET /admin/cf/analytics/timeseries`
+
+CF proxy request volume over time in hourly buckets. Same shape as purge timeseries.
+
+**Query parameters:** `since`, `until` (unix ms, optional).
+
+**Response `200`:** `{ "success": true, "result": [{ "bucket": ..., "count": ..., "errors": ... }] }`
+
+**Error codes:** 401 (unauthorized), 503 (analytics not configured)
+
+---
+
+## 11.5 Audit Log
+
+### `GET /admin/audit/events`
+
+Query admin action audit log events. Records key creation, deletion, rotation, config changes, and other admin operations.
+
+**Query parameters:**
+
+| Param         | Type    | Required | Default | Description                                         |
+| ------------- | ------- | -------- | ------- | --------------------------------------------------- |
+| `action`      | string  | no       | --      | Filter by action (e.g. `key.create`, `key.rotate`)  |
+| `actor`       | string  | no       | --      | Filter by actor (email or `"via admin key"`)        |
+| `entity_type` | string  | no       | --      | Filter by entity type (e.g. `key`, `s3_credential`) |
+| `entity_id`   | string  | no       | --      | Filter by entity ID                                 |
+| `since`       | number  | no       | --      | Start time (unix ms)                                |
+| `until`       | number  | no       | --      | End time (unix ms)                                  |
+| `limit`       | integer | no       | 100     | Max rows (1-1000)                                   |
+
+**Response `200`:**
+
+```json
+{
+	"success": true,
+	"result": [
+		{
+			"id": 1,
+			"action": "key.create",
+			"actor": "admin@example.com",
+			"entity_type": "key",
+			"entity_id": "gw_abc123...",
+			"detail": "{\"name\":\"my-key\"}",
+			"created_at": 1704067200000
+		}
+	]
+}
+```
+
+**Error codes:** 401 (unauthorized), 503 (analytics not configured)
+
+---
+
 ## 12. Upstream Tokens
 
 Manage upstream Cloudflare API tokens used for proxying cache purge and DNS requests. Admin auth required.
@@ -1431,6 +1678,34 @@ Get details for a specific upstream token.
 ```
 
 **Error codes:** 401 (unauthorized), 404 (token not found)
+
+---
+
+### `PATCH /admin/upstream-tokens/:id`
+
+Update an upstream token's name or expiry.
+
+**Path parameters:**
+
+| Param | Type   | Required | Description |
+| ----- | ------ | -------- | ----------- |
+| `id`  | string | yes      | Token ID    |
+
+**Request body:**
+
+| Field             | Type    | Required | Description                                               |
+| ----------------- | ------- | -------- | --------------------------------------------------------- |
+| `name`            | string  | no       | New human-readable name                                   |
+| `expires_in_days` | number  | no       | Set expiry to N days from now                             |
+| `clear_expiry`    | boolean | no       | Remove expiry. Mutually exclusive with `expires_in_days`. |
+
+**Response `200`:**
+
+```json
+{ "success": true, "result": { "id": "upt_...", "name": "updated-name", "expires_at": 1714521600000, "..." } }
+```
+
+**Error codes:** 400 (validation), 404 (token not found)
 
 ---
 
@@ -1597,6 +1872,34 @@ Get details for a specific upstream R2 endpoint.
 ```
 
 **Error codes:** 401 (unauthorized), 404 (R2 endpoint not found)
+
+---
+
+### `PATCH /admin/upstream-r2/:id`
+
+Update an R2 endpoint's name or expiry.
+
+**Path parameters:**
+
+| Param | Type   | Required | Description    |
+| ----- | ------ | -------- | -------------- |
+| `id`  | string | yes      | R2 endpoint ID |
+
+**Request body:**
+
+| Field             | Type    | Required | Description                                               |
+| ----------------- | ------- | -------- | --------------------------------------------------------- |
+| `name`            | string  | no       | New human-readable name                                   |
+| `expires_in_days` | number  | no       | Set expiry to N days from now                             |
+| `clear_expiry`    | boolean | no       | Remove expiry. Mutually exclusive with `expires_in_days`. |
+
+**Response `200`:**
+
+```json
+{ "success": true, "result": { "id": "upr2_...", "name": "updated-name", "expires_at": 1714521600000, "..." } }
+```
+
+**Error codes:** 400 (validation), 404 (R2 endpoint not found)
 
 ---
 
@@ -1816,44 +2119,55 @@ Returns the newly resolved config after the override is removed.
 | 12  | POST   | `/admin/keys`                          | Keys           | Admin       |
 | 13  | GET    | `/admin/keys`                          | Keys           | Admin       |
 | 14  | GET    | `/admin/keys/:id`                      | Keys           | Admin       |
-| 15  | DELETE | `/admin/keys/:id`                      | Keys           | Admin       |
-| 16  | POST   | `/admin/keys/bulk-revoke`              | Keys           | Admin       |
-| 17  | POST   | `/admin/keys/bulk-delete`              | Keys           | Admin       |
-| 18  | GET    | `/admin/analytics/events`              | Analytics      | Admin       |
-| 19  | GET    | `/admin/analytics/summary`             | Analytics      | Admin       |
-| 20  | POST   | `/admin/s3/credentials`                | S3Credentials  | Admin       |
-| 21  | GET    | `/admin/s3/credentials`                | S3Credentials  | Admin       |
-| 22  | GET    | `/admin/s3/credentials/:id`            | S3Credentials  | Admin       |
-| 23  | DELETE | `/admin/s3/credentials/:id`            | S3Credentials  | Admin       |
-| 24  | POST   | `/admin/s3/credentials/bulk-revoke`    | S3Credentials  | Admin       |
-| 25  | POST   | `/admin/s3/credentials/bulk-delete`    | S3Credentials  | Admin       |
-| 26  | GET    | `/admin/s3/analytics/events`           | S3Analytics    | Admin       |
-| 27  | GET    | `/admin/s3/analytics/summary`          | S3Analytics    | Admin       |
-| 28  | GET    | `/admin/dns/analytics/events`          | DnsAnalytics   | Admin       |
-| 29  | GET    | `/admin/dns/analytics/summary`         | DnsAnalytics   | Admin       |
-| 30  | GET    | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
-| 31  | PUT    | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
-| 32  | POST   | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
-| 33  | DELETE | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
-| 34  | HEAD   | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
-| 35  | POST   | `/admin/upstream-tokens`               | UpstreamTokens | Admin       |
-| 36  | GET    | `/admin/upstream-tokens`               | UpstreamTokens | Admin       |
-| 37  | GET    | `/admin/upstream-tokens/:id`           | UpstreamTokens | Admin       |
-| 38  | DELETE | `/admin/upstream-tokens/:id`           | UpstreamTokens | Admin       |
-| 39  | POST   | `/admin/upstream-tokens/bulk-delete`   | UpstreamTokens | Admin       |
-| 40  | POST   | `/admin/upstream-r2`                   | UpstreamR2     | Admin       |
-| 41  | GET    | `/admin/upstream-r2`                   | UpstreamR2     | Admin       |
-| 42  | GET    | `/admin/upstream-r2/:id`               | UpstreamR2     | Admin       |
-| 43  | DELETE | `/admin/upstream-r2/:id`               | UpstreamR2     | Admin       |
-| 44  | POST   | `/admin/upstream-r2/bulk-delete`       | UpstreamR2     | Admin       |
-| 45  | \*     | `/cf/accounts/:accountId/d1/*`         | CfProxy        | ApiKeyAuth  |
-| 46  | \*     | `/cf/accounts/:accountId/storage/kv/*` | CfProxy        | ApiKeyAuth  |
-| 47  | \*     | `/cf/accounts/:accountId/workers/*`    | CfProxy        | ApiKeyAuth  |
-| 48  | \*     | `/cf/accounts/:accountId/queues/*`     | CfProxy        | ApiKeyAuth  |
-| 49  | \*     | `/cf/accounts/:accountId/vectorize/*`  | CfProxy        | ApiKeyAuth  |
-| 50  | \*     | `/cf/accounts/:accountId/hyperdrive/*` | CfProxy        | ApiKeyAuth  |
-| 51  | GET    | `/admin/cf/analytics/events`           | CfAnalytics    | Admin       |
-| 52  | GET    | `/admin/cf/analytics/summary`          | CfAnalytics    | Admin       |
-| 53  | GET    | `/admin/config`                        | Config         | Admin       |
-| 54  | PUT    | `/admin/config`                        | Config         | Admin       |
-| 55  | DELETE | `/admin/config/:key`                   | Config         | Admin       |
+| 15  | PATCH  | `/admin/keys/:id`                      | Keys           | Admin       |
+| 16  | DELETE | `/admin/keys/:id`                      | Keys           | Admin       |
+| 17  | POST   | `/admin/keys/:id/rotate`               | Keys           | Admin       |
+| 18  | POST   | `/admin/keys/bulk-revoke`              | Keys           | Admin       |
+| 19  | POST   | `/admin/keys/bulk-delete`              | Keys           | Admin       |
+| 20  | GET    | `/admin/analytics/events`              | Analytics      | Admin       |
+| 21  | GET    | `/admin/analytics/summary`             | Analytics      | Admin       |
+| 22  | GET    | `/admin/analytics/timeseries`          | Analytics      | Admin       |
+| 23  | POST   | `/admin/s3/credentials`                | S3Credentials  | Admin       |
+| 24  | GET    | `/admin/s3/credentials`                | S3Credentials  | Admin       |
+| 25  | GET    | `/admin/s3/credentials/:id`            | S3Credentials  | Admin       |
+| 26  | PATCH  | `/admin/s3/credentials/:id`            | S3Credentials  | Admin       |
+| 27  | DELETE | `/admin/s3/credentials/:id`            | S3Credentials  | Admin       |
+| 28  | POST   | `/admin/s3/credentials/:id/rotate`     | S3Credentials  | Admin       |
+| 29  | POST   | `/admin/s3/credentials/bulk-revoke`    | S3Credentials  | Admin       |
+| 30  | POST   | `/admin/s3/credentials/bulk-delete`    | S3Credentials  | Admin       |
+| 31  | GET    | `/admin/s3/analytics/events`           | S3Analytics    | Admin       |
+| 32  | GET    | `/admin/s3/analytics/summary`          | S3Analytics    | Admin       |
+| 33  | GET    | `/admin/s3/analytics/timeseries`       | S3Analytics    | Admin       |
+| 34  | GET    | `/admin/dns/analytics/events`          | DnsAnalytics   | Admin       |
+| 35  | GET    | `/admin/dns/analytics/summary`         | DnsAnalytics   | Admin       |
+| 36  | GET    | `/admin/dns/analytics/timeseries`      | DnsAnalytics   | Admin       |
+| 37  | GET    | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
+| 38  | PUT    | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
+| 39  | POST   | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
+| 40  | DELETE | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
+| 41  | HEAD   | `/s3/*`                                | S3Proxy        | S3SigV4Auth |
+| 42  | POST   | `/admin/upstream-tokens`               | UpstreamTokens | Admin       |
+| 43  | GET    | `/admin/upstream-tokens`               | UpstreamTokens | Admin       |
+| 44  | GET    | `/admin/upstream-tokens/:id`           | UpstreamTokens | Admin       |
+| 45  | PATCH  | `/admin/upstream-tokens/:id`           | UpstreamTokens | Admin       |
+| 46  | DELETE | `/admin/upstream-tokens/:id`           | UpstreamTokens | Admin       |
+| 47  | POST   | `/admin/upstream-tokens/bulk-delete`   | UpstreamTokens | Admin       |
+| 48  | POST   | `/admin/upstream-r2`                   | UpstreamR2     | Admin       |
+| 49  | GET    | `/admin/upstream-r2`                   | UpstreamR2     | Admin       |
+| 50  | GET    | `/admin/upstream-r2/:id`               | UpstreamR2     | Admin       |
+| 51  | PATCH  | `/admin/upstream-r2/:id`               | UpstreamR2     | Admin       |
+| 52  | DELETE | `/admin/upstream-r2/:id`               | UpstreamR2     | Admin       |
+| 53  | POST   | `/admin/upstream-r2/bulk-delete`       | UpstreamR2     | Admin       |
+| 54  | \*     | `/cf/accounts/:accountId/d1/*`         | CfProxy        | ApiKeyAuth  |
+| 55  | \*     | `/cf/accounts/:accountId/storage/kv/*` | CfProxy        | ApiKeyAuth  |
+| 56  | \*     | `/cf/accounts/:accountId/workers/*`    | CfProxy        | ApiKeyAuth  |
+| 57  | \*     | `/cf/accounts/:accountId/queues/*`     | CfProxy        | ApiKeyAuth  |
+| 58  | \*     | `/cf/accounts/:accountId/vectorize/*`  | CfProxy        | ApiKeyAuth  |
+| 59  | \*     | `/cf/accounts/:accountId/hyperdrive/*` | CfProxy        | ApiKeyAuth  |
+| 60  | GET    | `/admin/cf/analytics/events`           | CfAnalytics    | Admin       |
+| 61  | GET    | `/admin/cf/analytics/summary`          | CfAnalytics    | Admin       |
+| 62  | GET    | `/admin/cf/analytics/timeseries`       | CfAnalytics    | Admin       |
+| 63  | GET    | `/admin/audit/events`                  | Audit          | Admin       |
+| 64  | GET    | `/admin/config`                        | Config         | Admin       |
+| 65  | PUT    | `/admin/config`                        | Config         | Admin       |
+| 66  | DELETE | `/admin/config/:key`                   | Config         | Admin       |

@@ -16,9 +16,15 @@ import {
 	// Request schemas
 	policyDocumentSchema,
 	createKeySchema,
+	rotateKeySchema,
+	updateKeySchema,
 	createS3CredentialSchema,
+	rotateS3CredentialSchema,
+	updateS3CredentialSchema,
 	createUpstreamTokenSchema,
+	updateUpstreamTokenSchema,
 	createUpstreamR2Schema,
+	updateUpstreamR2Schema,
 	purgeBodySchema,
 	bulkBodySchema,
 	purgeAnalyticsEventsQuerySchema,
@@ -27,6 +33,13 @@ import {
 	s3AnalyticsSummaryQuerySchema,
 	dnsAnalyticsEventsQuerySchema,
 	dnsAnalyticsSummaryQuerySchema,
+	cfProxyAnalyticsEventsQuerySchema,
+	cfProxyAnalyticsSummaryQuerySchema,
+	purgeTimeseriesQuerySchema,
+	s3TimeseriesQuerySchema,
+	dnsTimeseriesQuerySchema,
+	cfProxyTimeseriesQuerySchema,
+	auditEventsQuerySchema,
 	listKeysQuerySchema,
 	listS3CredentialsQuerySchema,
 	deleteQuerySchema,
@@ -53,6 +66,8 @@ import {
 	s3AnalyticsSummarySchema,
 	dnsEventSchema,
 	dnsAnalyticsSummarySchema,
+	cfProxyEventSchema,
+	cfProxyAnalyticsSummarySchema,
 	gatewayConfigSchema,
 	configOverrideSchema,
 	configResponseSchema,
@@ -115,7 +130,30 @@ const tags = [
 	{ name: 'UpstreamTokens', description: 'Manage upstream Cloudflare API tokens for purge and DNS' },
 	{ name: 'UpstreamR2', description: 'Manage upstream R2 endpoints for S3 proxy' },
 	{ name: 'Config', description: 'Gateway configuration management' },
+	{ name: 'Audit', description: 'Audit log of admin actions' },
 ];
+
+// ─── Inline schemas for OpenAPI only ────────────────────────────────────────
+
+const timeseriesBucketSchema = z
+	.object({
+		bucket: z.number().meta({ description: 'Start of the hourly bucket (unix ms)' }),
+		count: z.number().meta({ description: 'Total requests in this bucket' }),
+		errors: z.number().meta({ description: 'Requests with status >= 400' }),
+	})
+	.meta({ id: 'TimeseriesBucket' });
+
+const auditEventSchema = z
+	.object({
+		id: z.number(),
+		action: z.string(),
+		actor: z.string(),
+		entity_type: z.string(),
+		entity_id: z.string().nullable(),
+		detail: z.string().nullable(),
+		created_at: z.number(),
+	})
+	.meta({ id: 'AuditEvent' });
 
 // ─── Assemble the document ──────────────────────────────────────────────────
 
@@ -482,6 +520,20 @@ const document = createDocument({
 					'404': errorResponse('Key not found'),
 				},
 			},
+			patch: {
+				tags: ['Keys'],
+				operationId: 'updateKey',
+				summary: 'Update mutable fields on a key',
+				description: 'Update name, expiry, or per-key rate limits. Policy changes require creating a new key.',
+				security: adminSecurity,
+				requestParams: { path: idParamSchema },
+				requestBody: { required: true, ...jsonContent(updateKeySchema) },
+				responses: {
+					'200': ok('Key updated', successEnvelope(z.object({ key: apiKeySchema }))),
+					'400': errorResponse('Validation error'),
+					'404': errorResponse('Key not found'),
+				},
+			},
 			delete: {
 				tags: ['Keys'],
 				operationId: 'deleteKey',
@@ -495,6 +547,21 @@ const document = createDocument({
 						z.union([successEnvelope(z.object({ revoked: z.literal(true) })), successEnvelope(z.object({ deleted: z.literal(true) }))]),
 					),
 					'404': errorResponse('Key not found'),
+				},
+			},
+		},
+		'/admin/keys/{id}/rotate': {
+			post: {
+				tags: ['Keys'],
+				operationId: 'rotateKey',
+				summary: 'Rotate an API key',
+				description: "Creates a new key inheriting the old key's config and revokes the old key atomically.",
+				security: adminSecurity,
+				requestParams: { path: idParamSchema },
+				requestBody: { required: false, ...jsonContent(rotateKeySchema) },
+				responses: {
+					'200': ok('Key rotated', successEnvelope(z.object({ old_key: apiKeySchema, new_key: apiKeySchema }))),
+					'404': errorResponse('Key not found or already revoked'),
 				},
 			},
 		},
@@ -560,6 +627,19 @@ const document = createDocument({
 				},
 			},
 		},
+		'/admin/analytics/timeseries': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getPurgeTimeseries',
+				summary: 'Purge request volume over time (hourly buckets)',
+				security: adminSecurity,
+				requestParams: { query: purgeTimeseriesQuerySchema },
+				responses: {
+					'200': ok('Hourly purge timeseries', successEnvelope(z.array(timeseriesBucketSchema))),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
 
 		// ─── S3 Credentials ─────────────────────────────────────────────
 		'/admin/s3/credentials': {
@@ -598,6 +678,20 @@ const document = createDocument({
 					'404': errorResponse('Credential not found'),
 				},
 			},
+			patch: {
+				tags: ['S3Credentials'],
+				operationId: 'updateS3Credential',
+				summary: 'Update mutable fields on an S3 credential',
+				description: 'Update name or expiry.',
+				security: adminSecurity,
+				requestParams: { path: idParamSchema },
+				requestBody: { required: true, ...jsonContent(updateS3CredentialSchema) },
+				responses: {
+					'200': ok('Credential updated', successEnvelope(z.object({ credential: s3CredentialSchema }))),
+					'400': errorResponse('Validation error'),
+					'404': errorResponse('Credential not found'),
+				},
+			},
 			delete: {
 				tags: ['S3Credentials'],
 				operationId: 'deleteS3Credential',
@@ -610,6 +704,24 @@ const document = createDocument({
 						z.union([successEnvelope(z.object({ revoked: z.literal(true) })), successEnvelope(z.object({ deleted: z.literal(true) }))]),
 					),
 					'404': errorResponse('Credential not found'),
+				},
+			},
+		},
+		'/admin/s3/credentials/{id}/rotate': {
+			post: {
+				tags: ['S3Credentials'],
+				operationId: 'rotateS3Credential',
+				summary: 'Rotate an S3 credential',
+				description: "Creates a new credential inheriting the old one's config and revokes the old credential atomically.",
+				security: adminSecurity,
+				requestParams: { path: idParamSchema },
+				requestBody: { required: false, ...jsonContent(rotateS3CredentialSchema) },
+				responses: {
+					'200': ok(
+						'Credential rotated',
+						successEnvelope(z.object({ old_credential: s3CredentialSchema, new_credential: s3CredentialSchema })),
+					),
+					'404': errorResponse('Credential not found or already revoked'),
 				},
 			},
 		},
@@ -673,6 +785,19 @@ const document = createDocument({
 				},
 			},
 		},
+		'/admin/s3/analytics/timeseries': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getS3Timeseries',
+				summary: 'S3 request volume over time (hourly buckets)',
+				security: adminSecurity,
+				requestParams: { query: s3TimeseriesQuerySchema },
+				responses: {
+					'200': ok('Hourly S3 timeseries', successEnvelope(z.array(timeseriesBucketSchema))),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
 
 		// ─── DNS Analytics ──────────────────────────────────────────────
 		'/admin/dns/analytics/events': {
@@ -697,6 +822,60 @@ const document = createDocument({
 				requestParams: { query: dnsAnalyticsSummaryQuerySchema },
 				responses: {
 					'200': ok('DNS analytics summary', successEnvelope(dnsAnalyticsSummarySchema)),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
+		'/admin/dns/analytics/timeseries': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getDnsTimeseries',
+				summary: 'DNS request volume over time (hourly buckets)',
+				security: adminSecurity,
+				requestParams: { query: dnsTimeseriesQuerySchema },
+				responses: {
+					'200': ok('Hourly DNS timeseries', successEnvelope(z.array(timeseriesBucketSchema))),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
+
+		// ─── CF Proxy Analytics ─────────────────────────────────────────
+		'/admin/cf/analytics/events': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getCfProxyAnalyticsEvents',
+				summary: 'Query CF proxy analytics events',
+				security: adminSecurity,
+				requestParams: { query: cfProxyAnalyticsEventsQuerySchema },
+				responses: {
+					'200': ok('List of CF proxy events', successEnvelope(z.array(cfProxyEventSchema))),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
+		'/admin/cf/analytics/summary': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getCfProxyAnalyticsSummary',
+				summary: 'Query CF proxy analytics summary',
+				security: adminSecurity,
+				requestParams: { query: cfProxyAnalyticsSummaryQuerySchema },
+				responses: {
+					'200': ok('CF proxy analytics summary', successEnvelope(cfProxyAnalyticsSummarySchema)),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
+		'/admin/cf/analytics/timeseries': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getCfProxyTimeseries',
+				summary: 'CF proxy request volume over time (hourly buckets)',
+				security: adminSecurity,
+				requestParams: { query: cfProxyTimeseriesQuerySchema },
+				responses: {
+					'200': ok('Hourly CF proxy timeseries', successEnvelope(z.array(timeseriesBucketSchema))),
 					'503': errorResponse('Analytics not configured'),
 				},
 			},
@@ -737,6 +916,20 @@ const document = createDocument({
 				requestParams: { path: idParamSchema },
 				responses: {
 					'200': ok('Token details', successEnvelope(upstreamTokenSchema)),
+					'404': errorResponse('Token not found'),
+				},
+			},
+			patch: {
+				tags: ['UpstreamTokens'],
+				operationId: 'updateUpstreamToken',
+				summary: 'Update an upstream token',
+				description: 'Update name or expiry on an upstream token.',
+				security: adminSecurity,
+				requestParams: { path: idParamSchema },
+				requestBody: { required: true, ...jsonContent(updateUpstreamTokenSchema) },
+				responses: {
+					'200': ok('Token updated', successEnvelope(upstreamTokenSchema)),
+					'400': errorResponse('Validation error'),
 					'404': errorResponse('Token not found'),
 				},
 			},
@@ -807,6 +1000,20 @@ const document = createDocument({
 					'404': errorResponse('R2 endpoint not found'),
 				},
 			},
+			patch: {
+				tags: ['UpstreamR2'],
+				operationId: 'updateUpstreamR2',
+				summary: 'Update an upstream R2 endpoint',
+				description: 'Update name or expiry on an R2 endpoint.',
+				security: adminSecurity,
+				requestParams: { path: idParamSchema },
+				requestBody: { required: true, ...jsonContent(updateUpstreamR2Schema) },
+				responses: {
+					'200': ok('R2 endpoint updated', successEnvelope(upstreamR2Schema)),
+					'400': errorResponse('Validation error'),
+					'404': errorResponse('R2 endpoint not found'),
+				},
+			},
 			delete: {
 				tags: ['UpstreamR2'],
 				operationId: 'deleteUpstreamR2',
@@ -872,6 +1079,22 @@ const document = createDocument({
 				responses: {
 					'200': ok('Config key reset', successEnvelope(z.object({ config: gatewayConfigSchema }))),
 					'404': errorResponse('No override found for key'),
+				},
+			},
+		},
+
+		// ─── Audit ──────────────────────────────────────────────────────
+		'/admin/audit/events': {
+			get: {
+				tags: ['Audit'],
+				operationId: 'getAuditEvents',
+				summary: 'Query audit log events',
+				description: 'Returns admin action audit events filtered by action, actor, entity type/ID, and time range.',
+				security: adminSecurity,
+				requestParams: { query: auditEventsQuerySchema },
+				responses: {
+					'200': ok('List of audit events', successEnvelope(z.array(auditEventSchema))),
+					'503': errorResponse('Analytics not configured'),
 				},
 			},
 		},

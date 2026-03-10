@@ -160,6 +160,42 @@ gk keys revoke --key-id <id> [--zone-id <id>] [--permanent] [--force] [flags]
 gk keys revoke --key-id gw_abc123 --zone-id abc123 --permanent --force
 ```
 
+### keys rotate
+
+Rotate an API key. Atomically creates a new key inheriting the old key's config and revokes the old key. Returns the new key ID (show it once).
+
+```
+gk keys rotate --key-id <id> [--expires-in-days <n>] [flags]
+```
+
+| Flag                | Type   | Required | Description                    |
+| ------------------- | ------ | -------- | ------------------------------ |
+| `--key-id`          | string | yes      | The API key ID to rotate       |
+| `--expires-in-days` | string | no       | Override expiry on the new key |
+
+```bash
+gk keys rotate --key-id gw_abc123 --zone-id abc123
+```
+
+### keys update
+
+Update mutable fields on a key (name, expiry, rate limits).
+
+```
+gk keys update --key-id <id> [--name <name>] [--expires-in-days <n>] [--clear-expiry] [flags]
+```
+
+| Flag                | Type    | Required | Description                   |
+| ------------------- | ------- | -------- | ----------------------------- |
+| `--key-id`          | string  | yes      | The API key ID to update      |
+| `--name`            | string  | no       | New key name                  |
+| `--expires-in-days` | string  | no       | Set expiry to N days from now |
+| `--clear-expiry`    | boolean | no       | Remove expiry                 |
+
+```bash
+gk keys update --key-id gw_abc123 --name "renamed-key" --expires-in-days 30
+```
+
 ### keys bulk-revoke
 
 Bulk soft-revoke multiple API keys. Runs as a dry run by default.
@@ -417,6 +453,42 @@ gk s3-credentials revoke --access-key-id <id> [--permanent] [--force] [flags]
 gk s3-credentials revoke --access-key-id GKabc123 --permanent --force
 ```
 
+### s3-credentials rotate
+
+Rotate an S3 credential. Creates a new credential inheriting the old one's config and revokes the old credential. Returns the new access key and secret (shown once).
+
+```
+gk s3-credentials rotate --access-key-id <id> [--expires-in-days <n>] [flags]
+```
+
+| Flag                | Type   | Required | Description                           |
+| ------------------- | ------ | -------- | ------------------------------------- |
+| `--access-key-id`   | string | yes      | The access key ID to rotate           |
+| `--expires-in-days` | string | no       | Override expiry on the new credential |
+
+```bash
+gk s3-credentials rotate --access-key-id GKabc123
+```
+
+### s3-credentials update
+
+Update mutable fields on an S3 credential (name, expiry).
+
+```
+gk s3-credentials update --access-key-id <id> [--name <name>] [--expires-in-days <n>] [--clear-expiry] [flags]
+```
+
+| Flag                | Type    | Required | Description                   |
+| ------------------- | ------- | -------- | ----------------------------- |
+| `--access-key-id`   | string  | yes      | The access key ID to update   |
+| `--name`            | string  | no       | New credential name           |
+| `--expires-in-days` | string  | no       | Set expiry to N days from now |
+| `--clear-expiry`    | boolean | no       | Remove expiry                 |
+
+```bash
+gk s3-credentials update --access-key-id GKabc123 --name "updated-name" --expires-in-days 60
+```
+
 ### s3-credentials bulk-revoke
 
 Bulk soft-revoke multiple S3 credentials. Runs as a dry run by default.
@@ -568,6 +640,25 @@ gk upstream-tokens get --id <id> [flags]
 gk upstream-tokens get --id upt_abc123
 ```
 
+### upstream-tokens update
+
+Update an upstream token's name or expiry.
+
+```
+gk upstream-tokens update --id <id> [--name <name>] [--expires-in-days <n>] [--clear-expiry] [flags]
+```
+
+| Flag                | Type    | Required | Description                   |
+| ------------------- | ------- | -------- | ----------------------------- |
+| `--id`              | string  | yes      | Token ID (`upt_...`)          |
+| `--name`            | string  | no       | New name                      |
+| `--expires-in-days` | string  | no       | Set expiry to N days from now |
+| `--clear-expiry`    | boolean | no       | Remove expiry                 |
+
+```bash
+gk upstream-tokens update --id upt_abc123 --name "renamed" --expires-in-days 90
+```
+
 ### upstream-tokens delete
 
 Delete an upstream token. This is permanent and irreversible.
@@ -664,6 +755,25 @@ gk upstream-r2 get --id <id> [flags]
 
 ```bash
 gk upstream-r2 get --id upr2_abc123
+```
+
+### upstream-r2 update
+
+Update an R2 endpoint's name or expiry.
+
+```
+gk upstream-r2 update --id <id> [--name <name>] [--expires-in-days <n>] [--clear-expiry] [flags]
+```
+
+| Flag                | Type    | Required | Description                   |
+| ------------------- | ------- | -------- | ----------------------------- |
+| `--id`              | string  | yes      | Endpoint ID (`upr2_...`)      |
+| `--name`            | string  | no       | New name                      |
+| `--expires-in-days` | string  | no       | Set expiry to N days from now |
+| `--clear-expiry`    | boolean | no       | Remove expiry                 |
+
+```bash
+gk upstream-r2 update --id upr2_abc123 --name "renamed" --expires-in-days 90
 ```
 
 ### upstream-r2 delete
@@ -827,6 +937,31 @@ gk config reset --key <key> [flags]
 
 ```bash
 gk config reset --key bulk_rate
+```
+
+---
+
+## completions
+
+Generate shell completion scripts for bash, zsh, or fish.
+
+```
+gk completions --shell <bash|zsh|fish>
+```
+
+| Flag      | Type   | Required | Description                       |
+| --------- | ------ | -------- | --------------------------------- |
+| `--shell` | string | yes      | Shell type: `bash`, `zsh`, `fish` |
+
+```bash
+# Bash (add to .bashrc)
+gk completions --shell bash >> ~/.bashrc
+
+# Zsh (add to .zshrc)
+gk completions --shell zsh >> ~/.zshrc
+
+# Fish
+gk completions --shell fish | source
 ```
 
 ---

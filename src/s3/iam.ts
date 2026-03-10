@@ -196,7 +196,7 @@ export class S3CredentialManager extends CredentialManager<S3Credential, CachedS
 		const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
 		const rows = queryAll<S3Credential>(
 			this.sql,
-			`SELECT access_key_id, '***' as secret_access_key, name, created_at, expires_at, revoked, policy, created_by
+			`SELECT access_key_id, '***' as secret_access_key, name, created_at, expires_at, revoked, policy, created_by, upstream_token_id
 			 FROM s3_credentials${where} ORDER BY created_at DESC`,
 			...params,
 		);
@@ -207,7 +207,7 @@ export class S3CredentialManager extends CredentialManager<S3Credential, CachedS
 	getCredential(accessKeyId: string): { credential: S3Credential } | null {
 		const rows = queryAll<S3Credential>(
 			this.sql,
-			`SELECT access_key_id, '***' as secret_access_key, name, created_at, expires_at, revoked, policy, created_by
+			`SELECT access_key_id, '***' as secret_access_key, name, created_at, expires_at, revoked, policy, created_by, upstream_token_id
 			 FROM s3_credentials WHERE access_key_id = ?`,
 			accessKeyId,
 		);
