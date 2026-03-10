@@ -630,6 +630,41 @@ export async function getCfProxySummary(query: Omit<CfProxyEventsQuery, 'limit'>
 	return apiFetch<CfProxyAnalyticsSummary>(`/admin/cf/analytics/summary${qs ? `?${qs}` : ''}`);
 }
 
+// ─── Audit Log ───────────────────────────────────────────────────────
+
+export interface AuditEvent {
+	id: number;
+	action: string;
+	actor: string;
+	entity_type: string;
+	entity_id: string | null;
+	detail: string | null;
+	created_at: number;
+}
+
+export interface AuditEventsQuery {
+	action?: string;
+	actor?: string;
+	entity_type?: string;
+	entity_id?: string;
+	since?: number;
+	until?: number;
+	limit?: number;
+}
+
+export async function getAuditEvents(query: AuditEventsQuery = {}): Promise<AuditEvent[]> {
+	const params = new URLSearchParams();
+	if (query.action) params.set('action', query.action);
+	if (query.actor) params.set('actor', query.actor);
+	if (query.entity_type) params.set('entity_type', query.entity_type);
+	if (query.entity_id) params.set('entity_id', query.entity_id);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	if (query.limit) params.set('limit', String(query.limit));
+	const qs = params.toString();
+	return apiFetch<AuditEvent[]>(`/admin/audit/events${qs ? `?${qs}` : ''}`);
+}
+
 // ─── Config Registry ─────────────────────────────────────────────────
 
 export interface GatewayConfig {

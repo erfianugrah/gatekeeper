@@ -8,6 +8,7 @@ import { adminS3App } from './admin-s3';
 import { adminUpstreamTokensApp } from './admin-upstream-tokens';
 import { adminUpstreamR2App } from './admin-upstream-r2';
 import { adminConfigApp } from './admin-config';
+import { adminAuditApp } from './admin-audit';
 import { jsonError } from './admin-schemas';
 import type { HonoEnv } from '../types';
 
@@ -68,6 +69,9 @@ adminApp.use('/upstream-r2', requireRole('admin'));
 adminApp.use('/config/*', requireRoleByMethod('viewer', 'admin'));
 adminApp.use('/config', requireRoleByMethod('viewer', 'admin'));
 
+// Audit log — viewer can read
+adminApp.use('/audit/*', requireRole('viewer'));
+
 adminApp.route('/keys', adminKeysApp);
 adminApp.route('/analytics', adminAnalyticsApp);
 adminApp.route('/dns/analytics', adminDnsAnalyticsApp);
@@ -76,3 +80,4 @@ adminApp.route('/s3', adminS3App);
 adminApp.route('/upstream-tokens', adminUpstreamTokensApp);
 adminApp.route('/upstream-r2', adminUpstreamR2App);
 adminApp.route('/config', adminConfigApp);
+adminApp.route('/audit', adminAuditApp);

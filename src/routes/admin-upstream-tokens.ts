@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { getStub } from '../do-stub';
-import { resolveCreatedBy, validateCfToken } from './admin-helpers';
+import { resolveCreatedBy, validateCfToken, emitAudit } from './admin-helpers';
 import { createUpstreamTokenSchema, idParamSchema, jsonError, parseJsonBody, parseParams, parseBulkBody } from './admin-schemas';
 import type { ValidationWarning } from './admin-helpers';
 import type { HonoEnv } from '../types';
@@ -47,6 +47,13 @@ adminUpstreamTokensApp.post('/', async (c) => {
 	log.scopeType = parsed.scope_type;
 	log.zoneIds = parsed.zone_ids;
 	console.log(JSON.stringify(log));
+
+	emitAudit(c, {
+		action: 'create_upstream_token',
+		entity_type: 'upstream_token',
+		entity_id: result.token.id,
+		detail: JSON.stringify({ name: parsed.name, scope_type: parsed.scope_type, zone_ids: parsed.zone_ids }),
+	});
 
 	return c.json({ success: true, result: result.token, ...(warnings.length > 0 && { warnings }) });
 });
@@ -107,6 +114,13 @@ adminUpstreamTokensApp.delete('/:id', async (c) => {
 		return jsonError(c, 404, 'Upstream token not found');
 	}
 
+	emitAudit(c, {
+		action: 'delete_upstream_token',
+		entity_type: 'upstream_token',
+		entity_id: params.id,
+		detail: null,
+	});
+
 	return c.json({ success: true, result: { deleted: true } });
 });
 
@@ -134,5 +148,13 @@ adminUpstreamTokensApp.post('/bulk-delete', async (c) => {
 	log.status = 200;
 	log.processed = result.processed;
 	console.log(JSON.stringify(log));
+
+	emitAudit(c, {
+		action: 'bulk_delete_upstream_tokens',
+		entity_type: 'upstream_token',
+		entity_id: null,
+		detail: JSON.stringify({ ids, processed: result.processed }),
+	});
+
 	return c.json({ success: true, result });
 });

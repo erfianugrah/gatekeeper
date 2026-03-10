@@ -36,6 +36,11 @@ const create = defineCommand({
 			description: 'Human-readable credential name',
 			required: true,
 		},
+		'upstream-token-id': {
+			type: 'string',
+			description: 'Upstream R2 endpoint ID to bind this credential to (upr2_...)',
+			required: true,
+		},
 		policy: {
 			type: 'string',
 			description: 'Policy document as JSON string or @path/to/file.json',
@@ -51,6 +56,7 @@ const create = defineCommand({
 
 		const body: Record<string, unknown> = {
 			name: args.name,
+			upstream_token_id: args['upstream-token-id'],
 			policy: parsePolicy(args.policy),
 		};
 
@@ -255,6 +261,9 @@ function formatS3Credential(cred: Record<string, unknown>): void {
 	label('Access Key ID', bold(cred.access_key_id as string));
 	label('Name', cred.name as string);
 	label('Status', status);
+	if (cred.upstream_token_id) {
+		label('Upstream R2', cred.upstream_token_id as string);
+	}
 	label('Created', new Date(cred.created_at as number).toISOString());
 	if (cred.expires_at) {
 		label('Expires', new Date(cred.expires_at as number).toISOString());

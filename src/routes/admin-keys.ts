@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { validatePolicy } from '../policy-engine';
 import { getStub } from '../do-stub';
-import { resolveCreatedBy } from './admin-helpers';
+import { resolveCreatedBy, emitAudit } from './admin-helpers';
 import { validateTokenBinding } from './token-binding';
 import {
 	createKeySchema,
@@ -102,6 +102,13 @@ adminKeysApp.post('/', async (c) => {
 	log.keyId = result.key.id.slice(0, 12) + '...';
 	console.log(JSON.stringify(log));
 
+	emitAudit(c, {
+		action: 'create_key',
+		entity_type: 'key',
+		entity_id: result.key.id,
+		detail: JSON.stringify({ name: req.name, zone_id: req.zone_id, upstream_token_id: req.upstream_token_id }),
+	});
+
 	return c.json({ success: true, result });
 });
 
@@ -179,6 +186,13 @@ adminKeysApp.delete('/:id', async (c) => {
 			return jsonError(c, 404, 'Key not found');
 		}
 
+		emitAudit(c, {
+			action: 'delete_key',
+			entity_type: 'key',
+			entity_id: keyId,
+			detail: JSON.stringify({ name: existing.key.name, zone_id: existing.key.zone_id }),
+		});
+
 		return c.json({ success: true, result: { deleted: true } });
 	}
 
@@ -197,6 +211,13 @@ adminKeysApp.delete('/:id', async (c) => {
 	if (!revoked) {
 		return jsonError(c, 404, 'Key not found or already revoked');
 	}
+
+	emitAudit(c, {
+		action: 'revoke_key',
+		entity_type: 'key',
+		entity_id: keyId,
+		detail: JSON.stringify({ name: existing.key.name, zone_id: existing.key.zone_id }),
+	});
 
 	return c.json({ success: true, result: { revoked: true } });
 });
@@ -225,6 +246,14 @@ adminKeysApp.post('/bulk-revoke', async (c) => {
 	log.status = 200;
 	log.processed = result.processed;
 	console.log(JSON.stringify(log));
+
+	emitAudit(c, {
+		action: 'bulk_revoke_keys',
+		entity_type: 'key',
+		entity_id: null,
+		detail: JSON.stringify({ ids, processed: result.processed }),
+	});
+
 	return c.json({ success: true, result });
 });
 
@@ -252,6 +281,14 @@ adminKeysApp.post('/bulk-delete', async (c) => {
 	log.status = 200;
 	log.processed = result.processed;
 	console.log(JSON.stringify(log));
+
+	emitAudit(c, {
+		action: 'bulk_delete_keys',
+		entity_type: 'key',
+		entity_id: null,
+		detail: JSON.stringify({ ids, processed: result.processed }),
+	});
+
 	return c.json({ success: true, result });
 });
 

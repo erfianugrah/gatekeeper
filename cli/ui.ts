@@ -203,6 +203,7 @@ export function formatKey(key: {
 	expires_at: number | null;
 	revoked: number;
 	created_by?: string | null;
+	upstream_token_id?: string | null;
 }): void {
 	const status = key.revoked === 1 ? red('revoked') : key.expires_at && key.expires_at < Date.now() ? red('expired') : green('active');
 
@@ -210,6 +211,9 @@ export function formatKey(key: {
 	label('Name', key.name);
 	label('Zone', key.zone_id ?? dim('any'));
 	label('Status', status);
+	if (key.upstream_token_id) {
+		label('Upstream Token', key.upstream_token_id);
+	}
 	label('Created', new Date(key.created_at).toISOString());
 	if (key.expires_at) {
 		label('Expires', new Date(key.expires_at).toISOString());

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { getStub } from '../do-stub';
-import { resolveCreatedBy, validateR2Credentials } from './admin-helpers';
+import { resolveCreatedBy, validateR2Credentials, emitAudit } from './admin-helpers';
 import { createUpstreamR2Schema, idParamSchema, jsonError, parseJsonBody, parseParams, parseBulkBody } from './admin-schemas';
 import type { ValidationWarning } from './admin-helpers';
 import type { HonoEnv } from '../types';
@@ -47,6 +47,13 @@ adminUpstreamR2App.post('/', async (c) => {
 	log.endpointId = result.endpoint.id;
 	log.bucketNames = parsed.bucket_names;
 	console.log(JSON.stringify(log));
+
+	emitAudit(c, {
+		action: 'create_upstream_r2',
+		entity_type: 'upstream_r2',
+		entity_id: result.endpoint.id,
+		detail: JSON.stringify({ name: parsed.name, bucket_names: parsed.bucket_names }),
+	});
 
 	return c.json({ success: true, result: result.endpoint, ...(warnings.length > 0 && { warnings }) });
 });
@@ -107,6 +114,13 @@ adminUpstreamR2App.delete('/:id', async (c) => {
 		return jsonError(c, 404, 'Upstream R2 endpoint not found');
 	}
 
+	emitAudit(c, {
+		action: 'delete_upstream_r2',
+		entity_type: 'upstream_r2',
+		entity_id: params.id,
+		detail: null,
+	});
+
 	return c.json({ success: true, result: { deleted: true } });
 });
 
@@ -134,5 +148,13 @@ adminUpstreamR2App.post('/bulk-delete', async (c) => {
 	log.status = 200;
 	log.processed = result.processed;
 	console.log(JSON.stringify(log));
+
+	emitAudit(c, {
+		action: 'bulk_delete_upstream_r2',
+		entity_type: 'upstream_r2',
+		entity_id: null,
+		detail: JSON.stringify({ ids, processed: result.processed }),
+	});
+
 	return c.json({ success: true, result });
 });

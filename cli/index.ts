@@ -23,6 +23,8 @@ const main = defineCommand({
 		'upstream-tokens': () => import('./commands/upstream-tokens.js').then((m) => m.default),
 		'upstream-r2': () => import('./commands/upstream-r2.js').then((m) => m.default),
 		config: () => import('./commands/config.js').then((m) => m.default),
+		audit: () => import('./commands/audit.js').then((m) => m.default),
+		me: () => import('./commands/me.js').then((m) => m.default),
 	},
 });
 
