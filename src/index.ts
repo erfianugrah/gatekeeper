@@ -55,21 +55,137 @@ app.get('/logout', (c) => {
 	const accessOrigin = `https://${teamName}.cloudflareaccess.com`;
 	const accessLogoutUrl = `${accessOrigin}/cdn-cgi/access/logout`;
 	const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Signing out…</title></head>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signing out… — Gatekeeper</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background-color: #15161e;
+  color: #fcfcfc;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.backdrop-glow {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse 600px 400px at 50% 45%, rgba(197,116,221,0.08) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.splash {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  animation: fadeIn 0.6s ease-out both;
+}
+
+.shield {
+  width: 64px;
+  height: 64px;
+  animation: floatIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.shield path { stroke: #c574dd; }
+.shield circle, .shield rect { fill: #c574dd; }
+
+.title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #c574dd;
+  text-shadow:
+    0 0 10px rgba(197,116,221,0.5),
+    0 0 20px rgba(197,116,221,0.3),
+    0 0 40px rgba(197,116,221,0.1);
+  animation: fadeIn 0.8s ease-out 0.2s both;
+}
+
+.progress-track {
+  width: 160px;
+  height: 2px;
+  background: #343647;
+  border-radius: 1px;
+  overflow: hidden;
+  animation: fadeIn 0.6s ease-out 0.4s both;
+}
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #c574dd, #8796f4);
+  border-radius: 1px;
+  animation: fill 1.2s ease-in-out 0.5s forwards;
+}
+
+.subtitle {
+  font-size: 0.75rem;
+  color: #bdbdc1;
+  animation: fadeIn 0.6s ease-out 0.5s both;
+}
+.subtitle a {
+  color: #c574dd;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+.subtitle a:hover {
+  border-bottom-color: #c574dd;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes floatIn {
+  from { opacity: 0; transform: translateY(-12px) scale(0.9); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes fill {
+  to { width: 100%; }
+}
+</style>
+</head>
 <body>
-<p>Signing out…</p>
+<div class="backdrop-glow"></div>
+<div class="splash">
+  <svg class="shield" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linejoin="round">
+    <path d="M12 2 L3 6.5 L3 12 C3 18.5 6.8 23 12 24.5 C17.2 23 21 18.5 21 12 L21 6.5 Z" />
+    <circle cx="12" cy="11" r="2.5" />
+    <rect x="11" y="13" width="2" height="4" rx="0.8" />
+  </svg>
+  <div class="title">Signing out</div>
+  <div class="progress-track"><div class="progress-fill"></div></div>
+  <div class="subtitle">Clearing your session…</div>
+  <noscript>
+    <div class="subtitle"><a href="/dashboard/">Continue to dashboard</a></div>
+  </noscript>
+</div>
 <script>
-// Hit the Access logout endpoint to clear the session, then redirect back to the dashboard.
-// Access will catch the unauthenticated request and show the login page.
 fetch("${accessLogoutUrl}", { mode: "no-cors", credentials: "include" })
-  .finally(function() { setTimeout(function() { window.location.replace("/dashboard/"); }, 500); });
+  .finally(function() { setTimeout(function() { window.location.replace("/dashboard/"); }, 1500); });
 </script>
-<noscript><meta http-equiv="refresh" content="2;url=/dashboard/"></noscript>
-</body></html>`;
+</body>
+</html>`;
 
 	return c.html(html, 200, {
 		'Cache-Control': 'no-store',
-		'Content-Security-Policy': `default-src 'none'; script-src 'unsafe-inline'; connect-src ${accessOrigin}; style-src 'unsafe-inline'`,
+		'Content-Security-Policy': `default-src 'none'; script-src 'unsafe-inline'; connect-src ${accessOrigin}; style-src 'unsafe-inline'; img-src /favicon.svg`,
 		'Set-Cookie': 'CF_Authorization=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax',
 	});
 });
