@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Plus, Trash2, Loader2, Copy, Check } from 'lucide-react';
+import { Plus, Trash2, Loader2, Copy, Check, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { usePagination } from '@/hooks/use-pagination';
 import { TablePagination } from '@/components/TablePagination';
 import { listUpstreamR2, createUpstreamR2, deleteUpstreamR2, bulkDeleteUpstreamR2Endpoints } from '@/lib/api';
-import type { UpstreamR2 } from '@/lib/api';
+import type { UpstreamR2, ApiResultWithWarnings } from '@/lib/api';
 import { cn, copyToClipboard } from '@/lib/utils';
 import { T } from '@/lib/typography';
 
@@ -28,6 +28,16 @@ function formatDate(epoch: number): string {
 	});
 }
 
+function formatExpiry(expiresAt: number | null): string {
+	if (!expiresAt) return 'Never';
+	if (expiresAt < Date.now()) return 'Expired';
+	return formatDate(expiresAt);
+}
+
+function isExpired(expiresAt: number | null): boolean {
+	return expiresAt !== null && expiresAt < Date.now();
+}
+
 function formatBuckets(bucketNames: string): string {
 	if (bucketNames === '*') return 'All buckets';
 	const names = bucketNames.split(',');
@@ -35,10 +45,41 @@ function formatBuckets(bucketNames: string): string {
 	return `${names[0]}, ${names[1]} +${names.length - 2} more`;
 }
 
+// ─── Warnings Banner ────────────────────────────────────────────────
+
+interface WarningsBannerProps {
+	warnings: Array<{ code: number; message: string }>;
+	onDismiss: () => void;
+}
+
+function WarningsBanner({ warnings, onDismiss }: WarningsBannerProps) {
+	if (warnings.length === 0) return null;
+	return (
+		<div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm">
+			<div className="flex items-start gap-2">
+				<AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
+				<div className="flex-1 space-y-1">
+					<p className="font-medium text-yellow-500">
+						Endpoint created with {warnings.length} validation warning{warnings.length > 1 ? 's' : ''}
+					</p>
+					<ul className="list-disc list-inside text-yellow-400/80 space-y-0.5">
+						{warnings.map((w, i) => (
+							<li key={i}>{w.message}</li>
+						))}
+					</ul>
+				</div>
+				<button type="button" onClick={onDismiss} className="text-yellow-500 hover:text-yellow-400 text-xs">
+					Dismiss
+				</button>
+			</div>
+		</div>
+	);
+}
+
 // ─── Create R2 Endpoint Dialog ──────────────────────────────────────
 
 interface CreateEndpointDialogProps {
-	onCreated: () => void;
+	onCreated: (warnings: Array<{ code: number; message: string }>) => void;
 }
 
 function CreateEndpointDialog({ onCreated }: CreateEndpointDialogProps) {
@@ -48,6 +89,8 @@ function CreateEndpointDialog({ onCreated }: CreateEndpointDialogProps) {
 	const [secretAccessKey, setSecretAccessKey] = useState('');
 	const [endpoint, setEndpoint] = useState('');
 	const [bucketNamesInput, setBucketNamesInput] = useState('*');
+	const [expiresInDays, setExpiresInDays] = useState('');
+	const [skipValidation, setSkipValidation] = useState(false);
 	const [creating, setCreating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -83,22 +126,32 @@ function CreateEndpointDialog({ onCreated }: CreateEndpointDialogProps) {
 			return;
 		}
 
+		const expDays = expiresInDays.trim() ? Number(expiresInDays.trim()) : undefined;
+		if (expDays !== undefined && (!Number.isFinite(expDays) || expDays <= 0)) {
+			setError('Expires in days must be a positive number');
+			return;
+		}
+
 		setCreating(true);
 		try {
-			await createUpstreamR2({
+			const { warnings } = await createUpstreamR2({
 				name: name.trim(),
 				access_key_id: accessKeyId.trim(),
 				secret_access_key: secretAccessKey.trim(),
 				endpoint: endpoint.trim(),
 				bucket_names: bucketNames,
+				...(expDays && { expires_in_days: expDays }),
+				...(skipValidation && { validate: false }),
 			});
-			onCreated();
+			onCreated(warnings);
 			setOpen(false);
 			setName('');
 			setAccessKeyId('');
 			setSecretAccessKey('');
 			setEndpoint('');
 			setBucketNamesInput('*');
+			setExpiresInDays('');
+			setSkipValidation(false);
 		} catch (e: any) {
 			setError(e.message ?? 'Failed to create R2 endpoint');
 		} finally {
@@ -122,7 +175,9 @@ function CreateEndpointDialog({ onCreated }: CreateEndpointDialogProps) {
 			<DialogContent className="max-w-lg">
 				<DialogHeader>
 					<DialogTitle>Register R2 Endpoint</DialogTitle>
-					<DialogDescription>Register an R2 endpoint with credentials for proxying S3-compatible requests.</DialogDescription>
+					<DialogDescription>
+						Register an R2 endpoint with credentials. Credentials will be validated against declared buckets on creation.
+					</DialogDescription>
 				</DialogHeader>
 
 				<div className="space-y-4">
@@ -168,6 +223,30 @@ function CreateEndpointDialog({ onCreated }: CreateEndpointDialogProps) {
 						</p>
 					</div>
 
+					<div className="space-y-2">
+						<Label className={T.formLabel}>Expires in (days)</Label>
+						<Input
+							type="number"
+							min="1"
+							placeholder="Optional — leave empty for no expiry"
+							value={expiresInDays}
+							onChange={(e) => setExpiresInDays(e.target.value)}
+						/>
+					</div>
+
+					<div className="flex items-center gap-2">
+						<input
+							type="checkbox"
+							id="skip-r2-validation"
+							checked={skipValidation}
+							onChange={(e) => setSkipValidation(e.target.checked)}
+							className="rounded border-border"
+						/>
+						<Label htmlFor="skip-r2-validation" className="text-xs text-muted-foreground cursor-pointer">
+							Skip validation (do not verify credentials against R2)
+						</Label>
+					</div>
+
 					{error && <p className="text-sm text-lv-red">{error}</p>}
 				</div>
 
@@ -206,6 +285,7 @@ export function UpstreamR2Page() {
 	const [endpoints, setEndpoints] = useState<UpstreamR2[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [warnings, setWarnings] = useState<Array<{ code: number; message: string }>>([]);
 	const [deletingId, setDeletingId] = useState<string | null>(null);
 	const [copiedId, setCopiedId] = useState<string | null>(null);
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -228,6 +308,11 @@ export function UpstreamR2Page() {
 	useEffect(() => {
 		fetchEndpoints();
 	}, [fetchEndpoints]);
+
+	const handleCreated = (creationWarnings: Array<{ code: number; message: string }>) => {
+		setWarnings(creationWarnings);
+		fetchEndpoints();
+	};
 
 	const handleDelete = async (id: string) => {
 		if (!confirm(`Delete R2 endpoint ${truncateId(id)}? This cannot be undone.`)) return;
@@ -293,8 +378,11 @@ export function UpstreamR2Page() {
 						R2 storage endpoints with credentials for proxying S3-compatible requests through the gateway.
 					</p>
 				</div>
-				<CreateEndpointDialog onCreated={fetchEndpoints} />
+				<CreateEndpointDialog onCreated={handleCreated} />
 			</div>
+
+			{/* ── Validation warnings from creation ──────────────── */}
+			<WarningsBanner warnings={warnings} onDismiss={() => setWarnings([])} />
 
 			{/* ── Error ──────────────────────────────────────────── */}
 			{error && <div className="rounded-lg border border-lv-red/30 bg-lv-red/10 px-4 py-3 text-sm text-lv-red">{error}</div>}
@@ -349,6 +437,7 @@ export function UpstreamR2Page() {
 									<TableHead className={T.sectionLabel}>Endpoint</TableHead>
 									<TableHead className={T.sectionLabel}>Key</TableHead>
 									<TableHead className={T.sectionLabel}>Buckets</TableHead>
+									<TableHead className={T.sectionLabel}>Expires</TableHead>
 									<TableHead className={T.sectionLabel}>Created</TableHead>
 									<TableHead className={T.sectionLabel}>Created By</TableHead>
 									<TableHead className={cn(T.sectionLabel, 'text-right')}>Actions</TableHead>
@@ -356,7 +445,7 @@ export function UpstreamR2Page() {
 							</TableHeader>
 							<TableBody>
 								{pageItems.map((ep) => (
-									<TableRow key={ep.id}>
+									<TableRow key={ep.id} className={isExpired(ep.expires_at) ? 'opacity-50' : undefined}>
 										<TableCell className="w-8">
 											<input
 												type="checkbox"
@@ -392,6 +481,9 @@ export function UpstreamR2Page() {
 										</TableCell>
 										<TableCell className={T.tableCell}>
 											<span title={ep.bucket_names}>{formatBuckets(ep.bucket_names)}</span>
+										</TableCell>
+										<TableCell className={T.tableCell}>
+											<span className={isExpired(ep.expires_at) ? 'text-lv-red' : undefined}>{formatExpiry(ep.expires_at)}</span>
 										</TableCell>
 										<TableCell className={T.tableCell}>{formatDate(ep.created_at)}</TableCell>
 										<TableCell className={T.tableCell}>{ep.created_by ?? <span className={T.muted}>--</span>}</TableCell>

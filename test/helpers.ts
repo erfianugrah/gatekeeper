@@ -116,6 +116,7 @@ export async function registerUpstreamToken(zoneIds: string[] = ['*']): Promise<
 			name: 'test-upstream',
 			token: TEST_UPSTREAM_TOKEN,
 			zone_ids: zoneIds,
+			validate: false,
 		}),
 	});
 	const data = await res.json<any>();
@@ -135,6 +136,7 @@ export async function registerAccountUpstreamToken(accountId: string, token: str
 			token,
 			scope_type: 'account',
 			zone_ids: [accountId],
+			validate: false,
 		}),
 	});
 	const data = await res.json<any>();

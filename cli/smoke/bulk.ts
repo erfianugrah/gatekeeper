@@ -169,6 +169,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		name: 'smoke-bulk-upt-1',
 		token: 'cf-smoke-bulk-upt1-token-1234567890abcdef1234',
 		zone_ids: ['*'],
+		validate: false,
 	});
 	assertStatus('create upstream token 1 -> 200', ut1, 200);
 	const UT1_ID = ut1.body?.result?.id;
@@ -178,6 +179,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		name: 'smoke-bulk-upt-2',
 		token: 'cf-smoke-bulk-upt2-token-1234567890abcdef1234',
 		zone_ids: ['*'],
+		validate: false,
 	});
 	assertStatus('create upstream token 2 -> 200', ut2, 200);
 	const UT2_ID = ut2.body?.result?.id;
@@ -218,6 +220,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		secret_access_key: 'smokeJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY1',
 		endpoint: 'https://smokebulk1.r2.cloudflarestorage.com',
 		bucket_names: ['*'],
+		validate: false,
 	});
 	assertStatus('create upstream R2 1 -> 200', ur1, 200);
 	const UR1_ID = ur1.body?.result?.id;
@@ -229,6 +232,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		secret_access_key: 'smokeJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY2',
 		endpoint: 'https://smokebulk2.r2.cloudflarestorage.com',
 		bucket_names: ['*'],
+		validate: false,
 	});
 	assertStatus('create upstream R2 2 -> 200', ur2, 200);
 	const UR2_ID = ur2.body?.result?.id;

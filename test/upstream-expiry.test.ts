@@ -22,6 +22,7 @@ describe('Upstream tokens — expiry', () => {
 				token: 'cf-expiry-test-token-1234567890abcdef1234567890',
 				zone_ids: ['*'],
 				expires_in_days: 30,
+				validate: false,
 			}),
 		});
 		expect(res.status).toBe(200);
@@ -46,6 +47,7 @@ describe('Upstream tokens — expiry', () => {
 				name: 'no-expiry',
 				token: 'cf-no-expiry-token-1234567890abcdef1234567890ab',
 				zone_ids: ['*'],
+				validate: false,
 			}),
 		});
 		expect(res.status).toBe(200);
@@ -72,6 +74,7 @@ describe('Upstream tokens — expiry', () => {
 				token: 'cf-expire-resolve-token-1234567890abcdef12345678',
 				zone_ids: [ZONE],
 				expires_in_days: 1,
+				validate: false,
 			}),
 		});
 		const data = await res.json<any>();
@@ -103,6 +106,7 @@ describe('Upstream tokens — expiry', () => {
 				name: 'patch-name-test',
 				token: 'cf-patch-name-token-1234567890abcdef1234567890ab',
 				zone_ids: ['*'],
+				validate: false,
 			}),
 		});
 		const tokenId = (await createRes.json<any>()).result.id;
@@ -132,6 +136,7 @@ describe('Upstream tokens — expiry', () => {
 				name: 'patch-expiry-test',
 				token: 'cf-patch-expiry-token-1234567890abcdef12345678ab',
 				zone_ids: ['*'],
+				validate: false,
 			}),
 		});
 		const tokenId = (await createRes.json<any>()).result.id;
@@ -162,6 +167,7 @@ describe('Upstream tokens — expiry', () => {
 				token: 'cf-patch-clear-token-1234567890abcdef1234567890',
 				zone_ids: ['*'],
 				expires_in_days: 30,
+				validate: false,
 			}),
 		});
 		const createData = await createRes.json<any>();
@@ -224,6 +230,7 @@ describe('Upstream R2 — expiry', () => {
 				endpoint: 'https://expiry.r2.cloudflarestorage.com',
 				bucket_names: ['*'],
 				expires_in_days: 14,
+				validate: false,
 			}),
 		});
 		expect(res.status).toBe(200);
@@ -250,6 +257,7 @@ describe('Upstream R2 — expiry', () => {
 				secret_access_key: 'r2noexpirysecretaccesskey1234567890abcdef1234567890abcdef12345678',
 				endpoint: 'https://noexpiry.r2.cloudflarestorage.com',
 				bucket_names: ['*'],
+				validate: false,
 			}),
 		});
 		expect(res.status).toBe(200);
@@ -278,6 +286,7 @@ describe('Upstream R2 — expiry', () => {
 				endpoint: 'https://expire-resolve.r2.cloudflarestorage.com',
 				bucket_names: [BUCKET],
 				expires_in_days: 1,
+				validate: false,
 			}),
 		});
 		const data = await res.json<any>();
@@ -312,6 +321,7 @@ describe('Upstream R2 — expiry', () => {
 				secret_access_key: 'r2patchnamesecretaccesskey1234567890abcdef1234567890abcdef12345678',
 				endpoint: 'https://patchname.r2.cloudflarestorage.com',
 				bucket_names: ['*'],
+				validate: false,
 			}),
 		});
 		const endpointId = (await createRes.json<any>()).result.id;
@@ -342,6 +352,7 @@ describe('Upstream R2 — expiry', () => {
 				secret_access_key: 'r2patchexpirysecretaccesskey1234567890abcdef1234567890abcdef123456',
 				endpoint: 'https://patchexpiry.r2.cloudflarestorage.com',
 				bucket_names: ['*'],
+				validate: false,
 			}),
 		});
 		const endpointId = (await createRes.json<any>()).result.id;
@@ -402,6 +413,7 @@ describe('scheduled() expired entity cleanup', () => {
 				token: 'cf-cleanup-token-1234567890abcdef1234567890abcd',
 				zone_ids: ['*'],
 				expires_in_days: 1,
+				validate: false,
 			}),
 		});
 		const tokenId = (await tokenRes.json<any>()).result.id;
@@ -417,6 +429,7 @@ describe('scheduled() expired entity cleanup', () => {
 				endpoint: 'https://cleanup.r2.cloudflarestorage.com',
 				bucket_names: ['*'],
 				expires_in_days: 1,
+				validate: false,
 			}),
 		});
 		const r2Id = (await r2Res.json<any>()).result.id;
@@ -466,6 +479,7 @@ describe('scheduled() expired entity cleanup', () => {
 				token: 'cf-keep-token-1234567890abcdef1234567890abcdef',
 				zone_ids: ['*'],
 				expires_in_days: 90,
+				validate: false,
 			}),
 		});
 		const tokenId = (await tokenRes.json<any>()).result.id;

@@ -61,6 +61,7 @@ export async function registerUpstreamR2(bucketNames: string[] = ['*']): Promise
 			secret_access_key: R2_TEST_SECRET_KEY,
 			endpoint: R2_TEST_ENDPOINT,
 			bucket_names: bucketNames,
+			validate: false,
 		}),
 	});
 	const data = await res.json<any>();

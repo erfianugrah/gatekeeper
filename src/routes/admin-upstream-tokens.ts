@@ -28,16 +28,19 @@ adminUpstreamTokensApp.post('/', async (c) => {
 	const parsed = await parseJsonBody(c, createUpstreamTokenSchema, log);
 	if (parsed instanceof Response) return parsed;
 
-	// Optional validation: probe the CF API to check if the token works
+	// Validate token activity + scope permissions (unless explicitly opted out)
 	const warnings: ValidationWarning[] = [];
-	if (parsed.validate === true) {
-		const warning = await validateCfToken(parsed.token);
-		if (warning) {
-			warnings.push(warning);
+	if (parsed.validate !== false) {
+		const validationWarnings = await validateCfToken(parsed.token, parsed.scope_type, parsed.zone_ids);
+		if (validationWarnings.length > 0) {
+			warnings.push(...validationWarnings);
 			log.validationFailed = true;
+			log.validationWarningCount = validationWarnings.length;
 		} else {
 			log.validated = true;
 		}
+	} else {
+		log.validationSkipped = true;
 	}
 
 	const identity = c.get('accessIdentity');

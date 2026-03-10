@@ -430,6 +430,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		token: 'cf-smoke-expiry-token-' + Date.now().toString(36) + '-abcdefgh',
 		zone_ids: ['*'],
 		expires_in_days: 30,
+		validate: false,
 	});
 	assertStatus('create token with expires_in_days -> 200', tokenWithExpiry, 200);
 	assertTruthy('expires_at is set', tokenWithExpiry.body?.result?.expires_at > Date.now());
@@ -440,9 +441,67 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		name: 'smoke-no-expiry-token',
 		token: 'cf-smoke-no-expiry-token-' + Date.now().toString(36) + '-abcdef',
 		zone_ids: ['*'],
+		validate: false,
 	});
 	assertStatus('create token without expires_in_days -> 200', tokenNoExpiry, 200);
 	assertJson('expires_at is null', tokenNoExpiry.body?.result?.expires_at, null);
 	const noExpiryTokenId = tokenNoExpiry.body?.result?.id;
 	if (noExpiryTokenId) state.createdUpstreamTokens.push(noExpiryTokenId);
+
+	// ─── 11. Upstream Token — capability validation ───────────────
+
+	section('Upstream Token Capability Validation');
+
+	// The orchestrator's upstream token (real CF_API_TOKEN + real zone) was created
+	// with default validation (validate not set = on). Verify it succeeded without warnings.
+	const getMainToken = await admin('GET', `/admin/upstream-tokens/${ctx.UPSTREAM_TOKEN_ID}`);
+	assertStatus('main upstream token exists -> 200', getMainToken, 200);
+	assertJson('main token scope_type is zone', getMainToken.body?.result?.scope_type, 'zone');
+
+	// Create with validate:false — should succeed with no warnings (validation skipped)
+	const skipValidation = await admin('POST', '/admin/upstream-tokens', {
+		name: 'smoke-skip-validation',
+		token: 'cf-fake-token-skip-validation-1234567890',
+		zone_ids: ['*'],
+		validate: false,
+	});
+	assertStatus('create token with validate:false -> 200', skipValidation, 200);
+	assertTruthy('no warnings when validation skipped', !skipValidation.body?.warnings);
+	const skipValId = skipValidation.body?.result?.id;
+	if (skipValId) state.createdUpstreamTokens.push(skipValId);
+
+	// Create with fake token + default validation — should return 200 with warnings
+	const fakeWithValidation = await admin('POST', '/admin/upstream-tokens', {
+		name: 'smoke-fake-with-validation',
+		token: 'cf-fake-token-will-fail-validation-12345678',
+		zone_ids: ['*'],
+	});
+	assertStatus('create fake token with validation -> 200 (warnings)', fakeWithValidation, 200);
+	assertTruthy('warnings array present for invalid token', Array.isArray(fakeWithValidation.body?.warnings));
+	assertTruthy('at least one warning returned', (fakeWithValidation.body?.warnings?.length ?? 0) > 0);
+	const firstWarning = fakeWithValidation.body?.warnings?.[0];
+	assertTruthy('warning has code field', firstWarning?.code);
+	assertTruthy('warning has message field', firstWarning?.message);
+	const fakeValId = fakeWithValidation.body?.result?.id;
+	if (fakeValId) state.createdUpstreamTokens.push(fakeValId);
+
+	// Create account-scoped token with validate:false
+	const accountToken = await admin('POST', '/admin/upstream-tokens', {
+		name: 'smoke-account-scoped',
+		token: 'cf-fake-account-token-validation-123456789',
+		scope_type: 'account',
+		zone_ids: ['25f21f141824546aa72c74451a11b419'],
+		validate: false,
+	});
+	assertStatus('create account-scoped token -> 200', accountToken, 200);
+	assertJson('scope_type is account', accountToken.body?.result?.scope_type, 'account');
+	const acctTokenId = accountToken.body?.result?.id;
+	if (acctTokenId) state.createdUpstreamTokens.push(acctTokenId);
+
+	// Verify list includes scope_type and expires_at columns
+	const listAfterValidation = await admin('GET', '/admin/upstream-tokens');
+	assertStatus('list tokens after validation tests -> 200', listAfterValidation, 200);
+	const acctTokenInList = listAfterValidation.body?.result?.find((t: any) => t.id === acctTokenId);
+	assertTruthy('account token in list', acctTokenInList);
+	assertJson('list shows scope_type=account', acctTokenInList?.scope_type, 'account');
 }

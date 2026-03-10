@@ -14,6 +14,7 @@ describe('Upstream tokens — CRUD', () => {
 				name: 'crud-test',
 				token: 'cf-token-abcdef0123456789abcdef0123456789abcdef',
 				zone_ids: ['*'],
+				validate: false,
 			}),
 		});
 		expect(createRes.status).toBe(200);
@@ -87,6 +88,7 @@ describe('Upstream tokens — CRUD', () => {
 				name: 'multi-zone',
 				token: 'cf-multi-zone-token-1234567890abcdef1234567890ab',
 				zone_ids: ['aaaa1111bbbb2222cccc3333dddd4444', 'eeee5555ffff6666aaaa7777bbbb8888'],
+				validate: false,
 			}),
 		});
 		expect(res.status).toBe(200);
@@ -232,14 +234,14 @@ describe('Upstream tokens — bulk delete', () => {
 		const c1 = await SELF.fetch('http://localhost/admin/upstream-tokens', {
 			method: 'POST',
 			headers: adminHeaders(),
-			body: JSON.stringify({ name: 'bulk-d-1', token: 'cf-bulk-d1-token-1234567890abcdef1234567890ab', zone_ids: ['*'] }),
+			body: JSON.stringify({ name: 'bulk-d-1', token: 'cf-bulk-d1-token-1234567890abcdef1234567890ab', zone_ids: ['*'], validate: false }),
 		});
 		const t1 = (await c1.json<any>()).result.id;
 
 		const c2 = await SELF.fetch('http://localhost/admin/upstream-tokens', {
 			method: 'POST',
 			headers: adminHeaders(),
-			body: JSON.stringify({ name: 'bulk-d-2', token: 'cf-bulk-d2-token-1234567890abcdef1234567890ab', zone_ids: ['*'] }),
+			body: JSON.stringify({ name: 'bulk-d-2', token: 'cf-bulk-d2-token-1234567890abcdef1234567890ab', zone_ids: ['*'], validate: false }),
 		});
 		const t2 = (await c2.json<any>()).result.id;
 
@@ -266,7 +268,12 @@ describe('Upstream tokens — bulk delete', () => {
 		const c1 = await SELF.fetch('http://localhost/admin/upstream-tokens', {
 			method: 'POST',
 			headers: adminHeaders(),
-			body: JSON.stringify({ name: 'bulk-dry-d-1', token: 'cf-bulk-dryd-token-1234567890abcdef12345678', zone_ids: ['*'] }),
+			body: JSON.stringify({
+				name: 'bulk-dry-d-1',
+				token: 'cf-bulk-dryd-token-1234567890abcdef12345678',
+				zone_ids: ['*'],
+				validate: false,
+			}),
 		});
 		const t1 = (await c1.json<any>()).result.id;
 
@@ -330,6 +337,7 @@ describe('Upstream tokens — created_by', () => {
 				token: 'cf-token-createdby-test-1234567890abcdef1234567890',
 				zone_ids: ['*'],
 				created_by: 'test@example.com',
+				validate: false,
 			}),
 		});
 		expect(res.status).toBe(200);
@@ -338,7 +346,7 @@ describe('Upstream tokens — created_by', () => {
 	});
 });
 
-// --- Upstream token validation (6.1) ---
+// --- Upstream token validation (capability verification) ---
 
 describe('Upstream tokens — validate on registration', () => {
 	beforeAll(() => {
@@ -350,7 +358,7 @@ describe('Upstream tokens — validate on registration', () => {
 		fetchMock.assertNoPendingInterceptors();
 	});
 
-	it('validate: true with valid token -> 200 with no warnings', async () => {
+	it('valid token + wildcard zones -> verifies token + probes /zones -> no warnings', async () => {
 		fetchMock
 			.get(UPSTREAM_HOST)
 			.intercept({ method: 'GET', path: '/client/v4/user/tokens/verify' })
@@ -358,14 +366,21 @@ describe('Upstream tokens — validate on registration', () => {
 				headers: { 'Content-Type': 'application/json' },
 			});
 
+		// Wildcard zone probe
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: '/client/v4/zones?per_page=1' })
+			.reply(200, JSON.stringify({ success: true, result: [], result_info: { total_count: 5 } }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
 		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
 			method: 'POST',
 			headers: adminHeaders(),
 			body: JSON.stringify({
-				name: 'validate-good',
+				name: 'validate-good-wildcard',
 				token: 'cf-valid-token-1234567890abcdef1234567890abcdef',
 				zone_ids: ['*'],
-				validate: true,
 			}),
 		});
 		expect(res.status).toBe(200);
@@ -375,7 +390,73 @@ describe('Upstream tokens — validate on registration', () => {
 		expect(data.warnings).toBeUndefined();
 	});
 
-	it('validate: true with invalid token -> 200 with warnings (still registered)', async () => {
+	it('valid token + specific zone accessible -> no warnings', async () => {
+		const zoneId = 'aaaa000011112222333344445555aaaa';
+
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: '/client/v4/user/tokens/verify' })
+			.reply(200, JSON.stringify({ success: true, result: { status: 'active' } }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: `/client/v4/zones/${zoneId}` })
+			.reply(200, JSON.stringify({ success: true, result: { id: zoneId } }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'validate-zone-ok',
+				token: 'cf-valid-zone-token-1234567890abcdef1234567890ab',
+				zone_ids: [zoneId],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.warnings).toBeUndefined();
+	});
+
+	it('valid token + specific zone inaccessible -> warning per zone', async () => {
+		const zoneId = 'bbbb000011112222333344445555bbbb';
+
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: '/client/v4/user/tokens/verify' })
+			.reply(200, JSON.stringify({ success: true, result: { status: 'active' } }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: `/client/v4/zones/${zoneId}` })
+			.reply(403, JSON.stringify({ success: false, errors: [{ code: 7003, message: 'No permissions' }] }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'validate-zone-fail',
+				token: 'cf-zone-fail-token-1234567890abcdef1234567890abc',
+				zone_ids: [zoneId],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.result.id).toMatch(/^upt_/);
+		expect(data.warnings).toHaveLength(1);
+		expect(data.warnings[0].message).toMatch(/token cannot access this zone/);
+	});
+
+	it('invalid token -> token verify warning, no zone probes', async () => {
 		fetchMock
 			.get(UPSTREAM_HOST)
 			.intercept({ method: 'GET', path: '/client/v4/user/tokens/verify' })
@@ -390,24 +471,89 @@ describe('Upstream tokens — validate on registration', () => {
 				name: 'validate-bad',
 				token: 'cf-invalid-token-1234567890abcdef1234567890abcdef',
 				zone_ids: ['*'],
-				validate: true,
 			}),
 		});
 		expect(res.status).toBe(200);
 		const data = await res.json<any>();
 		expect(data.success).toBe(true);
-		// Token is still registered despite validation failure
 		expect(data.result.id).toMatch(/^upt_/);
 		expect(data.result.name).toBe('validate-bad');
-		// Warnings array present
-		expect(data.warnings).toBeDefined();
+		// Only token verify warning — zone probes should be skipped
 		expect(data.warnings).toHaveLength(1);
 		expect(data.warnings[0].code).toBe(422);
 		expect(data.warnings[0].message).toMatch(/Token validation failed/);
 	});
 
-	it('validate not set -> no validation probe, no warnings', async () => {
-		// No fetchMock intercept — if validation fires, it would fail with disableNetConnect
+	it('account-scoped + valid token + account accessible -> no warnings', async () => {
+		const accountId = 'cccc000011112222333344445555cccc';
+
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: '/client/v4/user/tokens/verify' })
+			.reply(200, JSON.stringify({ success: true, result: { status: 'active' } }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: `/client/v4/accounts/${accountId}` })
+			.reply(200, JSON.stringify({ success: true, result: { id: accountId } }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'validate-account-ok',
+				token: 'cf-acct-token-1234567890abcdef1234567890abcdefab',
+				scope_type: 'account',
+				zone_ids: [accountId],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.warnings).toBeUndefined();
+	});
+
+	it('account-scoped + account inaccessible -> warning', async () => {
+		const accountId = 'dddd000011112222333344445555dddd';
+
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: '/client/v4/user/tokens/verify' })
+			.reply(200, JSON.stringify({ success: true, result: { status: 'active' } }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: `/client/v4/accounts/${accountId}` })
+			.reply(403, JSON.stringify({ success: false, errors: [{ code: 1000, message: 'not authorized' }] }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'validate-account-fail',
+				token: 'cf-acct-fail-token-1234567890abcdef1234567890abcd',
+				scope_type: 'account',
+				zone_ids: [accountId],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.result.id).toMatch(/^upt_/);
+		expect(data.warnings).toHaveLength(1);
+		expect(data.warnings[0].message).toMatch(/token cannot access this account/);
+	});
+
+	it('validate: false -> skips all probes, no warnings', async () => {
+		// No fetchMock intercept — if validation fires, disableNetConnect would fail
 		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
 			method: 'POST',
 			headers: adminHeaders(),
@@ -415,12 +561,45 @@ describe('Upstream tokens — validate on registration', () => {
 				name: 'no-validate',
 				token: 'cf-no-validate-1234567890abcdef1234567890abcdef',
 				zone_ids: ['*'],
+				validate: false,
 			}),
 		});
 		expect(res.status).toBe(200);
 		const data = await res.json<any>();
 		expect(data.success).toBe(true);
 		expect(data.warnings).toBeUndefined();
+	});
+
+	it('wildcard zones with 0 accessible -> warning', async () => {
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: '/client/v4/user/tokens/verify' })
+			.reply(200, JSON.stringify({ success: true, result: { status: 'active' } }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+		fetchMock
+			.get(UPSTREAM_HOST)
+			.intercept({ method: 'GET', path: '/client/v4/zones?per_page=1' })
+			.reply(200, JSON.stringify({ success: true, result: [], result_info: { total_count: 0 } }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'validate-wildcard-empty',
+				token: 'cf-wildcard-empty-1234567890abcdef1234567890abcd',
+				zone_ids: ['*'],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.result.id).toMatch(/^upt_/);
+		expect(data.warnings).toHaveLength(1);
+		expect(data.warnings[0].message).toMatch(/can access 0 zones/);
 	});
 });
 
@@ -446,7 +625,7 @@ describe('Upstream tokens — resolution', () => {
 		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
 			method: 'POST',
 			headers: adminHeaders(),
-			body: JSON.stringify({ name, token, zone_ids: zoneIds }),
+			body: JSON.stringify({ name, token, zone_ids: zoneIds, validate: false }),
 		});
 		const data = await res.json<any>();
 		if (!data.success) throw new Error(`registerToken failed: ${JSON.stringify(data.errors)}`);

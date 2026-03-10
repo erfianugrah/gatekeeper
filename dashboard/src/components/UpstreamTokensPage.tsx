@@ -1,16 +1,17 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Plus, Trash2, Loader2, Copy, Check } from 'lucide-react';
+import { Plus, Trash2, Loader2, Copy, Check, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { usePagination } from '@/hooks/use-pagination';
 import { TablePagination } from '@/components/TablePagination';
 import { listUpstreamTokens, createUpstreamToken, deleteUpstreamToken, bulkDeleteUpstreamTokens } from '@/lib/api';
-import type { UpstreamToken } from '@/lib/api';
+import type { UpstreamToken, ApiResultWithWarnings } from '@/lib/api';
 import { cn, copyToClipboard } from '@/lib/utils';
 import { T } from '@/lib/typography';
 
@@ -32,6 +33,17 @@ function formatDate(epoch: number): string {
 	});
 }
 
+function formatExpiry(expiresAt: number | null): string {
+	if (!expiresAt) return 'Never';
+	const now = Date.now();
+	if (expiresAt < now) return 'Expired';
+	return formatDate(expiresAt);
+}
+
+function isExpired(expiresAt: number | null): boolean {
+	return expiresAt !== null && expiresAt < Date.now();
+}
+
 function formatZoneIds(zoneIds: string): string {
 	if (zoneIds === '*') return 'All zones';
 	const ids = zoneIds.split(',');
@@ -39,19 +51,61 @@ function formatZoneIds(zoneIds: string): string {
 	return `${ids.length} zones`;
 }
 
+function formatScopeType(scope: 'zone' | 'account'): string {
+	return scope === 'account' ? 'Account' : 'Zone';
+}
+
+// ─── Warnings Banner ────────────────────────────────────────────────
+
+interface WarningsBannerProps {
+	warnings: Array<{ code: number; message: string }>;
+	onDismiss: () => void;
+}
+
+function WarningsBanner({ warnings, onDismiss }: WarningsBannerProps) {
+	if (warnings.length === 0) return null;
+	return (
+		<div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm">
+			<div className="flex items-start gap-2">
+				<AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
+				<div className="flex-1 space-y-1">
+					<p className="font-medium text-yellow-500">
+						Token created with {warnings.length} validation warning{warnings.length > 1 ? 's' : ''}
+					</p>
+					<ul className="list-disc list-inside text-yellow-400/80 space-y-0.5">
+						{warnings.map((w, i) => (
+							<li key={i}>{w.message}</li>
+						))}
+					</ul>
+				</div>
+				<button type="button" onClick={onDismiss} className="text-yellow-500 hover:text-yellow-400 text-xs">
+					Dismiss
+				</button>
+			</div>
+		</div>
+	);
+}
+
 // ─── Create Token Dialog ────────────────────────────────────────────
 
 interface CreateTokenDialogProps {
-	onCreated: () => void;
+	onCreated: (warnings: Array<{ code: number; message: string }>) => void;
 }
 
 function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 	const [open, setOpen] = useState(false);
 	const [name, setName] = useState('');
 	const [token, setToken] = useState('');
+	const [scopeType, setScopeType] = useState<'zone' | 'account'>('zone');
 	const [zoneIdsInput, setZoneIdsInput] = useState('*');
+	const [expiresInDays, setExpiresInDays] = useState('');
+	const [skipValidation, setSkipValidation] = useState(false);
 	const [creating, setCreating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+
+	const scopeLabel = scopeType === 'account' ? 'Account IDs' : 'Zone IDs';
+	const scopePlaceholder =
+		scopeType === 'account' ? '* for all accounts, or comma-separated account IDs' : '* for all zones, or comma-separated zone IDs';
 
 	const handleCreate = async () => {
 		setError(null);
@@ -64,7 +118,7 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 			return;
 		}
 
-		const zoneIds =
+		const ids =
 			zoneIdsInput.trim() === '*'
 				? ['*']
 				: zoneIdsInput
@@ -72,25 +126,41 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 						.map((s) => s.trim())
 						.filter(Boolean);
 
-		if (zoneIds.length === 0) {
-			setError('At least one zone ID is required (or * for all)');
+		if (ids.length === 0) {
+			setError(`At least one ${scopeType} ID is required (or * for all)`);
 			return;
 		}
 
-		const invalidZones = zoneIds.filter((z) => z !== '*' && !ZONE_ID_RE.test(z));
-		if (invalidZones.length > 0) {
-			setError(`Invalid zone ID(s): ${invalidZones.join(', ')} — must be 32-char hex or *`);
+		const invalidIds = ids.filter((z) => z !== '*' && !ZONE_ID_RE.test(z));
+		if (invalidIds.length > 0) {
+			setError(`Invalid ${scopeType} ID(s): ${invalidIds.join(', ')} — must be 32-char hex or *`);
+			return;
+		}
+
+		const expDays = expiresInDays.trim() ? Number(expiresInDays.trim()) : undefined;
+		if (expDays !== undefined && (!Number.isFinite(expDays) || expDays <= 0)) {
+			setError('Expires in days must be a positive number');
 			return;
 		}
 
 		setCreating(true);
 		try {
-			await createUpstreamToken({ name: name.trim(), token: token.trim(), zone_ids: zoneIds });
-			onCreated();
+			const { warnings } = await createUpstreamToken({
+				name: name.trim(),
+				token: token.trim(),
+				scope_type: scopeType,
+				zone_ids: ids,
+				...(expDays && { expires_in_days: expDays }),
+				...(skipValidation && { validate: false }),
+			});
+			onCreated(warnings);
 			setOpen(false);
 			setName('');
 			setToken('');
+			setScopeType('zone');
 			setZoneIdsInput('*');
+			setExpiresInDays('');
+			setSkipValidation(false);
 		} catch (e: any) {
 			setError(e.message ?? 'Failed to create upstream token');
 		} finally {
@@ -115,7 +185,7 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 				<DialogHeader>
 					<DialogTitle>Register Upstream Token</DialogTitle>
 					<DialogDescription>
-						Register a Cloudflare API token for cache purge operations. The token is stored encrypted in the Durable Object.
+						Register a Cloudflare API token. The token will be validated against declared zones/accounts on creation.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -132,15 +202,49 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 					</div>
 
 					<div className="space-y-2">
-						<Label className={T.formLabel}>Zone IDs</Label>
-						<Input
-							placeholder="* for all zones, or comma-separated zone IDs"
-							value={zoneIdsInput}
-							onChange={(e) => setZoneIdsInput(e.target.value)}
-						/>
+						<Label className={T.formLabel}>Scope Type</Label>
+						<Select value={scopeType} onValueChange={(v) => setScopeType(v as 'zone' | 'account')}>
+							<SelectTrigger>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="zone">Zone</SelectItem>
+								<SelectItem value="account">Account</SelectItem>
+							</SelectContent>
+						</Select>
+						<p className={T.muted}>Zone-scoped tokens are used for cache purge / DNS. Account-scoped for CF API proxy.</p>
+					</div>
+
+					<div className="space-y-2">
+						<Label className={T.formLabel}>{scopeLabel}</Label>
+						<Input placeholder={scopePlaceholder} value={zoneIdsInput} onChange={(e) => setZoneIdsInput(e.target.value)} />
 						<p className={T.muted}>
-							Use <code className="text-[10px] font-data">*</code> for all zones, or provide specific zone IDs separated by commas.
+							Use <code className="text-[10px] font-data">*</code> for all, or provide specific IDs separated by commas.
 						</p>
+					</div>
+
+					<div className="space-y-2">
+						<Label className={T.formLabel}>Expires in (days)</Label>
+						<Input
+							type="number"
+							min="1"
+							placeholder="Optional — leave empty for no expiry"
+							value={expiresInDays}
+							onChange={(e) => setExpiresInDays(e.target.value)}
+						/>
+					</div>
+
+					<div className="flex items-center gap-2">
+						<input
+							type="checkbox"
+							id="skip-validation"
+							checked={skipValidation}
+							onChange={(e) => setSkipValidation(e.target.checked)}
+							className="rounded border-border"
+						/>
+						<Label htmlFor="skip-validation" className="text-xs text-muted-foreground cursor-pointer">
+							Skip validation (do not verify token against Cloudflare API)
+						</Label>
 					</div>
 
 					{error && <p className="text-sm text-lv-red">{error}</p>}
@@ -178,6 +282,7 @@ export function UpstreamTokensPage() {
 	const [tokens, setTokens] = useState<UpstreamToken[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [warnings, setWarnings] = useState<Array<{ code: number; message: string }>>([]);
 	const [deletingId, setDeletingId] = useState<string | null>(null);
 	const [copiedId, setCopiedId] = useState<string | null>(null);
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -200,6 +305,11 @@ export function UpstreamTokensPage() {
 	useEffect(() => {
 		fetchTokens();
 	}, [fetchTokens]);
+
+	const handleCreated = (creationWarnings: Array<{ code: number; message: string }>) => {
+		setWarnings(creationWarnings);
+		fetchTokens();
+	};
 
 	const handleDelete = async (id: string) => {
 		if (!confirm(`Delete upstream token ${truncateId(id)}? This cannot be undone.`)) return;
@@ -262,11 +372,14 @@ export function UpstreamTokensPage() {
 				<div>
 					<h2 className={T.pageTitle}>Upstream Tokens</h2>
 					<p className={T.pageDescription}>
-						Cloudflare API tokens used for cache purge operations. Each token can be scoped to specific zones.
+						Cloudflare API tokens used for cache purge, DNS, and API proxy operations. Each token is scoped to zones or accounts.
 					</p>
 				</div>
-				<CreateTokenDialog onCreated={fetchTokens} />
+				<CreateTokenDialog onCreated={handleCreated} />
 			</div>
+
+			{/* ── Validation warnings from creation ──────────────── */}
+			<WarningsBanner warnings={warnings} onDismiss={() => setWarnings([])} />
 
 			{/* ── Error ──────────────────────────────────────────── */}
 			{error && <div className="rounded-lg border border-lv-red/30 bg-lv-red/10 px-4 py-3 text-sm text-lv-red">{error}</div>}
@@ -319,7 +432,9 @@ export function UpstreamTokensPage() {
 									<TableHead className={T.sectionLabel}>Name</TableHead>
 									<TableHead className={T.sectionLabel}>ID</TableHead>
 									<TableHead className={T.sectionLabel}>Token</TableHead>
-									<TableHead className={T.sectionLabel}>Zones</TableHead>
+									<TableHead className={T.sectionLabel}>Scope</TableHead>
+									<TableHead className={T.sectionLabel}>Zones / Accounts</TableHead>
+									<TableHead className={T.sectionLabel}>Expires</TableHead>
 									<TableHead className={T.sectionLabel}>Created</TableHead>
 									<TableHead className={T.sectionLabel}>Created By</TableHead>
 									<TableHead className={cn(T.sectionLabel, 'text-right')}>Actions</TableHead>
@@ -327,7 +442,7 @@ export function UpstreamTokensPage() {
 							</TableHeader>
 							<TableBody>
 								{pageItems.map((t) => (
-									<TableRow key={t.id}>
+									<TableRow key={t.id} className={isExpired(t.expires_at) ? 'opacity-50' : undefined}>
 										<TableCell className="w-8">
 											<input
 												type="checkbox"
@@ -357,7 +472,15 @@ export function UpstreamTokensPage() {
 											<code className={T.tableCellMono}>{t.token_preview}</code>
 										</TableCell>
 										<TableCell className={T.tableCell}>
+											<span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-data">
+												{formatScopeType(t.scope_type)}
+											</span>
+										</TableCell>
+										<TableCell className={T.tableCell}>
 											<span title={t.zone_ids}>{formatZoneIds(t.zone_ids)}</span>
+										</TableCell>
+										<TableCell className={T.tableCell}>
+											<span className={isExpired(t.expires_at) ? 'text-lv-red' : undefined}>{formatExpiry(t.expires_at)}</span>
 										</TableCell>
 										<TableCell className={T.tableCell}>{formatDate(t.created_at)}</TableCell>
 										<TableCell className={T.tableCell}>{t.created_by ?? <span className={T.muted}>--</span>}</TableCell>

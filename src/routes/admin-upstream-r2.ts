@@ -28,16 +28,24 @@ adminUpstreamR2App.post('/', async (c) => {
 	const parsed = await parseJsonBody(c, createUpstreamR2Schema, log);
 	if (parsed instanceof Response) return parsed;
 
-	// Optional validation: probe R2 with ListBuckets to check credentials
+	// Validate R2 credentials + bucket access (unless explicitly opted out)
 	const warnings: ValidationWarning[] = [];
-	if (parsed.validate === true) {
-		const warning = await validateR2Credentials(parsed.access_key_id, parsed.secret_access_key, parsed.endpoint);
-		if (warning) {
-			warnings.push(warning);
+	if (parsed.validate !== false) {
+		const validationWarnings = await validateR2Credentials(
+			parsed.access_key_id,
+			parsed.secret_access_key,
+			parsed.endpoint,
+			parsed.bucket_names,
+		);
+		if (validationWarnings.length > 0) {
+			warnings.push(...validationWarnings);
 			log.validationFailed = true;
+			log.validationWarningCount = validationWarnings.length;
 		} else {
 			log.validated = true;
 		}
+	} else {
+		log.validationSkipped = true;
 	}
 
 	const identity = c.get('accessIdentity');

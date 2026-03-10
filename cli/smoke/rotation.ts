@@ -137,6 +137,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		name: 'smoke-ref-integrity',
 		token: 'smoke-ref-test-token-1234567890',
 		zone_ids: [ctx.ZONE],
+		validate: false,
 	});
 	assertStatus('create ref-test upstream token -> 200', refToken, 200);
 	const refTokenId = refToken.body?.result?.id;

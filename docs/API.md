@@ -1582,13 +1582,15 @@ Register an upstream Cloudflare API token.
 
 **Request body:**
 
-| Field        | Type     | Required | Description                                                                                                    |
-| ------------ | -------- | -------- | -------------------------------------------------------------------------------------------------------------- |
-| `name`       | string   | yes      | Human-readable name (min 1 char)                                                                               |
-| `token`      | string   | yes      | Cloudflare API token (min 1 char)                                                                              |
-| `zone_ids`   | string[] | yes      | Non-empty array. Use `["*"]` for wildcard (all zones), or specific 32-hex zone IDs.                            |
-| `created_by` | string   | no       | Audit trail. SSO email takes precedence; non-SSO values prefixed `unverified:`. Defaults to `"via admin key"`. |
-| `validate`   | boolean  | no       | When `true`, validates the token against the Cloudflare API                                                    |
+| Field             | Type     | Required | Description                                                                                                                                                         |
+| ----------------- | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`            | string   | yes      | Human-readable name (min 1 char)                                                                                                                                    |
+| `token`           | string   | yes      | Cloudflare API token (min 1 char)                                                                                                                                   |
+| `zone_ids`        | string[] | yes      | Non-empty array. Use `["*"]` for wildcard (all zones), or specific 32-hex zone/account IDs.                                                                         |
+| `scope_type`      | string   | no       | `"zone"` (default) or `"account"`. Determines whether zone_ids are zone IDs or account IDs.                                                                         |
+| `expires_in_days` | number   | no       | Auto-set `expires_at` to N days from now. Omit for no expiry.                                                                                                       |
+| `created_by`      | string   | no       | Audit trail. SSO email takes precedence; non-SSO values prefixed `unverified:`. Defaults to `"via admin key"`.                                                      |
+| `validate`        | boolean  | no       | **Enabled by default.** Set to `false` to skip capability verification. Probes the CF API to verify the token is active and can access the declared zones/accounts. |
 
 **Example request:**
 
@@ -1608,8 +1610,10 @@ Register an upstream Cloudflare API token.
 	"result": {
 		"id": "upt_a1b2c3d4...",
 		"name": "prod-purge",
+		"scope_type": "zone",
 		"zone_ids": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
 		"token_preview": "abcd...wxyz",
+		"expires_at": null,
 		"created_at": 1704067200000,
 		"created_by": null
 	},
@@ -1617,7 +1621,7 @@ Register an upstream Cloudflare API token.
 }
 ```
 
-The actual token value is never returned after creation -- only `token_preview` (first 4 + last 4 chars). The `warnings` array is present when `validate: true` is used and issues are detected.
+The actual token value is never returned after creation -- only `token_preview` (first 4 + last 4 chars). The `warnings` array is present when validation runs and issues are detected (e.g. token inactive, zone/account not accessible). Validation runs by default; pass `validate: false` to skip it.
 
 When a purge or DNS request arrives, the gateway looks up the best matching upstream token: exact zone match first, then wildcard. If no upstream token matches, the request fails with 502.
 
@@ -1769,15 +1773,16 @@ Register an upstream R2 endpoint.
 
 **Request body:**
 
-| Field               | Type     | Required | Description                                                                                                    |
-| ------------------- | -------- | -------- | -------------------------------------------------------------------------------------------------------------- |
-| `name`              | string   | yes      | Human-readable name (min 1 char)                                                                               |
-| `access_key_id`     | string   | yes      | R2 access key ID (min 1 char)                                                                                  |
-| `secret_access_key` | string   | yes      | R2 secret access key (min 1 char)                                                                              |
-| `endpoint`          | string   | yes      | R2 endpoint URL (must be HTTPS)                                                                                |
-| `bucket_names`      | string[] | yes      | Non-empty array. Use `["*"]` for all buckets, or specific names.                                               |
-| `created_by`        | string   | no       | Audit trail. SSO email takes precedence; non-SSO values prefixed `unverified:`. Defaults to `"via admin key"`. |
-| `validate`          | boolean  | no       | When `true`, validates connectivity to the R2 endpoint                                                         |
+| Field               | Type     | Required | Description                                                                                                                                          |
+| ------------------- | -------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`              | string   | yes      | Human-readable name (min 1 char)                                                                                                                     |
+| `access_key_id`     | string   | yes      | R2 access key ID (min 1 char)                                                                                                                        |
+| `secret_access_key` | string   | yes      | R2 secret access key (min 1 char)                                                                                                                    |
+| `endpoint`          | string   | yes      | R2 endpoint URL (must be HTTPS)                                                                                                                      |
+| `bucket_names`      | string[] | yes      | Non-empty array. Use `["*"]` for all buckets, or specific names.                                                                                     |
+| `created_by`        | string   | no       | Audit trail. SSO email takes precedence; non-SSO values prefixed `unverified:`. Defaults to `"via admin key"`.                                       |
+| `expires_in_days`   | number   | no       | Auto-set `expires_at` to N days from now. Omit for no expiry.                                                                                        |
+| `validate`          | boolean  | no       | **Enabled by default.** Set to `false` to skip capability verification. Calls ListBuckets to verify the credentials can access the declared buckets. |
 
 **Example request:**
 
@@ -1802,6 +1807,7 @@ Register an upstream R2 endpoint.
 		"bucket_names": "*",
 		"access_key_preview": "abcd...wxyz",
 		"endpoint": "https://<account-id>.r2.cloudflarestorage.com",
+		"expires_at": null,
 		"created_at": 1704067200000,
 		"created_by": null
 	},
@@ -1809,7 +1815,7 @@ Register an upstream R2 endpoint.
 }
 ```
 
-Credentials are stored in the DO and never returned after creation (only `access_key_preview`). The `warnings` array is present when `validate: true` is used.
+Credentials are stored in the DO and never returned after creation (only `access_key_preview`). The `warnings` array is present when validation runs and issues are detected (e.g. credentials invalid, bucket not accessible). Validation runs by default; pass `validate: false` to skip it.
 
 When an S3 request arrives, the gateway resolves the R2 endpoint for the target bucket: exact match first, then wildcard. For `ListBuckets` (no specific bucket), the first wildcard endpoint is used. If no endpoint matches, the request fails with 502.
 

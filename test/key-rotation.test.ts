@@ -284,6 +284,7 @@ describe('Referential Integrity — upstream token delete warns about bound keys
 				name: 'ref-integrity-test',
 				token: 'cf-ref-test-token-1234',
 				zone_ids: ['*'],
+				validate: false,
 			}),
 		});
 		const tokenData = await tokenRes.json<any>();
@@ -326,6 +327,7 @@ describe('Referential Integrity — upstream token delete warns about bound keys
 				name: 'no-keys-token',
 				token: 'cf-nokeys-test-token-5678',
 				zone_ids: ['*'],
+				validate: false,
 			}),
 		});
 		const tokenData = await tokenRes.json<any>();

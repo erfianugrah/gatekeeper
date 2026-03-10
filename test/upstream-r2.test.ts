@@ -16,6 +16,7 @@ describe('Upstream R2 — CRUD', () => {
 				secret_access_key: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
 				endpoint: 'https://account123.r2.cloudflarestorage.com',
 				bucket_names: ['*'],
+				validate: false,
 			}),
 		});
 		expect(createRes.status).toBe(200);
@@ -94,6 +95,7 @@ describe('Upstream R2 — CRUD', () => {
 				secret_access_key: 'xJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
 				endpoint: 'https://account456.r2.cloudflarestorage.com',
 				bucket_names: ['vault', 'videos', 'images'],
+				validate: false,
 			}),
 		});
 		expect(res.status).toBe(200);
@@ -236,6 +238,7 @@ describe('Upstream R2 — bulk delete', () => {
 				secret_access_key: 'eJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKE1',
 				endpoint: 'https://bulkd1.r2.cloudflarestorage.com',
 				bucket_names: ['*'],
+				validate: false,
 			}),
 		});
 		const e1 = (await c1.json<any>()).result.id;
@@ -249,6 +252,7 @@ describe('Upstream R2 — bulk delete', () => {
 				secret_access_key: 'eJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKE2',
 				endpoint: 'https://bulkd2.r2.cloudflarestorage.com',
 				bucket_names: ['*'],
+				validate: false,
 			}),
 		});
 		const e2 = (await c2.json<any>()).result.id;
@@ -282,6 +286,7 @@ describe('Upstream R2 — bulk delete', () => {
 				secret_access_key: 'fJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKE1',
 				endpoint: 'https://bulkdryd1.r2.cloudflarestorage.com',
 				bucket_names: ['*'],
+				validate: false,
 			}),
 		});
 		const e1 = (await c1.json<any>()).result.id;
@@ -365,7 +370,7 @@ describe('Upstream R2 — authentication', () => {
 	});
 });
 
-// --- Upstream R2 validation (6.1) ---
+// --- Upstream R2 validation (capability verification) ---
 
 const R2_VALIDATE_ENDPOINT = 'https://validate-r2.r2.cloudflarestorage.com';
 
@@ -379,13 +384,15 @@ describe('Upstream R2 — validate on registration', () => {
 		fetchMock.assertNoPendingInterceptors();
 	});
 
-	it('validate: true with valid credentials -> 200 with no warnings', async () => {
+	it('valid credentials + wildcard buckets with accessible buckets -> no warnings', async () => {
 		fetchMock
 			.get(R2_VALIDATE_ENDPOINT)
 			.intercept({ method: 'GET', path: '/' })
-			.reply(200, '<?xml version="1.0"?><ListAllMyBucketsResult></ListAllMyBucketsResult>', {
-				headers: { 'Content-Type': 'application/xml' },
-			});
+			.reply(
+				200,
+				'<?xml version="1.0"?><ListAllMyBucketsResult><Buckets><Bucket><Name>assets</Name></Bucket><Bucket><Name>media</Name></Bucket></Buckets></ListAllMyBucketsResult>',
+				{ headers: { 'Content-Type': 'application/xml' } },
+			);
 
 		const res = await SELF.fetch('http://localhost/admin/upstream-r2', {
 			method: 'POST',
@@ -396,7 +403,6 @@ describe('Upstream R2 — validate on registration', () => {
 				secret_access_key: 'r2validsecretaccesskey1234567890abcdef1234567890abcdef1234567890ab',
 				endpoint: R2_VALIDATE_ENDPOINT,
 				bucket_names: ['*'],
-				validate: true,
 			}),
 		});
 		expect(res.status).toBe(200);
@@ -406,7 +412,63 @@ describe('Upstream R2 — validate on registration', () => {
 		expect(data.warnings).toBeUndefined();
 	});
 
-	it('validate: true with invalid credentials -> 200 with warnings (still registered)', async () => {
+	it('valid credentials + specific buckets all accessible -> no warnings', async () => {
+		fetchMock
+			.get(R2_VALIDATE_ENDPOINT)
+			.intercept({ method: 'GET', path: '/' })
+			.reply(
+				200,
+				'<?xml version="1.0"?><ListAllMyBucketsResult><Buckets><Bucket><Name>assets</Name></Bucket><Bucket><Name>media</Name></Bucket></Buckets></ListAllMyBucketsResult>',
+				{ headers: { 'Content-Type': 'application/xml' } },
+			);
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-r2', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'r2-validate-specific-ok',
+				access_key_id: 'R2SPECOKEYID123456789',
+				secret_access_key: 'r2specoksecretaccesskey1234567890abcdef1234567890abcdef123456789',
+				endpoint: R2_VALIDATE_ENDPOINT,
+				bucket_names: ['assets', 'media'],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.warnings).toBeUndefined();
+	});
+
+	it('valid credentials + specific bucket not in accessible list -> warning per missing bucket', async () => {
+		fetchMock
+			.get(R2_VALIDATE_ENDPOINT)
+			.intercept({ method: 'GET', path: '/' })
+			.reply(
+				200,
+				'<?xml version="1.0"?><ListAllMyBucketsResult><Buckets><Bucket><Name>assets</Name></Bucket></Buckets></ListAllMyBucketsResult>',
+				{ headers: { 'Content-Type': 'application/xml' } },
+			);
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-r2', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'r2-validate-bucket-miss',
+				access_key_id: 'R2MISSOKEYID123456789',
+				secret_access_key: 'r2missoksecretaccesskey1234567890abcdef1234567890abcdef12345678',
+				endpoint: R2_VALIDATE_ENDPOINT,
+				bucket_names: ['assets', 'missing-bucket'],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.result.id).toMatch(/^upr2_/);
+		expect(data.warnings).toHaveLength(1);
+		expect(data.warnings[0].message).toMatch(/missing-bucket.*not found/);
+	});
+
+	it('invalid credentials (403) -> credential validation warning', async () => {
 		fetchMock
 			.get(R2_VALIDATE_ENDPOINT)
 			.intercept({ method: 'GET', path: '/' })
@@ -423,24 +485,47 @@ describe('Upstream R2 — validate on registration', () => {
 				secret_access_key: 'r2invalidsecretaccesskey1234567890abcdef1234567890abcdef1234567890',
 				endpoint: R2_VALIDATE_ENDPOINT,
 				bucket_names: ['*'],
-				validate: true,
 			}),
 		});
 		expect(res.status).toBe(200);
 		const data = await res.json<any>();
 		expect(data.success).toBe(true);
-		// Credential is still registered despite validation failure
 		expect(data.result.id).toMatch(/^upr2_/);
 		expect(data.result.name).toBe('r2-validate-bad');
-		// Warnings array present
-		expect(data.warnings).toBeDefined();
 		expect(data.warnings).toHaveLength(1);
 		expect(data.warnings[0].code).toBe(422);
 		expect(data.warnings[0].message).toMatch(/R2 credential validation failed/);
 	});
 
-	it('validate not set -> no validation probe, no warnings', async () => {
-		// No fetchMock intercept — if validation fires, it would fail with disableNetConnect
+	it('wildcard buckets + 0 accessible -> warning', async () => {
+		fetchMock
+			.get(R2_VALIDATE_ENDPOINT)
+			.intercept({ method: 'GET', path: '/' })
+			.reply(200, '<?xml version="1.0"?><ListAllMyBucketsResult><Buckets></Buckets></ListAllMyBucketsResult>', {
+				headers: { 'Content-Type': 'application/xml' },
+			});
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-r2', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'r2-validate-empty-wildcard',
+				access_key_id: 'R2EMPTYWILDCAREYID1234',
+				secret_access_key: 'r2emptywildcardsecretaccesskey1234567890abcdef1234567890abcdef123',
+				endpoint: R2_VALIDATE_ENDPOINT,
+				bucket_names: ['*'],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.result.id).toMatch(/^upr2_/);
+		expect(data.warnings).toHaveLength(1);
+		expect(data.warnings[0].message).toMatch(/can access 0 buckets/);
+	});
+
+	it('validate: false -> skips all probes, no warnings', async () => {
+		// No fetchMock intercept — if validation fires, disableNetConnect would fail
 		const res = await SELF.fetch('http://localhost/admin/upstream-r2', {
 			method: 'POST',
 			headers: adminHeaders(),
@@ -450,6 +535,7 @@ describe('Upstream R2 — validate on registration', () => {
 				secret_access_key: 'r2novalidatesecretaccesskey1234567890abcdef1234567890abcdef12345678',
 				endpoint: 'https://novalidate.r2.cloudflarestorage.com',
 				bucket_names: ['*'],
+				validate: false,
 			}),
 		});
 		expect(res.status).toBe(200);
@@ -494,7 +580,14 @@ describe('Upstream R2 — resolution', () => {
 		const res = await SELF.fetch('http://localhost/admin/upstream-r2', {
 			method: 'POST',
 			headers: adminHeaders(),
-			body: JSON.stringify({ name, access_key_id: accessKeyId, secret_access_key: secretAccessKey, endpoint, bucket_names: bucketNames }),
+			body: JSON.stringify({
+				name,
+				access_key_id: accessKeyId,
+				secret_access_key: secretAccessKey,
+				endpoint,
+				bucket_names: bucketNames,
+				validate: false,
+			}),
 		});
 		const data = await res.json<any>();
 		if (!data.success) throw new Error(`registerEndpoint failed: ${JSON.stringify(data.errors)}`);

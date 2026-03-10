@@ -118,10 +118,22 @@ export interface CreateKeyRequest {
 
 // ─── Envelope types ──────────────────────────────────────────────────
 
+interface ApiWarning {
+	code: number;
+	message: string;
+}
+
 interface ApiResponse<T> {
 	success: boolean;
 	result?: T;
 	errors?: Array<{ code: number; message: string }>;
+	warnings?: ApiWarning[];
+}
+
+/** Result wrapper that includes warnings from upstream validation. */
+export interface ApiResultWithWarnings<T> {
+	result: T;
+	warnings: ApiWarning[];
 }
 
 // ─── Fetch helper ────────────────────────────────────────────────────
@@ -146,6 +158,28 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 	}
 
 	return data.result;
+}
+
+/** Like apiFetch but preserves any warnings returned by the API. */
+async function apiFetchWithWarnings<T>(path: string, init?: RequestInit): Promise<ApiResultWithWarnings<T>> {
+	const res = await fetch(path, {
+		...init,
+		credentials: 'include',
+		headers: {
+			'Content-Type': 'application/json',
+			...adminHeaders(),
+			...init?.headers,
+		},
+	});
+
+	const data: ApiResponse<T> = await res.json();
+
+	if (!data.success || !data.result) {
+		const msg = data.errors?.map((e) => e.message).join('; ') ?? 'Unknown error';
+		throw new Error(msg);
+	}
+
+	return { result: data.result, warnings: data.warnings ?? [] };
 }
 
 // ─── Admin auth headers ──────────────────────────────────────────────
@@ -425,9 +459,11 @@ export interface UpstreamToken {
 export interface CreateUpstreamTokenRequest {
 	name: string;
 	token: string;
+	scope_type?: 'zone' | 'account';
 	zone_ids: string[];
 	expires_in_days?: number;
 	created_by?: string;
+	validate?: boolean;
 }
 
 export async function listUpstreamTokens(): Promise<UpstreamToken[]> {
@@ -438,8 +474,8 @@ export async function getUpstreamToken(id: string): Promise<UpstreamToken> {
 	return apiFetch<UpstreamToken>(`/admin/upstream-tokens/${id}`);
 }
 
-export async function createUpstreamToken(req: CreateUpstreamTokenRequest): Promise<UpstreamToken> {
-	return apiFetch<UpstreamToken>('/admin/upstream-tokens', {
+export async function createUpstreamToken(req: CreateUpstreamTokenRequest): Promise<ApiResultWithWarnings<UpstreamToken>> {
+	return apiFetchWithWarnings<UpstreamToken>('/admin/upstream-tokens', {
 		method: 'POST',
 		body: JSON.stringify(req),
 	});
@@ -480,6 +516,7 @@ export interface CreateUpstreamR2Request {
 	bucket_names: string[];
 	expires_in_days?: number;
 	created_by?: string;
+	validate?: boolean;
 }
 
 export async function listUpstreamR2(): Promise<UpstreamR2[]> {
@@ -490,8 +527,8 @@ export async function getUpstreamR2(id: string): Promise<UpstreamR2> {
 	return apiFetch<UpstreamR2>(`/admin/upstream-r2/${id}`);
 }
 
-export async function createUpstreamR2(req: CreateUpstreamR2Request): Promise<UpstreamR2> {
-	return apiFetch<UpstreamR2>('/admin/upstream-r2', {
+export async function createUpstreamR2(req: CreateUpstreamR2Request): Promise<ApiResultWithWarnings<UpstreamR2>> {
+	return apiFetchWithWarnings<UpstreamR2>('/admin/upstream-r2', {
 		method: 'POST',
 		body: JSON.stringify(req),
 	});
