@@ -62,7 +62,13 @@ export async function validateR2Binding(
 				continue;
 			}
 
-			// 2c. Validate bucket references against endpoint scope
+			// 2c. Resource must start with account:, bucket:, or object:
+			if (!resource.startsWith('account:') && !resource.startsWith('bucket:') && !resource.startsWith('object:')) {
+				errors.push(`${prefix}.resources: '${resource}' must start with 'account:', 'bucket:', or 'object:' for an S3 credential`);
+				continue;
+			}
+
+			// 2d. Validate bucket references against endpoint scope
 			if (isWildcard) continue; // Wildcard endpoint allows any bucket
 
 			const bucket = extractBucketFromResource(resource);

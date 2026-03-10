@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { Plus, ShieldOff, Trash2, Loader2, Copy, Check, ChevronRight, ChevronsDownUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
@@ -22,9 +23,10 @@ import {
 	deleteS3Credential,
 	bulkRevokeS3Credentials,
 	bulkDeleteS3Credentials,
+	listUpstreamR2,
 	POLICY_VERSION,
 } from '@/lib/api';
-import type { S3Credential, PolicyDocument } from '@/lib/api';
+import type { S3Credential, PolicyDocument, UpstreamR2 } from '@/lib/api';
 import { cn, copyToClipboard } from '@/lib/utils';
 import { T } from '@/lib/typography';
 
@@ -42,7 +44,20 @@ function formatDate(epoch: number): string {
 	});
 }
 
-function makeDefaultS3Policy(): PolicyDocument {
+function makeDefaultS3Policy(endpoint?: UpstreamR2): PolicyDocument {
+	// Build resources from endpoint bucket scope
+	let resources: string[];
+	if (endpoint) {
+		const buckets = endpoint.bucket_names.split(',').map((s) => s.trim());
+		if (buckets.length === 1 && buckets[0] === '*') {
+			resources = ['account:*', 'bucket:*', 'object:*'];
+		} else {
+			resources = ['account:*', ...buckets.map((b) => `bucket:${b}`), ...buckets.map((b) => `object:${b}/*`)];
+		}
+	} else {
+		resources = ['account:*', 'bucket:*', 'object:*'];
+	}
+
 	return {
 		version: POLICY_VERSION,
 		statements: [
@@ -50,7 +65,7 @@ function makeDefaultS3Policy(): PolicyDocument {
 				_id: crypto.randomUUID(),
 				effect: 'allow',
 				actions: ['s3:*'],
-				resources: ['*'],
+				resources,
 			},
 		],
 	};
@@ -66,12 +81,52 @@ function CreateCredentialDialog({ onCreated }: CreateCredentialDialogProps) {
 	const [open, setOpen] = useState(false);
 	const [name, setName] = useState('');
 	const [expiresInDays, setExpiresInDays] = useState('');
-	const [policy, setPolicy] = useState<PolicyDocument>(makeDefaultS3Policy);
+	const [selectedEndpointId, setSelectedEndpointId] = useState('');
+	const [endpoints, setEndpoints] = useState<UpstreamR2[]>([]);
+	const [endpointsLoading, setEndpointsLoading] = useState(false);
+	const [policy, setPolicy] = useState<PolicyDocument>(() => makeDefaultS3Policy());
 	const [creating, setCreating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
+	const selectedEndpoint = useMemo(() => endpoints.find((e) => e.id === selectedEndpointId), [endpoints, selectedEndpointId]);
+
+	// Fetch R2 endpoints when dialog opens
+	useEffect(() => {
+		if (!open) return;
+		let cancelled = false;
+		setEndpointsLoading(true);
+		listUpstreamR2()
+			.then((data) => {
+				if (cancelled) return;
+				setEndpoints(data);
+			})
+			.catch(() => {
+				if (cancelled) return;
+				setEndpoints([]);
+			})
+			.finally(() => {
+				if (!cancelled) setEndpointsLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [open]);
+
+	// When endpoint changes, reset policy with bucket-scoped resources
+	const handleEndpointChange = (endpointId: string) => {
+		setSelectedEndpointId(endpointId);
+		const ep = endpoints.find((e) => e.id === endpointId);
+		if (ep) {
+			setPolicy(makeDefaultS3Policy(ep));
+		}
+	};
+
 	const handleCreate = async () => {
 		setError(null);
+		if (!selectedEndpointId) {
+			setError('Select an R2 endpoint');
+			return;
+		}
 		if (policy.statements.length === 0) {
 			setError('Policy must have at least one statement');
 			return;
@@ -85,6 +140,7 @@ function CreateCredentialDialog({ onCreated }: CreateCredentialDialogProps) {
 		try {
 			const result = await createS3Credential({
 				name,
+				upstream_token_id: selectedEndpointId,
 				policy,
 				expires_in_days: expiresInDays ? Number(expiresInDays) : undefined,
 			});
@@ -92,6 +148,7 @@ function CreateCredentialDialog({ onCreated }: CreateCredentialDialogProps) {
 			setOpen(false);
 			setName('');
 			setExpiresInDays('');
+			setSelectedEndpointId('');
 			setPolicy(makeDefaultS3Policy());
 		} catch (e: any) {
 			setError(e.message ?? 'Failed to create credential');
@@ -101,9 +158,19 @@ function CreateCredentialDialog({ onCreated }: CreateCredentialDialogProps) {
 	};
 
 	const handleOpenChange = (next: boolean) => {
-		if (next) setPolicy(makeDefaultS3Policy());
+		if (next) {
+			setPolicy(makeDefaultS3Policy());
+			setSelectedEndpointId('');
+			setError(null);
+		}
 		setOpen(next);
 		setError(null);
+	};
+
+	/** Format endpoint label for the dropdown. */
+	const endpointLabel = (ep: UpstreamR2) => {
+		const buckets = ep.bucket_names === '*' ? 'all buckets' : ep.bucket_names;
+		return `${ep.name} (${buckets})`;
 	};
 
 	return (
@@ -117,10 +184,52 @@ function CreateCredentialDialog({ onCreated }: CreateCredentialDialogProps) {
 			<DialogContent className="max-w-2xl xl:max-w-4xl 2xl:max-w-5xl max-h-[85vh] overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>Create S3 Credential</DialogTitle>
-					<DialogDescription>Create a new S3-compatible credential for accessing R2 buckets through the gateway.</DialogDescription>
+					<DialogDescription>Select an R2 endpoint to bind this credential to, then configure permissions.</DialogDescription>
 				</DialogHeader>
 
 				<div className="space-y-4">
+					{/* Step 1: R2 Endpoint */}
+					<div className="space-y-2">
+						<Label className={T.formLabel}>R2 Endpoint</Label>
+						{endpointsLoading ? (
+							<Skeleton className="h-9 w-full" />
+						) : endpoints.length === 0 ? (
+							<p className="text-sm text-muted-foreground">
+								No R2 endpoints found. Create one in the{' '}
+								<a href="/dashboard/upstream-r2" className="text-lv-blue hover:underline">
+									Upstream R2
+								</a>{' '}
+								page first.
+							</p>
+						) : (
+							<>
+								<Select value={selectedEndpointId} onValueChange={handleEndpointChange}>
+									<SelectTrigger className="text-xs font-data">
+										<SelectValue placeholder="Select R2 endpoint..." />
+									</SelectTrigger>
+									<SelectContent>
+										{endpoints.map((ep) => (
+											<SelectItem key={ep.id} value={ep.id} className="text-xs font-data">
+												{endpointLabel(ep)}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								{selectedEndpoint && (
+									<p className="text-[11px] font-data text-muted-foreground">
+										<Badge className="text-[9px] px-1 py-0 mr-1.5 bg-lv-blue/20 text-lv-blue border-lv-blue/30">R2</Badge>
+										{selectedEndpoint.bucket_names === '*' ? 'All buckets' : `Buckets: ${selectedEndpoint.bucket_names}`}
+										{' — '}
+										<code className="text-lv-cyan">{selectedEndpoint.endpoint}</code>
+										{' — '}
+										<code className="text-lv-purple">{selectedEndpoint.access_key_preview}</code>
+									</p>
+								)}
+							</>
+						)}
+					</div>
+
+					{/* Step 2: Name */}
 					<div className="space-y-2">
 						<Label className={T.formLabel}>Name</Label>
 						<Input placeholder="e.g. rclone-backup, cdn-writer" value={name} onChange={(e) => setName(e.target.value)} />
@@ -137,10 +246,13 @@ function CreateCredentialDialog({ onCreated }: CreateCredentialDialogProps) {
 						/>
 					</div>
 
-					<div className="space-y-2">
-						<Label className={T.formLabel}>Policy</Label>
-						<S3PolicyBuilder value={policy} onChange={setPolicy} />
-					</div>
+					{/* Step 3: Policy (only shown after endpoint selected) */}
+					{selectedEndpointId && (
+						<div className="space-y-2">
+							<Label className={T.formLabel}>Policy</Label>
+							<S3PolicyBuilder value={policy} onChange={setPolicy} />
+						</div>
+					)}
 
 					{error && <p className="text-sm text-lv-red">{error}</p>}
 				</div>
@@ -149,7 +261,7 @@ function CreateCredentialDialog({ onCreated }: CreateCredentialDialogProps) {
 					<Button variant="outline" onClick={() => setOpen(false)}>
 						Cancel
 					</Button>
-					<Button onClick={handleCreate} disabled={creating || !name.trim()}>
+					<Button onClick={handleCreate} disabled={creating || !name.trim() || !selectedEndpointId}>
 						{creating && <Loader2 className="h-4 w-4 animate-spin" />}
 						Create
 					</Button>

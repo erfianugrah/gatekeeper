@@ -7,7 +7,22 @@
 
 import { execSync } from 'node:child_process';
 import type { SmokeContext } from './helpers.js';
-import { req, admin, section, assertStatus, assertJson, assertTruthy, state, sleep, green, red, dim, yellow, BASE } from './helpers.js';
+import {
+	req,
+	admin,
+	section,
+	assertStatus,
+	assertJson,
+	assertMatch,
+	assertTruthy,
+	state,
+	sleep,
+	green,
+	red,
+	dim,
+	yellow,
+	BASE,
+} from './helpers.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -92,6 +107,87 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	};
 	const { r: roCreate, keyId: D1_RO_KEY } = await createCfKey('smoke-cf-d1-readonly', D1_RO_POLICY, ctx.cfProxyUpstreamId);
 	assertStatus('create D1 read-only key -> 200', roCreate, 200);
+
+	// ─── Token Binding Validation (account-scoped) ────────────────
+
+	section('CF Proxy Token Binding Validation');
+
+	// T3: Account-scoped token with zone-scoped action (purge:host)
+	const tbZoneAction = await admin('POST', '/admin/keys', {
+		name: 'x',
+		upstream_token_id: cfUpstreamId,
+		policy: { version: '2025-01-01', statements: [{ effect: 'allow', actions: ['purge:host'], resources: [`account:${ACCOUNT_ID}`] }] },
+	});
+	assertStatus('account token + zone action (purge:host) -> 400', tbZoneAction, 400);
+	assertMatch('error mentions account-scoped', tbZoneAction.body?.errors?.[0]?.message ?? '', /account-scoped/i);
+
+	// T3b: Account-scoped token with dns action
+	const tbDnsAction = await admin('POST', '/admin/keys', {
+		name: 'x',
+		upstream_token_id: cfUpstreamId,
+		policy: { version: '2025-01-01', statements: [{ effect: 'allow', actions: ['dns:read'], resources: [`account:${ACCOUNT_ID}`] }] },
+	});
+	assertStatus('account token + dns action -> 400', tbDnsAction, 400);
+
+	// T8: Account-scoped token with zone-prefixed resource
+	const tbZoneResource = await admin('POST', '/admin/keys', {
+		name: 'x',
+		upstream_token_id: cfUpstreamId,
+		policy: {
+			version: '2025-01-01',
+			statements: [{ effect: 'allow', actions: ['d1:*'], resources: ['zone:some-zone-id'] }],
+		},
+	});
+	assertStatus('account token + zone resource -> 400', tbZoneResource, 400);
+	assertMatch('error mentions account: prefix', tbZoneResource.body?.errors?.[0]?.message ?? '', /account:/i);
+
+	// T9: Account-scoped token with account:* (token has specific account)
+	const tbAccountWildcard = await admin('POST', '/admin/keys', {
+		name: 'x',
+		upstream_token_id: cfUpstreamId,
+		policy: {
+			version: '2025-01-01',
+			statements: [{ effect: 'allow', actions: ['d1:*'], resources: ['account:*'] }],
+		},
+	});
+	assertStatus('account:* on non-wildcard account token -> 400', tbAccountWildcard, 400);
+	assertMatch('error mentions account:*', tbAccountWildcard.body?.errors?.[0]?.message ?? '', /account:\*/i);
+
+	// T10: Account-scoped token with wrong account ID
+	const tbWrongAccount = await admin('POST', '/admin/keys', {
+		name: 'x',
+		upstream_token_id: cfUpstreamId,
+		policy: {
+			version: '2025-01-01',
+			statements: [{ effect: 'allow', actions: ['d1:*'], resources: ['account:wrong_account_id_here'] }],
+		},
+	});
+	assertStatus('wrong account ID in resource -> 400', tbWrongAccount, 400);
+	assertMatch('error mentions account mismatch', tbWrongAccount.body?.errors?.[0]?.message ?? '', /does not match/i);
+
+	// T10b: Hierarchical resource with wrong account ID
+	const tbWrongAccountHier = await admin('POST', '/admin/keys', {
+		name: 'x',
+		upstream_token_id: cfUpstreamId,
+		policy: {
+			version: '2025-01-01',
+			statements: [{ effect: 'allow', actions: ['d1:*'], resources: ['account:wrong_id/d1/some-db'] }],
+		},
+	});
+	assertStatus('hierarchical resource wrong account -> 400', tbWrongAccountHier, 400);
+
+	// Happy path: correct account ID in hierarchical resource
+	const tbCorrectHier = await admin('POST', '/admin/keys', {
+		name: 'smoke-cf-binding-ok',
+		upstream_token_id: cfUpstreamId,
+		policy: {
+			version: '2025-01-01',
+			statements: [{ effect: 'allow', actions: ['d1:query'], resources: [`account:${ACCOUNT_ID}/d1/some-db`] }],
+		},
+	});
+	assertStatus('correct hierarchical resource -> 200', tbCorrectHier, 200);
+	const tbCorrectHierKeyId = tbCorrectHier.body?.result?.key?.id;
+	if (tbCorrectHierKeyId) state.createdKeys.push(tbCorrectHierKeyId);
 
 	// ─── Authentication ────────────────────────────────────────────
 

@@ -5,10 +5,12 @@
 
 import type { SmokeContext } from './helpers.js';
 import {
+	req,
 	admin,
 	section,
 	assertStatus,
 	assertJson,
+	assertMatch,
 	assertTruthy,
 	s3client,
 	s3req,
@@ -18,6 +20,7 @@ import {
 	red,
 	yellow,
 	BASE,
+	ADMIN_KEY,
 	R2_ACCESS_KEY,
 	R2_SECRET_KEY,
 	R2_ENDPOINT,
@@ -104,12 +107,131 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	assertStatus('get S3 credential -> 200', getCred, 200);
 	assertJson('get cred returns correct id', getCred.body?.result?.credential?.access_key_id, S3_FULL_AK);
 
-	// Validation
+	// --- Schema validation ---
+
 	const noCredName = await admin('POST', '/admin/s3/credentials', { policy: FULL_S3_POLICY, upstream_token_id: ctx.s3UpstreamId });
 	assertStatus('S3 cred missing name -> 400', noCredName, 400);
 
 	const noCredPol = await admin('POST', '/admin/s3/credentials', { name: 'x', upstream_token_id: ctx.s3UpstreamId });
 	assertStatus('S3 cred missing policy -> 400', noCredPol, 400);
+
+	const noCredToken = await admin('POST', '/admin/s3/credentials', { name: 'x', policy: FULL_S3_POLICY });
+	assertStatus('S3 cred missing upstream_token_id -> 400', noCredToken, 400);
+
+	const badCredVer = await admin('POST', '/admin/s3/credentials', {
+		name: 'x',
+		upstream_token_id: ctx.s3UpstreamId,
+		policy: { version: 'wrong', statements: [] },
+	});
+	assertStatus('S3 cred invalid policy version -> 400', badCredVer, 400);
+
+	const emptyCredStmt = await admin('POST', '/admin/s3/credentials', {
+		name: 'x',
+		upstream_token_id: ctx.s3UpstreamId,
+		policy: { version: '2025-01-01', statements: [] },
+	});
+	assertStatus('S3 cred empty statements -> 400', emptyCredStmt, 400);
+
+	const badCredJson = await req('POST', '/admin/s3/credentials', 'not json at all', {
+		'X-Admin-Key': ADMIN_KEY!,
+		'Content-Type': 'application/json',
+	});
+	assertStatus('S3 cred invalid JSON body -> 400', badCredJson, 400);
+
+	// --- R2 Binding validation ---
+
+	section('R2 Binding Validation');
+
+	// R1: Nonexistent upstream R2 endpoint
+	const r2NoEndpoint = await admin('POST', '/admin/s3/credentials', {
+		name: 'x',
+		upstream_token_id: 'upr2_does_not_exist_at_all',
+		policy: FULL_S3_POLICY,
+	});
+	assertStatus('nonexistent R2 endpoint -> 400', r2NoEndpoint, 400);
+	assertMatch('error mentions endpoint not found', r2NoEndpoint.body?.errors?.[0]?.message ?? '', /not found/i);
+
+	// R2: Non-S3 action
+	const r2WrongAction = await admin('POST', '/admin/s3/credentials', {
+		name: 'x',
+		upstream_token_id: ctx.s3UpstreamId,
+		policy: {
+			version: '2025-01-01',
+			statements: [{ effect: 'allow', actions: ['purge:host'], resources: ['account:*', 'bucket:*', 'object:*'] }],
+		},
+	});
+	assertStatus('S3 cred with non-S3 action -> 400', r2WrongAction, 400);
+	assertMatch('error mentions s3: prefix', r2WrongAction.body?.errors?.[0]?.message ?? '', /s3:/i);
+
+	// R3: Bare wildcard resource "*"
+	const r2BareWildcard = await admin('POST', '/admin/s3/credentials', {
+		name: 'x',
+		upstream_token_id: ctx.s3UpstreamId,
+		policy: { version: '2025-01-01', statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['*'] }] },
+	});
+	assertStatus('S3 cred bare wildcard resource -> 400', r2BareWildcard, 400);
+	assertMatch('error mentions wildcard not allowed', r2BareWildcard.body?.errors?.[0]?.message ?? '', /wildcard/i);
+
+	// R4: Bucket not in endpoint scope (endpoint has specific bucket)
+	const r2WrongBucket = await admin('POST', '/admin/s3/credentials', {
+		name: 'x',
+		upstream_token_id: ctx.s3UpstreamId,
+		policy: {
+			version: '2025-01-01',
+			statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['account:*', 'bucket:not-allowed-bucket', 'object:*'] }],
+		},
+	});
+	assertStatus('S3 cred wrong bucket -> 400', r2WrongBucket, 400);
+	assertMatch('error mentions bucket not covered', r2WrongBucket.body?.errors?.[0]?.message ?? '', /not covered/i);
+
+	// R4b: Object resource with wrong bucket
+	const r2WrongObjBucket = await admin('POST', '/admin/s3/credentials', {
+		name: 'x',
+		upstream_token_id: ctx.s3UpstreamId,
+		policy: {
+			version: '2025-01-01',
+			statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['account:*', 'object:wrong-bucket/key.txt'] }],
+		},
+	});
+	assertStatus('S3 cred object with wrong bucket -> 400', r2WrongObjBucket, 400);
+
+	// GAP 4 fix: Invalid resource prefix (zone:, foo:, etc.)
+	const r2InvalidPrefix = await admin('POST', '/admin/s3/credentials', {
+		name: 'x',
+		upstream_token_id: ctx.s3UpstreamId,
+		policy: {
+			version: '2025-01-01',
+			statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['zone:some-zone'] }],
+		},
+	});
+	assertStatus('S3 cred with zone: resource prefix -> 400', r2InvalidPrefix, 400);
+	assertMatch('error mentions valid prefixes', r2InvalidPrefix.body?.errors?.[0]?.message ?? '', /account:|bucket:|object:/i);
+
+	// Happy path: correct bucket name scoped
+	const r2CorrectBucket = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-bucket-scoped',
+		upstream_token_id: ctx.s3UpstreamId,
+		policy: {
+			version: '2025-01-01',
+			statements: [
+				{ effect: 'allow', actions: ['s3:*'], resources: ['account:*', `bucket:${S3_TEST_BUCKET}`, `object:${S3_TEST_BUCKET}/*`] },
+			],
+		},
+	});
+	assertStatus('S3 cred with correct bucket scope -> 200', r2CorrectBucket, 200);
+	const correctBucketAk = r2CorrectBucket.body?.result?.credential?.access_key_id;
+	if (correctBucketAk) state.createdS3Creds.push(correctBucketAk);
+
+	// Multiple errors in one request
+	const r2MultiError = await admin('POST', '/admin/s3/credentials', {
+		name: 'x',
+		upstream_token_id: ctx.s3UpstreamId,
+		policy: {
+			version: '2025-01-01',
+			statements: [{ effect: 'allow', actions: ['purge:host', 's3:GetObject'], resources: ['*', 'zone:foo'] }],
+		},
+	});
+	assertStatus('S3 cred multiple binding errors -> 400', r2MultiError, 400);
 
 	// ─── 16. S3 Operations (full-access) ────────────────────────
 
