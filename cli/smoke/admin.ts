@@ -234,6 +234,93 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	});
 	assertStatus('rate_limit exceeds account default -> 400', bigRate, 400);
 
+	// ─── 4b. Token Binding Validation (zone-scoped) ────────────────
+
+	section('Token Binding Validation (zone-scoped)');
+
+	// T1: Nonexistent upstream token
+	const tbNoToken = await admin('POST', '/admin/keys', {
+		name: 'x',
+		zone_id: ctx.ZONE,
+		upstream_token_id: 'upt_does_not_exist_at_all',
+		policy: { version: '2025-01-01', statements: [{ effect: 'allow', actions: ['purge:*'], resources: [`zone:${ctx.ZONE}`] }] },
+	});
+	assertStatus('nonexistent upstream_token_id -> 400', tbNoToken, 400);
+	assertMatch('error mentions token not found', tbNoToken.body?.errors?.[0]?.message ?? '', /not found/i);
+
+	// T2: Zone-scoped token with account-scoped action (d1:read)
+	const tbWrongAction = await admin('POST', '/admin/keys', {
+		name: 'x',
+		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
+		policy: { version: '2025-01-01', statements: [{ effect: 'allow', actions: ['d1:read'], resources: [`zone:${ctx.ZONE}`] }] },
+	});
+	assertStatus('zone token + account action (d1:read) -> 400', tbWrongAction, 400);
+	assertMatch('error mentions zone-scoped', tbWrongAction.body?.errors?.[0]?.message ?? '', /zone-scoped/i);
+
+	// T4: Bare wildcard resource "*"
+	const tbBareWildcard = await admin('POST', '/admin/keys', {
+		name: 'x',
+		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
+		policy: { version: '2025-01-01', statements: [{ effect: 'allow', actions: ['purge:*'], resources: ['*'] }] },
+	});
+	assertStatus('bare wildcard resource "*" -> 400', tbBareWildcard, 400);
+	assertMatch('error mentions wildcard not allowed', tbBareWildcard.body?.errors?.[0]?.message ?? '', /wildcard/i);
+
+	// T5: Zone-scoped token with account-prefixed resource
+	const tbWrongPrefix = await admin('POST', '/admin/keys', {
+		name: 'x',
+		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
+		policy: { version: '2025-01-01', statements: [{ effect: 'allow', actions: ['purge:*'], resources: ['account:abc123'] }] },
+	});
+	assertStatus('zone token + account resource -> 400', tbWrongPrefix, 400);
+	assertMatch('error mentions zone: prefix', tbWrongPrefix.body?.errors?.[0]?.message ?? '', /zone:/i);
+
+	// T6: Zone-scoped token (specific zones) with zone:* resource
+	const tbZoneWildcard = await admin('POST', '/admin/keys', {
+		name: 'x',
+		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
+		policy: { version: '2025-01-01', statements: [{ effect: 'allow', actions: ['purge:*'], resources: ['zone:*'] }] },
+	});
+	assertStatus('zone:* on non-wildcard token -> 400', tbZoneWildcard, 400);
+	assertMatch('error mentions zone:* not allowed', tbZoneWildcard.body?.errors?.[0]?.message ?? '', /zone:\*/i);
+
+	// T7: Zone-scoped token with wrong zone ID
+	const tbWrongZone = await admin('POST', '/admin/keys', {
+		name: 'x',
+		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
+		policy: {
+			version: '2025-01-01',
+			statements: [{ effect: 'allow', actions: ['purge:*'], resources: ['zone:aaaa1111bbbb2222cccc3333dddd4444'] }],
+		},
+	});
+	assertStatus('zone not in token scope -> 400', tbWrongZone, 400);
+	assertMatch('error mentions zone not covered', tbWrongZone.body?.errors?.[0]?.message ?? '', /not covered/i);
+
+	// Missing upstream_token_id entirely
+	const tbMissingToken = await admin('POST', '/admin/keys', {
+		name: 'x',
+		zone_id: ctx.ZONE,
+		policy: { version: '2025-01-01', statements: [{ effect: 'allow', actions: ['purge:*'], resources: [`zone:${ctx.ZONE}`] }] },
+	});
+	assertStatus('missing upstream_token_id -> 400', tbMissingToken, 400);
+
+	// Multiple errors in one request (wrong action + wrong resource)
+	const tbMultiError = await admin('POST', '/admin/keys', {
+		name: 'x',
+		zone_id: ctx.ZONE,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
+		policy: {
+			version: '2025-01-01',
+			statements: [{ effect: 'allow', actions: ['d1:read', 'kv:list'], resources: ['account:abc123', '*'] }],
+		},
+	});
+	assertStatus('multiple binding errors -> 400', tbMultiError, 400);
+
 	// ─── 5. List Keys ───────────────────────────────────────────────
 
 	section('List Keys');

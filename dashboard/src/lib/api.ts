@@ -303,6 +303,7 @@ export interface S3Credential {
 
 export interface CreateS3CredentialRequest {
 	name: string;
+	upstream_token_id: string;
 	policy: PolicyDocument;
 	expires_in_days?: number;
 	created_by?: string;
