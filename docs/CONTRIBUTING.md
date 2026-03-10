@@ -276,7 +276,7 @@ npm run smoke
 
 Note: when running a single worker test file you do NOT need `-c vitest.worker.config.ts` because the default workspace config includes the worker project. For CLI tests you DO need `-c vitest.cli.config.ts`.
 
-Smoke tests (`npm run smoke`) run against a live Gatekeeper instance and cover purge, S3 proxy, DNS proxy, CF proxy (`cf-proxy.ts`), analytics, bulk operations, config, and dashboard endpoints. All resources created during smoke tests (keys, S3 credentials, upstream tokens, upstream R2, DNS records, D1 databases, KV namespaces, config overrides, etc.) are tracked in `state` arrays and cleaned up in the orchestrator's `finally` block, even on crash.
+Smoke tests (`npm run smoke`) run against a live Gatekeeper instance and cover purge, S3 proxy, DNS proxy, CF proxy (`cf-proxy.ts`), analytics, bulk operations, config, and dashboard endpoints. Tests include granular policy enforcement: per-tag/host/prefix/URL-path scoping with wildcard/regex/set operators, cache-key header conditions, `url.query` param matching, cross-field AND conditions (host + path + header), Worker script-scoped keys, D1 `sql_command` conditions, KV `key_name` prefix conditions, S3 object-level/key-extension/key-prefix/filename conditions, multi-directory deny overlaps, and cross-service policies. All resources created during smoke tests (keys, S3 credentials, upstream tokens, upstream R2, DNS records, D1 databases, KV namespaces, config overrides, etc.) are tracked in `state` arrays and cleaned up in the orchestrator's `finally` block, even on crash.
 
 ### Test Conventions
 

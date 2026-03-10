@@ -220,6 +220,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	});
 	assertStatus('S3 cred with correct bucket scope -> 200', r2CorrectBucket, 200);
 	const correctBucketAk = r2CorrectBucket.body?.result?.credential?.access_key_id;
+	const correctBucketSk = r2CorrectBucket.body?.result?.credential?.secret_access_key;
 	if (correctBucketAk) state.createdS3Creds.push(correctBucketAk);
 
 	// Multiple errors in one request
@@ -833,7 +834,1062 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const s3HdIdx = state.createdS3Creds.indexOf(HD_S3_AK);
 	if (s3HdIdx >= 0) state.createdS3Creds.splice(s3HdIdx, 1);
 
-	// ─── 19. S3 Analytics ───────────────────────────────────────
+	// ─── 19. S3 Resource Scoping at Runtime ─────────────────────
+
+	section('S3 Resource Scoping');
+
+	// 1c. Bucket-scoped credential — wrong bucket should be 403
+	// Uses the bucket-scoped credential created in the R2 Binding Validation section
+	if (correctBucketAk && correctBucketSk) {
+		const bucketScopedClient = s3client(correctBucketAk, correctBucketSk);
+
+		// ListObjectsV2 on the correct bucket -> 200
+		const bsListOk = await s3req(bucketScopedClient, 'GET', `/${S3_TEST_BUCKET}?list-type=2&max-keys=1`);
+		if (bsListOk.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  bucket-scoped: list correct bucket -> ${bsListOk.status} (not 403)`);
+		} else {
+			state.fail++;
+			state.errors.push('bucket-scoped: list correct bucket should not be 403');
+			console.log(`  ${red('FAIL')}  bucket-scoped: list correct bucket got 403`);
+		}
+
+		// ListObjectsV2 on a wrong bucket -> 403
+		const bsListBad = await s3req(bucketScopedClient, 'GET', '/wrong-bucket-name?list-type=2&max-keys=1');
+		if (bsListBad.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  bucket-scoped: list wrong bucket -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`bucket-scoped: list wrong bucket should be 403, got ${bsListBad.status}`);
+			console.log(`  ${red('FAIL')}  bucket-scoped: list wrong bucket (got ${bsListBad.status})`);
+		}
+
+		// GetObject from correct bucket -> not 403 (404 if key doesn't exist, that's fine)
+		const bsGetOk = await s3req(bucketScopedClient, 'GET', `/${S3_TEST_BUCKET}/nonexistent-scope-test.txt`);
+		if (bsGetOk.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  bucket-scoped: get from correct bucket -> ${bsGetOk.status} (not 403)`);
+		} else {
+			state.fail++;
+			state.errors.push('bucket-scoped: get from correct bucket should not be 403');
+			console.log(`  ${red('FAIL')}  bucket-scoped: get from correct bucket got 403`);
+		}
+
+		// GetObject from wrong bucket -> 403
+		const bsGetBad = await s3req(bucketScopedClient, 'GET', '/wrong-bucket-name/some-key.txt');
+		if (bsGetBad.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  bucket-scoped: get from wrong bucket -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`bucket-scoped: get from wrong bucket should be 403, got ${bsGetBad.status}`);
+			console.log(`  ${red('FAIL')}  bucket-scoped: get from wrong bucket (got ${bsGetBad.status})`);
+		}
+	}
+
+	// 1d. Object-prefix-scoped credential — wrong prefix should be 403
+	section('S3 Prefix Scoping');
+
+	const PREFIX_S3_POLICY = {
+		version: '2025-01-01',
+		statements: [
+			{
+				effect: 'allow',
+				actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket'],
+				resources: ['account:*', `bucket:${S3_TEST_BUCKET}`, `object:${S3_TEST_BUCKET}/images/*`],
+			},
+		],
+	};
+	const prefixCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-prefix-scoped',
+		policy: PREFIX_S3_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
+	assertStatus('create prefix-scoped S3 cred -> 200', prefixCred, 200);
+	const prefixAk = prefixCred.body?.result?.credential?.access_key_id;
+	const prefixSk = prefixCred.body?.result?.credential?.secret_access_key;
+	if (prefixAk) state.createdS3Creds.push(prefixAk);
+
+	if (prefixAk && prefixSk) {
+		const prefixClient = s3client(prefixAk, prefixSk);
+
+		// PutObject to images/smoke-test.jpg -> 200
+		const pfPutOkUrl = `${BASE}/s3/${S3_TEST_BUCKET}/images/smoke-test-${Date.now()}.jpg`;
+		const pfPutOkSigned = await prefixClient.sign(pfPutOkUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'image/jpeg' },
+			body: 'fake image data',
+		});
+		const pfPutOkRes = await fetch(pfPutOkSigned);
+		if (pfPutOkRes.ok) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  prefix-scoped: put to images/ -> ${pfPutOkRes.status}`);
+		} else {
+			state.fail++;
+			state.errors.push(`prefix-scoped: put to images/ should succeed, got ${pfPutOkRes.status}`);
+			console.log(`  ${red('FAIL')}  prefix-scoped: put to images/ (got ${pfPutOkRes.status})`);
+		}
+		// Clean up the object we just created
+		const pfCleanUrl = pfPutOkUrl;
+		try {
+			const cleanSigned = await fullClient.sign(pfCleanUrl, {
+				method: 'DELETE',
+				headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+			});
+			await fetch(cleanSigned);
+		} catch {
+			/* best effort */
+		}
+
+		// GetObject from images/ -> not 403
+		const pfGetOk = await s3req(prefixClient, 'GET', `/${S3_TEST_BUCKET}/images/nonexistent.jpg`);
+		if (pfGetOk.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  prefix-scoped: get from images/ -> ${pfGetOk.status} (not 403)`);
+		} else {
+			state.fail++;
+			state.errors.push('prefix-scoped: get from images/ should not be 403');
+			console.log(`  ${red('FAIL')}  prefix-scoped: get from images/ got 403`);
+		}
+
+		// GetObject from secrets/ -> 403
+		const pfGetBad = await s3req(prefixClient, 'GET', `/${S3_TEST_BUCKET}/secrets/forbidden.txt`);
+		if (pfGetBad.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  prefix-scoped: get from secrets/ -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`prefix-scoped: get from secrets/ should be 403, got ${pfGetBad.status}`);
+			console.log(`  ${red('FAIL')}  prefix-scoped: get from secrets/ (got ${pfGetBad.status})`);
+		}
+
+		// PutObject to secrets/ -> 403
+		const pfPutBadUrl = `${BASE}/s3/${S3_TEST_BUCKET}/secrets/forbidden-${Date.now()}.txt`;
+		const pfPutBadSigned = await prefixClient.sign(pfPutBadUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: 'should be denied',
+		});
+		const pfPutBadRes = await fetch(pfPutBadSigned);
+		if (pfPutBadRes.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  prefix-scoped: put to secrets/ -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`prefix-scoped: put to secrets/ should be 403, got ${pfPutBadRes.status}`);
+			console.log(`  ${red('FAIL')}  prefix-scoped: put to secrets/ (got ${pfPutBadRes.status})`);
+		}
+		if (pfPutBadRes.body && !pfPutBadRes.bodyUsed) await pfPutBadRes.text().catch(() => {});
+	}
+
+	// 7a. S3 resource-scoped deny: allow bucket-wide, deny GetObject on secrets/ prefix
+	section('S3 Resource-Scoped Deny');
+
+	const DENY_PREFIX_POLICY = {
+		version: '2025-01-01',
+		statements: [
+			{ effect: 'allow', actions: ['s3:*'], resources: ['account:*', `bucket:${S3_TEST_BUCKET}`, `object:${S3_TEST_BUCKET}/*`] },
+			{ effect: 'deny', actions: ['s3:GetObject'], resources: [`object:${S3_TEST_BUCKET}/secrets/*`] },
+		],
+	};
+	const denyPrefixCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-deny-prefix',
+		policy: DENY_PREFIX_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
+	assertStatus('create deny-prefix S3 cred -> 200', denyPrefixCred, 200);
+	const dpfAk = denyPrefixCred.body?.result?.credential?.access_key_id;
+	const dpfSk = denyPrefixCred.body?.result?.credential?.secret_access_key;
+	if (dpfAk) state.createdS3Creds.push(dpfAk);
+
+	if (dpfAk && dpfSk) {
+		const dpfClient = s3client(dpfAk, dpfSk);
+
+		// PutObject to public/test.txt -> 200 (deny doesn't cover PutObject)
+		const dpfPutPubTs = Date.now();
+		const dpfPutPubUrl = `${BASE}/s3/${S3_TEST_BUCKET}/public/test-${dpfPutPubTs}.txt`;
+		const dpfPutPubSigned = await dpfClient.sign(dpfPutPubUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: 'public content',
+		});
+		const dpfPutPubRes = await fetch(dpfPutPubSigned);
+		if (dpfPutPubRes.ok) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  deny-prefix: put to public/ -> ${dpfPutPubRes.status}`);
+		} else {
+			state.fail++;
+			state.errors.push(`deny-prefix: put to public/ should succeed, got ${dpfPutPubRes.status}`);
+			console.log(`  ${red('FAIL')}  deny-prefix: put to public/ (got ${dpfPutPubRes.status})`);
+		}
+
+		// GetObject from public/test.txt -> 200 (deny resource doesn't match public/)
+		const dpfGetPub = await s3req(dpfClient, 'GET', `/${S3_TEST_BUCKET}/public/test-${dpfPutPubTs}.txt`);
+		if (dpfGetPub.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  deny-prefix: get from public/ -> ${dpfGetPub.status} (not 403)`);
+		} else {
+			state.fail++;
+			state.errors.push('deny-prefix: get from public/ should not be 403');
+			console.log(`  ${red('FAIL')}  deny-prefix: get from public/ got 403`);
+		}
+
+		// PutObject to secrets/key.txt -> 200 (deny only covers s3:GetObject, not PutObject)
+		const dpfPutSecTs = Date.now();
+		const dpfPutSecUrl = `${BASE}/s3/${S3_TEST_BUCKET}/secrets/key-${dpfPutSecTs}.txt`;
+		const dpfPutSecSigned = await dpfClient.sign(dpfPutSecUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: 'secret content',
+		});
+		const dpfPutSecRes = await fetch(dpfPutSecSigned);
+		if (dpfPutSecRes.ok) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  deny-prefix: put to secrets/ -> ${dpfPutSecRes.status} (deny is GetObject only)`);
+		} else {
+			state.fail++;
+			state.errors.push(`deny-prefix: put to secrets/ should succeed, got ${dpfPutSecRes.status}`);
+			console.log(`  ${red('FAIL')}  deny-prefix: put to secrets/ (got ${dpfPutSecRes.status})`);
+		}
+
+		// GetObject from secrets/key.txt -> 403 (deny matches: s3:GetObject + object:bucket/secrets/*)
+		const dpfGetSec = await s3req(dpfClient, 'GET', `/${S3_TEST_BUCKET}/secrets/key-${dpfPutSecTs}.txt`);
+		if (dpfGetSec.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  deny-prefix: get from secrets/ -> 403 (deny fires)`);
+		} else {
+			state.fail++;
+			state.errors.push(`deny-prefix: get from secrets/ should be 403, got ${dpfGetSec.status}`);
+			console.log(`  ${red('FAIL')}  deny-prefix: get from secrets/ (got ${dpfGetSec.status})`);
+		}
+
+		// Clean up test objects with full-access client
+		for (const cleanPath of [
+			`/s3/${S3_TEST_BUCKET}/public/test-${dpfPutPubTs}.txt`,
+			`/s3/${S3_TEST_BUCKET}/secrets/key-${dpfPutSecTs}.txt`,
+		]) {
+			try {
+				const cleanUrl = `${BASE}${cleanPath}`;
+				const cleanSigned = await fullClient.sign(cleanUrl, {
+					method: 'DELETE',
+					headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+				});
+				await fetch(cleanSigned);
+			} catch {
+				/* best effort */
+			}
+		}
+	}
+
+	// ─── 20. S3 Exact Object Key Scoping ───────────────────────
+
+	section('S3 Exact Object Key Scoping');
+
+	// Credential scoped to a single exact object — not a prefix, one specific key
+	const EXACT_OBJ_POLICY = {
+		version: '2025-01-01',
+		statements: [
+			{
+				effect: 'allow',
+				actions: ['s3:GetObject', 's3:PutObject'],
+				resources: [`object:${S3_TEST_BUCKET}/config/app.json`],
+			},
+		],
+	};
+	const exactObjCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-exact-obj',
+		policy: EXACT_OBJ_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
+	assertStatus('create exact-object S3 cred -> 200', exactObjCred, 200);
+	const eoAk = exactObjCred.body?.result?.credential?.access_key_id;
+	const eoSk = exactObjCred.body?.result?.credential?.secret_access_key;
+	if (eoAk) state.createdS3Creds.push(eoAk);
+
+	if (eoAk && eoSk) {
+		const eoClient = s3client(eoAk, eoSk);
+
+		// Put to exact key -> 200
+		const eoPutOkUrl = `${BASE}/s3/${S3_TEST_BUCKET}/config/app.json`;
+		const eoPutSigned = await eoClient.sign(eoPutOkUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'application/json' },
+			body: '{"env":"test"}',
+		});
+		const eoPutRes = await fetch(eoPutSigned);
+		if (eoPutRes.ok) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  exact-obj: put config/app.json -> ${eoPutRes.status}`);
+		} else {
+			state.fail++;
+			state.errors.push(`exact-obj: put config/app.json should succeed, got ${eoPutRes.status}`);
+			console.log(`  ${red('FAIL')}  exact-obj: put config/app.json (got ${eoPutRes.status})`);
+		}
+
+		// Get exact key -> not 403
+		const eoGetOk = await s3req(eoClient, 'GET', `/${S3_TEST_BUCKET}/config/app.json`);
+		if (eoGetOk.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  exact-obj: get config/app.json -> ${eoGetOk.status} (not 403)`);
+		} else {
+			state.fail++;
+			state.errors.push('exact-obj: get config/app.json should not be 403');
+			console.log(`  ${red('FAIL')}  exact-obj: get config/app.json got 403`);
+		}
+
+		// Get a different key in same directory -> 403
+		const eoGetBad = await s3req(eoClient, 'GET', `/${S3_TEST_BUCKET}/config/db.json`);
+		if (eoGetBad.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  exact-obj: get config/db.json -> 403 (different key)`);
+		} else {
+			state.fail++;
+			state.errors.push(`exact-obj: get config/db.json should be 403, got ${eoGetBad.status}`);
+			console.log(`  ${red('FAIL')}  exact-obj: get config/db.json (got ${eoGetBad.status})`);
+		}
+
+		// Get a key in a completely different path -> 403
+		const eoGetOther = await s3req(eoClient, 'GET', `/${S3_TEST_BUCKET}/data/report.csv`);
+		if (eoGetOther.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  exact-obj: get data/report.csv -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`exact-obj: get data/report.csv should be 403, got ${eoGetOther.status}`);
+			console.log(`  ${red('FAIL')}  exact-obj: get data/report.csv (got ${eoGetOther.status})`);
+		}
+
+		// ListBuckets -> 403 (no account:* resource)
+		const eoLb = await s3req(eoClient, 'GET', '/');
+		if (eoLb.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  exact-obj: ListBuckets -> 403 (no account:*)`);
+		} else {
+			state.fail++;
+			state.errors.push(`exact-obj: ListBuckets should be 403, got ${eoLb.status}`);
+			console.log(`  ${red('FAIL')}  exact-obj: ListBuckets (got ${eoLb.status})`);
+		}
+
+		// Clean up
+		try {
+			const cleanSigned = await fullClient.sign(eoPutOkUrl, {
+				method: 'DELETE',
+				headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+			});
+			await fetch(cleanSigned);
+		} catch {
+			/* best effort */
+		}
+	}
+
+	// ─── 21. S3 Multiple Prefix Patterns ────────────────────────
+
+	section('S3 Multiple Prefix Patterns');
+
+	// Credential that allows images/* and docs/* but NOT secrets/* or anything else
+	const MULTI_PREFIX_POLICY = {
+		version: '2025-01-01',
+		statements: [
+			{
+				effect: 'allow',
+				actions: ['s3:GetObject', 's3:PutObject'],
+				resources: [`object:${S3_TEST_BUCKET}/images/*`, `object:${S3_TEST_BUCKET}/docs/*`],
+			},
+			{
+				effect: 'allow',
+				actions: ['s3:ListBucket'],
+				resources: [`bucket:${S3_TEST_BUCKET}`],
+			},
+		],
+	};
+	const mpCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-multi-prefix',
+		policy: MULTI_PREFIX_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
+	assertStatus('create multi-prefix S3 cred -> 200', mpCred, 200);
+	const mpAk = mpCred.body?.result?.credential?.access_key_id;
+	const mpSk = mpCred.body?.result?.credential?.secret_access_key;
+	if (mpAk) state.createdS3Creds.push(mpAk);
+
+	if (mpAk && mpSk) {
+		const mpClient = s3client(mpAk, mpSk);
+
+		// Get from images/ -> not 403
+		const mpImgOk = await s3req(mpClient, 'GET', `/${S3_TEST_BUCKET}/images/photo.jpg`);
+		if (mpImgOk.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  multi-prefix: get images/ -> ${mpImgOk.status} (not 403)`);
+		} else {
+			state.fail++;
+			state.errors.push('multi-prefix: get images/ should not be 403');
+			console.log(`  ${red('FAIL')}  multi-prefix: get images/ got 403`);
+		}
+
+		// Get from docs/ -> not 403
+		const mpDocsOk = await s3req(mpClient, 'GET', `/${S3_TEST_BUCKET}/docs/readme.md`);
+		if (mpDocsOk.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  multi-prefix: get docs/ -> ${mpDocsOk.status} (not 403)`);
+		} else {
+			state.fail++;
+			state.errors.push('multi-prefix: get docs/ should not be 403');
+			console.log(`  ${red('FAIL')}  multi-prefix: get docs/ got 403`);
+		}
+
+		// Get from secrets/ -> 403
+		const mpSecBad = await s3req(mpClient, 'GET', `/${S3_TEST_BUCKET}/secrets/token.txt`);
+		if (mpSecBad.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  multi-prefix: get secrets/ -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`multi-prefix: get secrets/ should be 403, got ${mpSecBad.status}`);
+			console.log(`  ${red('FAIL')}  multi-prefix: get secrets/ (got ${mpSecBad.status})`);
+		}
+
+		// Get from root-level key -> 403
+		const mpRootBad = await s3req(mpClient, 'GET', `/${S3_TEST_BUCKET}/root-file.txt`);
+		if (mpRootBad.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  multi-prefix: get root-level key -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`multi-prefix: get root-level key should be 403, got ${mpRootBad.status}`);
+			console.log(`  ${red('FAIL')}  multi-prefix: get root-level (got ${mpRootBad.status})`);
+		}
+
+		// List bucket -> 200 (has bucket resource)
+		const mpListOk = await s3req(mpClient, 'GET', `/${S3_TEST_BUCKET}?list-type=2&max-keys=1`);
+		if (mpListOk.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  multi-prefix: list bucket -> ${mpListOk.status} (not 403)`);
+		} else {
+			state.fail++;
+			state.errors.push('multi-prefix: list bucket should not be 403');
+			console.log(`  ${red('FAIL')}  multi-prefix: list bucket got 403`);
+		}
+	}
+
+	// ─── 22. S3 Key Extension Condition ─────────────────────────
+
+	section('S3 Key Extension Condition');
+
+	// Allow PutObject only for .jpg and .png files
+	const EXT_POLICY = {
+		version: '2025-01-01',
+		statements: [
+			{
+				effect: 'allow',
+				actions: ['s3:PutObject', 's3:GetObject'],
+				resources: ['account:*', `bucket:${S3_TEST_BUCKET}`, `object:${S3_TEST_BUCKET}/*`],
+				conditions: [{ field: 'key.extension', operator: 'in', value: ['jpg', 'png', 'webp'] }],
+			},
+		],
+	};
+	const extCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-ext-cond',
+		policy: EXT_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
+	assertStatus('create extension-condition S3 cred -> 200', extCred, 200);
+	const extAk = extCred.body?.result?.credential?.access_key_id;
+	const extSk = extCred.body?.result?.credential?.secret_access_key;
+	if (extAk) state.createdS3Creds.push(extAk);
+
+	if (extAk && extSk) {
+		const extClient = s3client(extAk, extSk);
+
+		// Put .jpg -> 200
+		const extPutJpgUrl = `${BASE}/s3/${S3_TEST_BUCKET}/uploads/photo-${Date.now()}.jpg`;
+		const extPutJpgSigned = await extClient.sign(extPutJpgUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'image/jpeg' },
+			body: 'fake jpg',
+		});
+		const extPutJpgRes = await fetch(extPutJpgSigned);
+		if (extPutJpgRes.ok) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  ext-cond: put .jpg -> ${extPutJpgRes.status}`);
+		} else {
+			state.fail++;
+			state.errors.push(`ext-cond: put .jpg should succeed, got ${extPutJpgRes.status}`);
+			console.log(`  ${red('FAIL')}  ext-cond: put .jpg (got ${extPutJpgRes.status})`);
+		}
+		// Clean up
+		try {
+			const cs = await fullClient.sign(extPutJpgUrl, {
+				method: 'DELETE',
+				headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+			});
+			await fetch(cs);
+		} catch {
+			/* best effort */
+		}
+
+		// Put .txt -> 403 (extension not in allowed set)
+		const extPutTxtUrl = `${BASE}/s3/${S3_TEST_BUCKET}/uploads/doc-${Date.now()}.txt`;
+		const extPutTxtSigned = await extClient.sign(extPutTxtUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: 'not allowed',
+		});
+		const extPutTxtRes = await fetch(extPutTxtSigned);
+		if (extPutTxtRes.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  ext-cond: put .txt -> 403 (wrong extension)`);
+		} else {
+			state.fail++;
+			state.errors.push(`ext-cond: put .txt should be 403, got ${extPutTxtRes.status}`);
+			console.log(`  ${red('FAIL')}  ext-cond: put .txt (got ${extPutTxtRes.status})`);
+		}
+		if (extPutTxtRes.body && !extPutTxtRes.bodyUsed) await extPutTxtRes.text().catch(() => {});
+
+		// Get .png -> not 403
+		const extGetPng = await s3req(extClient, 'GET', `/${S3_TEST_BUCKET}/images/logo.png`);
+		if (extGetPng.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  ext-cond: get .png -> ${extGetPng.status} (not 403)`);
+		} else {
+			state.fail++;
+			state.errors.push('ext-cond: get .png should not be 403');
+			console.log(`  ${red('FAIL')}  ext-cond: get .png got 403`);
+		}
+
+		// Get .exe -> 403
+		const extGetExe = await s3req(extClient, 'GET', `/${S3_TEST_BUCKET}/bin/malware.exe`);
+		if (extGetExe.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  ext-cond: get .exe -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`ext-cond: get .exe should be 403, got ${extGetExe.status}`);
+			console.log(`  ${red('FAIL')}  ext-cond: get .exe (got ${extGetExe.status})`);
+		}
+	}
+
+	// ─── 23. S3 Key Prefix Condition ────────────────────────────
+
+	section('S3 Key Prefix Condition');
+
+	// Allow all s3 ops but only on keys under uploads/ directory (using key.prefix field)
+	const KEY_PREFIX_POLICY = {
+		version: '2025-01-01',
+		statements: [
+			{
+				effect: 'allow',
+				actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
+				resources: ['account:*', `bucket:${S3_TEST_BUCKET}`, `object:${S3_TEST_BUCKET}/*`],
+				conditions: [{ field: 'key.prefix', operator: 'eq', value: 'uploads/' }],
+			},
+		],
+	};
+	const kpCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-key-prefix',
+		policy: KEY_PREFIX_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
+	assertStatus('create key-prefix S3 cred -> 200', kpCred, 200);
+	const kpAk = kpCred.body?.result?.credential?.access_key_id;
+	const kpSk = kpCred.body?.result?.credential?.secret_access_key;
+	if (kpAk) state.createdS3Creds.push(kpAk);
+
+	if (kpAk && kpSk) {
+		const kpClient = s3client(kpAk, kpSk);
+
+		// Get from uploads/ -> not 403
+		const kpGetOk = await s3req(kpClient, 'GET', `/${S3_TEST_BUCKET}/uploads/file.txt`);
+		if (kpGetOk.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  key-prefix: get uploads/file.txt -> ${kpGetOk.status} (not 403)`);
+		} else {
+			state.fail++;
+			state.errors.push('key-prefix: get uploads/file.txt should not be 403');
+			console.log(`  ${red('FAIL')}  key-prefix: get uploads/file.txt got 403`);
+		}
+
+		// Get from downloads/ -> 403 (different prefix)
+		const kpGetBad = await s3req(kpClient, 'GET', `/${S3_TEST_BUCKET}/downloads/file.txt`);
+		if (kpGetBad.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  key-prefix: get downloads/file.txt -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`key-prefix: get downloads/file.txt should be 403, got ${kpGetBad.status}`);
+			console.log(`  ${red('FAIL')}  key-prefix: get downloads/file.txt (got ${kpGetBad.status})`);
+		}
+
+		// Get root-level key (no prefix) -> 403
+		const kpGetRoot = await s3req(kpClient, 'GET', `/${S3_TEST_BUCKET}/root.txt`);
+		if (kpGetRoot.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  key-prefix: get root.txt (no prefix) -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`key-prefix: get root.txt should be 403, got ${kpGetRoot.status}`);
+			console.log(`  ${red('FAIL')}  key-prefix: get root.txt (got ${kpGetRoot.status})`);
+		}
+	}
+
+	// ─── 24. S3 Nested Directory Deny ───────────────────────────
+
+	section('S3 Nested Directory Deny');
+
+	// Allow s3:* on bucket, deny GetObject + PutObject on secrets/** AND deny DeleteObject on archive/**
+	const NESTED_DENY_POLICY = {
+		version: '2025-01-01',
+		statements: [
+			{
+				effect: 'allow',
+				actions: ['s3:*'],
+				resources: ['account:*', `bucket:${S3_TEST_BUCKET}`, `object:${S3_TEST_BUCKET}/*`],
+			},
+			{
+				effect: 'deny',
+				actions: ['s3:GetObject', 's3:PutObject'],
+				resources: [`object:${S3_TEST_BUCKET}/secrets/*`],
+			},
+			{
+				effect: 'deny',
+				actions: ['s3:DeleteObject'],
+				resources: [`object:${S3_TEST_BUCKET}/archive/*`],
+			},
+		],
+	};
+	const ndCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-nested-deny',
+		policy: NESTED_DENY_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
+	assertStatus('create nested-deny S3 cred -> 200', ndCred, 200);
+	const ndAk = ndCred.body?.result?.credential?.access_key_id;
+	const ndSk = ndCred.body?.result?.credential?.secret_access_key;
+	if (ndAk) state.createdS3Creds.push(ndAk);
+
+	if (ndAk && ndSk) {
+		const ndClient = s3client(ndAk, ndSk);
+
+		// GetObject from public/ -> not 403 (no deny matches)
+		const ndGetPub = await s3req(ndClient, 'GET', `/${S3_TEST_BUCKET}/public/page.html`);
+		if (ndGetPub.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  nested-deny: get public/ -> ${ndGetPub.status} (allowed)`);
+		} else {
+			state.fail++;
+			state.errors.push('nested-deny: get public/ should not be 403');
+			console.log(`  ${red('FAIL')}  nested-deny: get public/ got 403`);
+		}
+
+		// GetObject from secrets/ -> 403
+		const ndGetSec = await s3req(ndClient, 'GET', `/${S3_TEST_BUCKET}/secrets/api-key.txt`);
+		if (ndGetSec.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  nested-deny: get secrets/ -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`nested-deny: get secrets/ should be 403, got ${ndGetSec.status}`);
+			console.log(`  ${red('FAIL')}  nested-deny: get secrets/ (got ${ndGetSec.status})`);
+		}
+
+		// PutObject to secrets/ -> 403
+		const ndPutSecUrl = `${BASE}/s3/${S3_TEST_BUCKET}/secrets/new-${Date.now()}.txt`;
+		const ndPutSecSigned = await ndClient.sign(ndPutSecUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: 'denied',
+		});
+		const ndPutSecRes = await fetch(ndPutSecSigned);
+		if (ndPutSecRes.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  nested-deny: put secrets/ -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`nested-deny: put secrets/ should be 403, got ${ndPutSecRes.status}`);
+			console.log(`  ${red('FAIL')}  nested-deny: put secrets/ (got ${ndPutSecRes.status})`);
+		}
+		if (ndPutSecRes.body && !ndPutSecRes.bodyUsed) await ndPutSecRes.text().catch(() => {});
+
+		// DeleteObject from secrets/ -> not 403 (deny is only GetObject+PutObject on secrets)
+		const ndDelSec = await s3req(ndClient, 'DELETE', `/${S3_TEST_BUCKET}/secrets/nonexistent.txt`);
+		if (ndDelSec.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  nested-deny: delete secrets/ -> ${ndDelSec.status} (delete not denied)`);
+		} else {
+			state.fail++;
+			state.errors.push('nested-deny: delete secrets/ should not be 403 (only get+put denied)');
+			console.log(`  ${red('FAIL')}  nested-deny: delete secrets/ got 403`);
+		}
+
+		// DeleteObject from archive/ -> 403
+		const ndDelArch = await s3req(ndClient, 'DELETE', `/${S3_TEST_BUCKET}/archive/old-report.pdf`);
+		if (ndDelArch.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  nested-deny: delete archive/ -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`nested-deny: delete archive/ should be 403, got ${ndDelArch.status}`);
+			console.log(`  ${red('FAIL')}  nested-deny: delete archive/ (got ${ndDelArch.status})`);
+		}
+
+		// PutObject to archive/ -> not 403 (deny is only DeleteObject on archive)
+		const ndPutArchUrl = `${BASE}/s3/${S3_TEST_BUCKET}/archive/new-${Date.now()}.txt`;
+		const ndPutArchSigned = await ndClient.sign(ndPutArchUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: 'allowed',
+		});
+		const ndPutArchRes = await fetch(ndPutArchSigned);
+		if (ndPutArchRes.ok) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  nested-deny: put archive/ -> ${ndPutArchRes.status} (not denied)`);
+		} else {
+			state.fail++;
+			state.errors.push(`nested-deny: put archive/ should succeed, got ${ndPutArchRes.status}`);
+			console.log(`  ${red('FAIL')}  nested-deny: put archive/ (got ${ndPutArchRes.status})`);
+		}
+		// Clean up
+		try {
+			const cs = await fullClient.sign(ndPutArchUrl, {
+				method: 'DELETE',
+				headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+			});
+			await fetch(cs);
+		} catch {
+			/* best effort */
+		}
+
+		// ListBuckets -> 200 (has account:*)
+		const ndLb = await s3req(ndClient, 'GET', '/');
+		if (ndLb.status === 200) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  nested-deny: ListBuckets -> 200`);
+		} else {
+			state.fail++;
+			state.errors.push(`nested-deny: ListBuckets should be 200, got ${ndLb.status}`);
+			console.log(`  ${red('FAIL')}  nested-deny: ListBuckets (got ${ndLb.status})`);
+		}
+	}
+
+	// ─── 25. S3 Deny by Extension (no .exe, .sh, .bat) ─────────
+
+	section('S3 Deny by Extension');
+
+	const DENY_EXT_POLICY = {
+		version: '2025-01-01',
+		statements: [
+			{
+				effect: 'allow',
+				actions: ['s3:*'],
+				resources: ['account:*', `bucket:${S3_TEST_BUCKET}`, `object:${S3_TEST_BUCKET}/*`],
+			},
+			{
+				effect: 'deny',
+				actions: ['s3:PutObject'],
+				resources: [`object:${S3_TEST_BUCKET}/*`],
+				conditions: [{ field: 'key.extension', operator: 'in', value: ['exe', 'sh', 'bat'] }],
+			},
+		],
+	};
+	const deCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-deny-ext',
+		policy: DENY_EXT_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
+	assertStatus('create deny-extension S3 cred -> 200', deCred, 200);
+	const deAk = deCred.body?.result?.credential?.access_key_id;
+	const deSk = deCred.body?.result?.credential?.secret_access_key;
+	if (deAk) state.createdS3Creds.push(deAk);
+
+	if (deAk && deSk) {
+		const deClient = s3client(deAk, deSk);
+
+		// Put .txt -> 200
+		const dePutTxtTs = Date.now();
+		const dePutTxtUrl = `${BASE}/s3/${S3_TEST_BUCKET}/safe-${dePutTxtTs}.txt`;
+		const dePutTxtSigned = await deClient.sign(dePutTxtUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: 'safe file',
+		});
+		const dePutTxtRes = await fetch(dePutTxtSigned);
+		if (dePutTxtRes.ok) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  deny-ext: put .txt -> ${dePutTxtRes.status}`);
+		} else {
+			state.fail++;
+			state.errors.push(`deny-ext: put .txt should succeed, got ${dePutTxtRes.status}`);
+			console.log(`  ${red('FAIL')}  deny-ext: put .txt (got ${dePutTxtRes.status})`);
+		}
+		// Clean up
+		try {
+			const cs = await fullClient.sign(dePutTxtUrl, {
+				method: 'DELETE',
+				headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+			});
+			await fetch(cs);
+		} catch {
+			/* best effort */
+		}
+
+		// Put .exe -> 403
+		const dePutExeUrl = `${BASE}/s3/${S3_TEST_BUCKET}/malware-${Date.now()}.exe`;
+		const dePutExeSigned = await deClient.sign(dePutExeUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'application/octet-stream' },
+			body: 'not allowed',
+		});
+		const dePutExeRes = await fetch(dePutExeSigned);
+		if (dePutExeRes.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  deny-ext: put .exe -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`deny-ext: put .exe should be 403, got ${dePutExeRes.status}`);
+			console.log(`  ${red('FAIL')}  deny-ext: put .exe (got ${dePutExeRes.status})`);
+		}
+		if (dePutExeRes.body && !dePutExeRes.bodyUsed) await dePutExeRes.text().catch(() => {});
+
+		// Put .sh -> 403
+		const dePutShUrl = `${BASE}/s3/${S3_TEST_BUCKET}/script-${Date.now()}.sh`;
+		const dePutShSigned = await deClient.sign(dePutShUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: '#!/bin/bash',
+		});
+		const dePutShRes = await fetch(dePutShSigned);
+		if (dePutShRes.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  deny-ext: put .sh -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`deny-ext: put .sh should be 403, got ${dePutShRes.status}`);
+			console.log(`  ${red('FAIL')}  deny-ext: put .sh (got ${dePutShRes.status})`);
+		}
+		if (dePutShRes.body && !dePutShRes.bodyUsed) await dePutShRes.text().catch(() => {});
+
+		// GetObject .exe -> not 403 (deny only on PutObject)
+		const deGetExe = await s3req(deClient, 'GET', `/${S3_TEST_BUCKET}/nonexistent.exe`);
+		if (deGetExe.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  deny-ext: get .exe -> ${deGetExe.status} (deny only on put)`);
+		} else {
+			state.fail++;
+			state.errors.push('deny-ext: get .exe should not be 403 (deny on put only)');
+			console.log(`  ${red('FAIL')}  deny-ext: get .exe got 403`);
+		}
+	}
+
+	// ─── 26. S3 Overlapping Allow + Deny Prefixes ───────────────
+
+	section('S3 Overlapping Allow + Deny Prefixes');
+
+	// Allow entire bucket, deny secrets/*, but re-allow secrets/public/*
+	// Note: deny overrides allow in AWS/GK model, so secrets/public/* should still be denied
+	const OVERLAP_POLICY = {
+		version: '2025-01-01',
+		statements: [
+			{
+				effect: 'allow',
+				actions: ['s3:*'],
+				resources: ['account:*', `bucket:${S3_TEST_BUCKET}`, `object:${S3_TEST_BUCKET}/*`],
+			},
+			{
+				effect: 'deny',
+				actions: ['s3:GetObject'],
+				resources: [`object:${S3_TEST_BUCKET}/restricted/*`],
+			},
+			{
+				effect: 'allow',
+				actions: ['s3:GetObject'],
+				resources: [`object:${S3_TEST_BUCKET}/restricted/public-readme.txt`],
+			},
+		],
+	};
+	const olCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-overlap',
+		policy: OVERLAP_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
+	assertStatus('create overlap S3 cred -> 200', olCred, 200);
+	const olAk = olCred.body?.result?.credential?.access_key_id;
+	const olSk = olCred.body?.result?.credential?.secret_access_key;
+	if (olAk) state.createdS3Creds.push(olAk);
+
+	if (olAk && olSk) {
+		const olClient = s3client(olAk, olSk);
+
+		// GetObject from public/ -> not 403
+		const olGetPub = await s3req(olClient, 'GET', `/${S3_TEST_BUCKET}/public/hello.txt`);
+		if (olGetPub.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  overlap: get public/ -> ${olGetPub.status} (allowed)`);
+		} else {
+			state.fail++;
+			state.errors.push('overlap: get public/ should not be 403');
+			console.log(`  ${red('FAIL')}  overlap: get public/ got 403`);
+		}
+
+		// GetObject from restricted/secret.txt -> 403 (deny matches)
+		const olGetSec = await s3req(olClient, 'GET', `/${S3_TEST_BUCKET}/restricted/secret.txt`);
+		if (olGetSec.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  overlap: get restricted/secret.txt -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`overlap: get restricted/secret.txt should be 403, got ${olGetSec.status}`);
+			console.log(`  ${red('FAIL')}  overlap: get restricted/secret.txt (got ${olGetSec.status})`);
+		}
+
+		// GetObject from restricted/public-readme.txt -> 403 (deny overrides allow in deny-first model)
+		const olGetPubReadme = await s3req(olClient, 'GET', `/${S3_TEST_BUCKET}/restricted/public-readme.txt`);
+		if (olGetPubReadme.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  overlap: get restricted/public-readme.txt -> 403 (deny overrides allow)`);
+		} else {
+			state.fail++;
+			state.errors.push(`overlap: get restricted/public-readme.txt should be 403 (deny overrides), got ${olGetPubReadme.status}`);
+			console.log(`  ${red('FAIL')}  overlap: get restricted/public-readme.txt (got ${olGetPubReadme.status})`);
+		}
+
+		// PutObject to restricted/ -> not 403 (deny only on GetObject)
+		const olPutSecUrl = `${BASE}/s3/${S3_TEST_BUCKET}/restricted/new-${Date.now()}.txt`;
+		const olPutSecSigned = await olClient.sign(olPutSecUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: 'writing to restricted is ok',
+		});
+		const olPutSecRes = await fetch(olPutSecSigned);
+		if (olPutSecRes.ok) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  overlap: put restricted/ -> ${olPutSecRes.status} (deny on get only)`);
+		} else {
+			state.fail++;
+			state.errors.push(`overlap: put restricted/ should succeed, got ${olPutSecRes.status}`);
+			console.log(`  ${red('FAIL')}  overlap: put restricted/ (got ${olPutSecRes.status})`);
+		}
+		// Clean up
+		try {
+			const cs = await fullClient.sign(olPutSecUrl, {
+				method: 'DELETE',
+				headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+			});
+			await fetch(cs);
+		} catch {
+			/* best effort */
+		}
+	}
+
+	// ─── 27. S3 Key Filename Condition ──────────────────────────
+
+	section('S3 Key Filename Condition');
+
+	// Deny PutObject when filename starts with "." (hidden files)
+	const HIDDEN_FILE_POLICY = {
+		version: '2025-01-01',
+		statements: [
+			{
+				effect: 'allow',
+				actions: ['s3:*'],
+				resources: ['account:*', `bucket:${S3_TEST_BUCKET}`, `object:${S3_TEST_BUCKET}/*`],
+			},
+			{
+				effect: 'deny',
+				actions: ['s3:PutObject'],
+				resources: [`object:${S3_TEST_BUCKET}/*`],
+				conditions: [{ field: 'key.filename', operator: 'starts_with', value: '.' }],
+			},
+		],
+	};
+	const hfCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-hidden-deny',
+		policy: HIDDEN_FILE_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
+	assertStatus('create hidden-file-deny S3 cred -> 200', hfCred, 200);
+	const hfAk = hfCred.body?.result?.credential?.access_key_id;
+	const hfSk = hfCred.body?.result?.credential?.secret_access_key;
+	if (hfAk) state.createdS3Creds.push(hfAk);
+
+	if (hfAk && hfSk) {
+		const hfClient = s3client(hfAk, hfSk);
+
+		// Put normal file -> 200
+		const hfPutOkTs = Date.now();
+		const hfPutOkUrl = `${BASE}/s3/${S3_TEST_BUCKET}/data/report-${hfPutOkTs}.csv`;
+		const hfPutOkSigned = await hfClient.sign(hfPutOkUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/csv' },
+			body: 'col1,col2',
+		});
+		const hfPutOkRes = await fetch(hfPutOkSigned);
+		if (hfPutOkRes.ok) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  hidden-deny: put normal file -> ${hfPutOkRes.status}`);
+		} else {
+			state.fail++;
+			state.errors.push(`hidden-deny: put normal file should succeed, got ${hfPutOkRes.status}`);
+			console.log(`  ${red('FAIL')}  hidden-deny: put normal file (got ${hfPutOkRes.status})`);
+		}
+		try {
+			const cs = await fullClient.sign(hfPutOkUrl, {
+				method: 'DELETE',
+				headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+			});
+			await fetch(cs);
+		} catch {
+			/* best effort */
+		}
+
+		// Put hidden file (.env) -> 403
+		const hfPutBadUrl = `${BASE}/s3/${S3_TEST_BUCKET}/config/.env`;
+		const hfPutBadSigned = await hfClient.sign(hfPutBadUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: 'SECRET_KEY=xxx',
+		});
+		const hfPutBadRes = await fetch(hfPutBadSigned);
+		if (hfPutBadRes.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  hidden-deny: put .env -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`hidden-deny: put .env should be 403, got ${hfPutBadRes.status}`);
+			console.log(`  ${red('FAIL')}  hidden-deny: put .env (got ${hfPutBadRes.status})`);
+		}
+		if (hfPutBadRes.body && !hfPutBadRes.bodyUsed) await hfPutBadRes.text().catch(() => {});
+
+		// Put hidden file (.gitignore) -> 403
+		const hfPutGitUrl = `${BASE}/s3/${S3_TEST_BUCKET}/repo/.gitignore`;
+		const hfPutGitSigned = await hfClient.sign(hfPutGitUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: 'node_modules',
+		});
+		const hfPutGitRes = await fetch(hfPutGitSigned);
+		if (hfPutGitRes.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  hidden-deny: put .gitignore -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`hidden-deny: put .gitignore should be 403, got ${hfPutGitRes.status}`);
+			console.log(`  ${red('FAIL')}  hidden-deny: put .gitignore (got ${hfPutGitRes.status})`);
+		}
+		if (hfPutGitRes.body && !hfPutGitRes.bodyUsed) await hfPutGitRes.text().catch(() => {});
+
+		// GetObject .env -> not 403 (deny only on PutObject)
+		const hfGetOk = await s3req(hfClient, 'GET', `/${S3_TEST_BUCKET}/config/.env`);
+		if (hfGetOk.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  hidden-deny: get .env -> ${hfGetOk.status} (deny on put only)`);
+		} else {
+			state.fail++;
+			state.errors.push('hidden-deny: get .env should not be 403 (deny on put only)');
+			console.log(`  ${red('FAIL')}  hidden-deny: get .env got 403`);
+		}
+	}
+
+	// ─── 28. S3 Analytics ───────────────────────────────────────
 
 	section('S3 Analytics');
 
