@@ -103,13 +103,14 @@ app.all('/v1/zones/:zoneId/dns_records', (c) => {
 export default {
 	fetch: app.fetch,
 
-	/** Cron-triggered retention job — deletes analytics events older than retention_days config. */
+	/** Cron-triggered retention + cleanup job. */
 	async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
 		try {
 			const stub = getStub(env);
 			const gwConfig = await stub.getConfig();
 			const retentionDays = gwConfig.retention_days;
 
+			// Phase 1: Delete old analytics/audit events from D1
 			const [purgeDeleted, s3Deleted, dnsDeleted, cfProxyDeleted, auditDeleted] = await Promise.all([
 				deleteOldEvents(env.ANALYTICS_DB, retentionDays),
 				deleteOldS3Events(env.ANALYTICS_DB, retentionDays),
@@ -117,6 +118,10 @@ export default {
 				deleteOldCfProxyEvents(env.ANALYTICS_DB, retentionDays),
 				deleteOldAuditEvents(env.ANALYTICS_DB, retentionDays),
 			]);
+
+			// Phase 2: Revoke expired keys/credentials, delete expired upstream tokens/R2 endpoints
+			const cleanup = await stub.cleanupExpired();
+
 			console.log(
 				JSON.stringify({
 					event: 'retention_cron',
@@ -127,6 +132,7 @@ export default {
 					dnsDeleted,
 					cfProxyDeleted,
 					auditDeleted,
+					...cleanup,
 					ts: new Date(controller.scheduledTime).toISOString(),
 				}),
 			);

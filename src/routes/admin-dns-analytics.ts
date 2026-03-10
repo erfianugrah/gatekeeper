@@ -7,7 +7,14 @@
 
 import { Hono } from 'hono';
 import { queryDnsEvents, queryDnsSummary } from '../cf/dns/analytics';
-import { jsonError, parseQueryParams, dnsAnalyticsEventsQuerySchema, dnsAnalyticsSummaryQuerySchema } from './admin-schemas';
+import { queryTimeseries } from '../analytics-timeseries';
+import {
+	jsonError,
+	parseQueryParams,
+	dnsAnalyticsEventsQuerySchema,
+	dnsAnalyticsSummaryQuerySchema,
+	dnsTimeseriesQuerySchema,
+} from './admin-schemas';
 import type { DnsAnalyticsQuery } from '../cf/dns/analytics';
 import type { HonoEnv } from '../types';
 
@@ -82,4 +89,44 @@ adminDnsAnalyticsApp.get('/summary', async (c) => {
 	);
 
 	return c.json({ success: true, result: summary });
+});
+
+// ─── Timeseries ─────────────────────────────────────────────────────────────
+
+adminDnsAnalyticsApp.get('/timeseries', async (c) => {
+	if (!c.env.ANALYTICS_DB) {
+		return jsonError(c, 503, 'Analytics not configured');
+	}
+
+	const query = parseQueryParams(c, dnsTimeseriesQuerySchema);
+	if (query instanceof Response) return query;
+
+	const conditions: string[] = [];
+	const params: (string | number)[] = [];
+
+	if (query.zone_id) {
+		conditions.push('zone_id = ?');
+		params.push(query.zone_id);
+	}
+	if (query.key_id) {
+		conditions.push('key_id = ?');
+		params.push(query.key_id);
+	}
+	if (query.action) {
+		conditions.push('action = ?');
+		params.push(query.action);
+	}
+	if (query.record_type) {
+		conditions.push('record_type = ?');
+		params.push(query.record_type);
+	}
+
+	const buckets = await queryTimeseries(
+		c.env.ANALYTICS_DB,
+		'dns_events',
+		{ conditions, params },
+		{ since: query.since, until: query.until },
+	);
+
+	return c.json({ success: true, result: buckets });
 });

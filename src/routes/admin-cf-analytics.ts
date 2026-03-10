@@ -7,7 +7,14 @@
 
 import { Hono } from 'hono';
 import { queryCfProxyEvents, queryCfProxySummary } from '../cf/analytics';
-import { jsonError, parseQueryParams, cfProxyAnalyticsEventsQuerySchema, cfProxyAnalyticsSummaryQuerySchema } from './admin-schemas';
+import { queryTimeseries } from '../analytics-timeseries';
+import {
+	jsonError,
+	parseQueryParams,
+	cfProxyAnalyticsEventsQuerySchema,
+	cfProxyAnalyticsSummaryQuerySchema,
+	cfProxyTimeseriesQuerySchema,
+} from './admin-schemas';
 import type { CfProxyAnalyticsQuery } from '../cf/analytics';
 import type { HonoEnv } from '../types';
 
@@ -84,4 +91,44 @@ adminCfAnalyticsApp.get('/summary', async (c) => {
 	);
 
 	return c.json({ success: true, result: summary });
+});
+
+// ─── Timeseries ─────────────────────────────────────────────────────────────
+
+adminCfAnalyticsApp.get('/timeseries', async (c) => {
+	if (!c.env.ANALYTICS_DB) {
+		return jsonError(c, 503, 'Analytics not configured');
+	}
+
+	const query = parseQueryParams(c, cfProxyTimeseriesQuerySchema);
+	if (query instanceof Response) return query;
+
+	const conditions: string[] = [];
+	const params: (string | number)[] = [];
+
+	if (query.account_id) {
+		conditions.push('account_id = ?');
+		params.push(query.account_id);
+	}
+	if (query.key_id) {
+		conditions.push('key_id = ?');
+		params.push(query.key_id);
+	}
+	if (query.service) {
+		conditions.push('service = ?');
+		params.push(query.service);
+	}
+	if (query.action) {
+		conditions.push('action = ?');
+		params.push(query.action);
+	}
+
+	const buckets = await queryTimeseries(
+		c.env.ANALYTICS_DB,
+		'cf_proxy_events',
+		{ conditions, params },
+		{ since: query.since, until: query.until },
+	);
+
+	return c.json({ success: true, result: buckets });
 });

@@ -418,6 +418,7 @@ export interface UpstreamToken {
 	zone_ids: string;
 	token_preview: string;
 	created_at: number;
+	expires_at: number | null;
 	created_by: string | null;
 }
 
@@ -425,6 +426,7 @@ export interface CreateUpstreamTokenRequest {
 	name: string;
 	token: string;
 	zone_ids: string[];
+	expires_in_days?: number;
 	created_by?: string;
 }
 
@@ -466,6 +468,7 @@ export interface UpstreamR2 {
 	access_key_preview: string;
 	endpoint: string;
 	created_at: number;
+	expires_at: number | null;
 	created_by: string | null;
 }
 
@@ -475,6 +478,7 @@ export interface CreateUpstreamR2Request {
 	secret_access_key: string;
 	endpoint: string;
 	bucket_names: string[];
+	expires_in_days?: number;
 	created_by?: string;
 }
 
@@ -628,6 +632,49 @@ export async function getCfProxySummary(query: Omit<CfProxyEventsQuery, 'limit'>
 	if (query.until) params.set('until', String(query.until));
 	const qs = params.toString();
 	return apiFetch<CfProxyAnalyticsSummary>(`/admin/cf/analytics/summary${qs ? `?${qs}` : ''}`);
+}
+
+// ─── Timeseries Analytics ─────────────────────────────────────────────
+
+export interface TimeseriesBucket {
+	/** Start of the hour (unix ms). */
+	bucket: number;
+	/** Total requests in this bucket. */
+	count: number;
+	/** Requests with status >= 400. */
+	errors: number;
+}
+
+export async function getPurgeTimeseries(query: { since?: number; until?: number } = {}): Promise<TimeseriesBucket[]> {
+	const params = new URLSearchParams();
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	const qs = params.toString();
+	return apiFetch<TimeseriesBucket[]>(`/admin/analytics/timeseries${qs ? `?${qs}` : ''}`);
+}
+
+export async function getS3Timeseries(query: { since?: number; until?: number } = {}): Promise<TimeseriesBucket[]> {
+	const params = new URLSearchParams();
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	const qs = params.toString();
+	return apiFetch<TimeseriesBucket[]>(`/admin/s3/analytics/timeseries${qs ? `?${qs}` : ''}`);
+}
+
+export async function getDnsTimeseries(query: { since?: number; until?: number } = {}): Promise<TimeseriesBucket[]> {
+	const params = new URLSearchParams();
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	const qs = params.toString();
+	return apiFetch<TimeseriesBucket[]>(`/admin/dns/analytics/timeseries${qs ? `?${qs}` : ''}`);
+}
+
+export async function getCfProxyTimeseries(query: { since?: number; until?: number } = {}): Promise<TimeseriesBucket[]> {
+	const params = new URLSearchParams();
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	const qs = params.toString();
+	return apiFetch<TimeseriesBucket[]>(`/admin/cf/analytics/timeseries${qs ? `?${qs}` : ''}`);
 }
 
 // ─── Audit Log ───────────────────────────────────────────────────────

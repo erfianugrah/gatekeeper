@@ -1,5 +1,5 @@
 import { queryAll } from '../sql';
-import { DEFAULT_CACHE_TTL_MS } from '../constants';
+import { DEFAULT_CACHE_TTL_MS, MS_PER_DAY } from '../constants';
 import { generateHexId, makePreview } from '../crypto';
 import type { BulkResult, BulkItemResult, BulkDryRunResult, BulkInspectItem } from '../types';
 
@@ -13,6 +13,8 @@ export interface UpstreamR2 {
 	access_key_preview: string;
 	endpoint: string;
 	created_at: number;
+	/** Unix ms timestamp when this endpoint expires, or null for no expiry. */
+	expires_at: number | null;
 	created_by: string | null;
 }
 
@@ -29,6 +31,8 @@ export interface CreateUpstreamR2Request {
 	endpoint: string;
 	/** Bucket names this endpoint serves, or ["*"] for all. */
 	bucket_names: string[];
+	/** Optional expiry in days from now. */
+	expires_in_days?: number;
 	created_by?: string;
 }
 
@@ -78,6 +82,13 @@ export class UpstreamR2Manager {
 			console.log(JSON.stringify({ migration: 'upstream_r2', action: 'drop_column_revoked', ts: new Date().toISOString() }));
 			this.sql.exec(`ALTER TABLE upstream_r2 DROP COLUMN revoked`);
 		}
+
+		// Migration: add expires_at column for endpoint expiry.
+		const colsAfter = queryAll<{ name: string }>(this.sql, `PRAGMA table_info('upstream_r2')`);
+		if (!colsAfter.some((c) => c.name === 'expires_at')) {
+			console.log(JSON.stringify({ migration: 'upstream_r2', action: 'add_column_expires_at', ts: new Date().toISOString() }));
+			this.sql.exec(`ALTER TABLE upstream_r2 ADD COLUMN expires_at INTEGER`);
+		}
 	}
 
 	// ─── CRUD ───────────────────────────────────────────────────────────
@@ -88,10 +99,11 @@ export class UpstreamR2Manager {
 		const now = Date.now();
 		const bucketNamesStr = req.bucket_names.join(',');
 		const preview = makePreview(req.access_key_id);
+		const expiresAt = req.expires_in_days ? now + req.expires_in_days * MS_PER_DAY : null;
 
 		this.sql.exec(
-			`INSERT INTO upstream_r2 (id, name, access_key_id, secret_access_key, access_key_preview, endpoint, bucket_names, created_at, created_by)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO upstream_r2 (id, name, access_key_id, secret_access_key, access_key_preview, endpoint, bucket_names, created_at, expires_at, created_by)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id,
 			req.name,
 			req.access_key_id,
@@ -100,6 +112,7 @@ export class UpstreamR2Manager {
 			req.endpoint,
 			bucketNamesStr,
 			now,
+			expiresAt,
 			req.created_by ?? null,
 		);
 
@@ -113,6 +126,7 @@ export class UpstreamR2Manager {
 				access_key_preview: preview,
 				endpoint: req.endpoint,
 				created_at: now,
+				expires_at: expiresAt,
 				created_by: req.created_by ?? null,
 			},
 		};
@@ -122,7 +136,7 @@ export class UpstreamR2Manager {
 	listEndpoints(): UpstreamR2[] {
 		return queryAll<UpstreamR2>(
 			this.sql,
-			'SELECT id, name, bucket_names, access_key_preview, endpoint, created_at, created_by FROM upstream_r2 ORDER BY created_at DESC',
+			'SELECT id, name, bucket_names, access_key_preview, endpoint, created_at, expires_at, created_by FROM upstream_r2 ORDER BY created_at DESC',
 		);
 	}
 
@@ -130,11 +144,58 @@ export class UpstreamR2Manager {
 	getEndpoint(id: string): { endpoint: UpstreamR2 } | null {
 		const rows = queryAll<UpstreamR2>(
 			this.sql,
-			'SELECT id, name, bucket_names, access_key_preview, endpoint, created_at, created_by FROM upstream_r2 WHERE id = ?',
+			'SELECT id, name, bucket_names, access_key_preview, endpoint, created_at, expires_at, created_by FROM upstream_r2 WHERE id = ?',
 			id,
 		);
 		if (rows.length === 0) return null;
 		return { endpoint: rows[0] };
+	}
+
+	/** Update mutable fields on an upstream R2 endpoint. Returns the updated endpoint or null if not found. */
+	updateEndpoint(id: string, updates: { name?: string; expires_at?: number | null }): { endpoint: UpstreamR2 } | null {
+		const existing = this.getEndpoint(id);
+		if (!existing) return null;
+
+		const sets: string[] = [];
+		const params: (string | number | null)[] = [];
+
+		if (updates.name !== undefined) {
+			sets.push('name = ?');
+			params.push(updates.name);
+		}
+		if (updates.expires_at !== undefined) {
+			sets.push('expires_at = ?');
+			params.push(updates.expires_at);
+		}
+
+		if (sets.length === 0) return existing;
+
+		params.push(id);
+		this.sql.exec(`UPDATE upstream_r2 SET ${sets.join(', ')} WHERE id = ?`, ...params);
+		this.invalidateCache();
+
+		return this.getEndpoint(id);
+	}
+
+	/** Count the number of expired upstream R2 endpoints. */
+	countExpired(): number {
+		const now = Date.now();
+		const rows = queryAll<{ cnt: number }>(
+			this.sql,
+			'SELECT COUNT(*) as cnt FROM upstream_r2 WHERE expires_at IS NOT NULL AND expires_at <= ?',
+			now,
+		);
+		return rows[0]?.cnt ?? 0;
+	}
+
+	/** Delete all expired upstream R2 endpoints. Returns the number deleted. */
+	deleteExpired(): number {
+		const now = Date.now();
+		const result = this.sql.exec('DELETE FROM upstream_r2 WHERE expires_at IS NOT NULL AND expires_at <= ?', now);
+		if (result.rowsWritten > 0) {
+			this.invalidateCache();
+		}
+		return result.rowsWritten;
 	}
 
 	/** Permanently delete an upstream R2 endpoint. Returns true if the row existed and was removed. */
@@ -187,10 +248,14 @@ export class UpstreamR2Manager {
 		}
 
 		const rows = queryAll<UpstreamR2Row>(this.sql, 'SELECT * FROM upstream_r2 ORDER BY created_at DESC');
+		const now = Date.now();
 
 		let wildcardCreds: R2Credentials | null = null;
 
 		for (const row of rows) {
+			// Skip expired endpoints
+			if (row.expires_at && row.expires_at <= now) continue;
+
 			const buckets = row.bucket_names.split(',');
 			const creds: R2Credentials = {
 				accessKeyId: row.access_key_id,
@@ -228,15 +293,23 @@ export class UpstreamR2Manager {
 			return null;
 		}
 
+		const now = Date.now();
+		// Filter out expired endpoints
+		const activeRows = rows.filter((r) => !r.expires_at || r.expires_at > now);
+		if (activeRows.length === 0) {
+			console.log(JSON.stringify({ breadcrumb: 'upstream-r2-list-buckets-all-expired' }));
+			return null;
+		}
+
 		// Prefer wildcard (newest first, consistent with resolveForBucket)
-		for (const row of rows) {
+		for (const row of activeRows) {
 			if (row.bucket_names.split(',').includes('*')) {
 				console.log(JSON.stringify({ breadcrumb: 'upstream-r2-list-buckets-wildcard', endpointId: row.id }));
 				return { accessKeyId: row.access_key_id, secretAccessKey: row.secret_access_key, endpoint: row.endpoint };
 			}
 		}
 		// Fallback to newest registered
-		const row = rows[0];
+		const row = activeRows[0];
 		console.log(JSON.stringify({ breadcrumb: 'upstream-r2-list-buckets-fallback', endpointId: row.id }));
 		return { accessKeyId: row.access_key_id, secretAccessKey: row.secret_access_key, endpoint: row.endpoint };
 	}
@@ -261,6 +334,13 @@ export class UpstreamR2Manager {
 		}
 
 		const row = rows[0];
+
+		// Check expiry
+		if (row.expires_at && row.expires_at <= Date.now()) {
+			console.log(JSON.stringify({ breadcrumb: 'upstream-r2-by-id-expired', endpointId }));
+			return null;
+		}
+
 		const creds: R2Credentials = {
 			accessKeyId: row.access_key_id,
 			secretAccessKey: row.secret_access_key,

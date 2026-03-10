@@ -40,6 +40,7 @@ import { run as runRoutes } from './smoke/routes.js';
 import { run as runConfig } from './smoke/config.js';
 import { run as runCfProxy } from './smoke/cf-proxy.js';
 import { run as runAudit } from './smoke/audit.js';
+import { run as runRotation } from './smoke/rotation.js';
 
 // ─── Preflight checks ─────────────────────────────────────────────────────
 
@@ -131,6 +132,7 @@ async function main(): Promise<void> {
 		await runCfProxy(ctx);
 		await runConfig(ctx);
 		await runAudit(ctx);
+		await runRotation(ctx);
 		await runRoutes(ctx);
 	} finally {
 		// ─── Cleanup ────────────────────────────────────────────────────

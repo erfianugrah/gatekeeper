@@ -5,11 +5,14 @@ import { resolveCreatedBy, emitAudit } from './admin-helpers';
 import { validateR2Binding } from './r2-binding';
 import {
 	createS3CredentialSchema,
+	rotateS3CredentialSchema,
+	updateS3CredentialSchema,
 	listS3CredentialsQuerySchema,
 	deleteQuerySchema,
 	idParamSchema,
 	s3AnalyticsEventsQuerySchema,
 	s3AnalyticsSummaryQuerySchema,
+	s3TimeseriesQuerySchema,
 	jsonError,
 	parseJsonBody,
 	parseQueryParams,
@@ -21,6 +24,7 @@ import type { PolicyDocument } from '../policy-types';
 import type { CreateS3CredentialRequest } from '../s3/types';
 import type { S3AnalyticsQuery } from '../s3/analytics';
 import { queryS3Events, queryS3Summary } from '../s3/analytics';
+import { queryTimeseries } from '../analytics-timeseries';
 
 // ─── Admin: S3 Credential Management ────────────────────────────────────────
 
@@ -136,6 +140,100 @@ adminS3App.get('/credentials/:id', async (c) => {
 		console.log(JSON.stringify({ breadcrumb: 'admin-get-s3-credential-not-found', id: params.id }));
 		return jsonError(c, 404, 'Credential not found');
 	}
+
+	return c.json({ success: true, result });
+});
+
+// ─── Rotate credential ──────────────────────────────────────────────────────
+
+adminS3App.post('/credentials/:id/rotate', async (c) => {
+	const log: Record<string, unknown> = {
+		route: 'admin.rotateS3Credential',
+		ts: new Date().toISOString(),
+	};
+
+	const params = parseParams(c, idParamSchema);
+	if (params instanceof Response) return params;
+
+	const parsed = await parseJsonBody(c, rotateS3CredentialSchema, log);
+	if (parsed instanceof Response) return parsed;
+
+	const stub = getStub(c.env);
+	const result = await stub.rotateS3Credential(params.id, {
+		name: parsed.name,
+		expires_in_days: parsed.expires_in_days,
+	});
+
+	if (!result) {
+		log.status = 404;
+		log.error = 'credential_not_found_or_inactive';
+		console.log(JSON.stringify(log));
+		return jsonError(c, 404, 'Credential not found, already revoked, or expired');
+	}
+
+	log.status = 200;
+	log.oldAccessKeyId = result.oldCredential.access_key_id;
+	log.newAccessKeyId = result.newCredential.access_key_id;
+	console.log(JSON.stringify(log));
+
+	emitAudit(c, {
+		action: 'rotate_s3_credential',
+		entity_type: 's3_credential',
+		entity_id: result.newCredential.access_key_id,
+		detail: JSON.stringify({
+			old_access_key_id: result.oldCredential.access_key_id,
+			new_access_key_id: result.newCredential.access_key_id,
+		}),
+	});
+
+	return c.json({
+		success: true,
+		result: {
+			old_credential: result.oldCredential,
+			new_credential: result.newCredential,
+		},
+	});
+});
+
+// ─── Update credential ──────────────────────────────────────────────────────
+
+adminS3App.patch('/credentials/:id', async (c) => {
+	const log: Record<string, unknown> = {
+		route: 'admin.updateS3Credential',
+		ts: new Date().toISOString(),
+	};
+
+	const params = parseParams(c, idParamSchema);
+	if (params instanceof Response) return params;
+
+	const parsed = await parseJsonBody(c, updateS3CredentialSchema, log);
+	if (parsed instanceof Response) return parsed;
+
+	const updates: Record<string, unknown> = {};
+	if (parsed.name !== undefined) updates.name = parsed.name;
+	if (parsed.expires_at !== undefined) updates.expires_at = parsed.expires_at;
+
+	const stub = getStub(c.env);
+	const result = await stub.updateS3Credential(params.id, updates as Parameters<typeof stub.updateS3Credential>[1]);
+
+	if (!result) {
+		log.status = 404;
+		log.error = 'credential_not_found_or_revoked';
+		console.log(JSON.stringify(log));
+		return jsonError(c, 404, 'Credential not found or already revoked');
+	}
+
+	log.status = 200;
+	log.accessKeyId = params.id;
+	log.updatedFields = Object.keys(updates);
+	console.log(JSON.stringify(log));
+
+	emitAudit(c, {
+		action: 'update_s3_credential',
+		entity_type: 's3_credential',
+		entity_id: params.id,
+		detail: JSON.stringify(updates),
+	});
 
 	return c.json({ success: true, result });
 });
@@ -341,4 +439,40 @@ adminS3App.get('/analytics/summary', async (c) => {
 	);
 
 	return c.json({ success: true, result: summary });
+});
+
+// ─── S3 Analytics: timeseries ───────────────────────────────────────────────
+
+adminS3App.get('/analytics/timeseries', async (c) => {
+	if (!c.env.ANALYTICS_DB) {
+		return jsonError(c, 503, 'Analytics not configured');
+	}
+
+	const query = parseQueryParams(c, s3TimeseriesQuerySchema);
+	if (query instanceof Response) return query;
+
+	const conditions: string[] = [];
+	const params: (string | number)[] = [];
+
+	if (query.credential_id) {
+		conditions.push('credential_id = ?');
+		params.push(query.credential_id);
+	}
+	if (query.bucket) {
+		conditions.push('bucket = ?');
+		params.push(query.bucket);
+	}
+	if (query.operation) {
+		conditions.push('operation = ?');
+		params.push(query.operation);
+	}
+
+	const buckets = await queryTimeseries(
+		c.env.ANALYTICS_DB,
+		's3_events',
+		{ conditions, params },
+		{ since: query.since, until: query.until },
+	);
+
+	return c.json({ success: true, result: buckets });
 });

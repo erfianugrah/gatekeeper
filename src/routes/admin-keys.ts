@@ -5,6 +5,8 @@ import { resolveCreatedBy, emitAudit } from './admin-helpers';
 import { validateTokenBinding } from './token-binding';
 import {
 	createKeySchema,
+	rotateKeySchema,
+	updateKeySchema,
 	listKeysQuerySchema,
 	deleteQuerySchema,
 	idParamSchema,
@@ -148,6 +150,104 @@ adminKeysApp.get('/:id', async (c) => {
 		console.log(JSON.stringify({ breadcrumb: 'admin-get-key-not-found', keyId: params.id }));
 		return jsonError(c, 404, 'Key not found');
 	}
+
+	return c.json({ success: true, result });
+});
+
+// ─── Rotate key ─────────────────────────────────────────────────────────────
+
+adminKeysApp.post('/:id/rotate', async (c) => {
+	const log: Record<string, unknown> = {
+		route: 'admin.rotateKey',
+		ts: new Date().toISOString(),
+	};
+
+	const params = parseParams(c, idParamSchema);
+	if (params instanceof Response) return params;
+
+	const parsed = await parseJsonBody(c, rotateKeySchema, log);
+	if (parsed instanceof Response) return parsed;
+
+	const stub = getStub(c.env);
+	const result = await stub.rotateKey(params.id, {
+		name: parsed.name,
+		expires_in_days: parsed.expires_in_days,
+	});
+
+	if (!result) {
+		log.status = 404;
+		log.error = 'key_not_found_or_inactive';
+		console.log(JSON.stringify(log));
+		return jsonError(c, 404, 'Key not found, already revoked, or expired');
+	}
+
+	log.status = 200;
+	log.oldKeyId = result.oldKey.id.slice(0, 12) + '...';
+	log.newKeyId = result.newKey.id.slice(0, 12) + '...';
+	console.log(JSON.stringify(log));
+
+	emitAudit(c, {
+		action: 'rotate_key',
+		entity_type: 'key',
+		entity_id: result.newKey.id,
+		detail: JSON.stringify({ old_key_id: result.oldKey.id, new_key_id: result.newKey.id }),
+	});
+
+	return c.json({
+		success: true,
+		result: {
+			old_key: result.oldKey,
+			new_key: result.newKey,
+		},
+	});
+});
+
+// ─── Update key ─────────────────────────────────────────────────────────────
+
+adminKeysApp.patch('/:id', async (c) => {
+	const log: Record<string, unknown> = {
+		route: 'admin.updateKey',
+		ts: new Date().toISOString(),
+	};
+
+	const params = parseParams(c, idParamSchema);
+	if (params instanceof Response) return params;
+
+	const parsed = await parseJsonBody(c, updateKeySchema, log);
+	if (parsed instanceof Response) return parsed;
+
+	// Build the update payload
+	const updates: Record<string, unknown> = {};
+	if (parsed.name !== undefined) updates.name = parsed.name;
+	if (parsed.expires_at !== undefined) updates.expires_at = parsed.expires_at;
+	if (parsed.rate_limit) {
+		if (parsed.rate_limit.bulk_rate !== undefined) updates.bulk_rate = parsed.rate_limit.bulk_rate;
+		if (parsed.rate_limit.bulk_bucket !== undefined) updates.bulk_bucket = parsed.rate_limit.bulk_bucket;
+		if (parsed.rate_limit.single_rate !== undefined) updates.single_rate = parsed.rate_limit.single_rate;
+		if (parsed.rate_limit.single_bucket !== undefined) updates.single_bucket = parsed.rate_limit.single_bucket;
+	}
+
+	const stub = getStub(c.env);
+	const result = await stub.updateKey(params.id, updates as Parameters<typeof stub.updateKey>[1]);
+
+	if (!result) {
+		log.status = 404;
+		log.error = 'key_not_found_or_revoked';
+		console.log(JSON.stringify(log));
+		return jsonError(c, 404, 'Key not found or already revoked');
+	}
+
+	log.status = 200;
+	log.keyId = params.id.slice(0, 12) + '...';
+	log.updatedFields = Object.keys(updates);
+	console.log(JSON.stringify(log));
+
+	emitAudit(c, {
+		action: 'update_key',
+		entity_type: 'key',
+		entity_id: params.id,
+		detail: JSON.stringify(updates),
+	});
 
 	return c.json({ success: true, result });
 });

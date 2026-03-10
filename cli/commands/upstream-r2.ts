@@ -38,6 +38,10 @@ const create = defineCommand({
 			description: 'Comma-separated bucket names this endpoint covers, or "*" for all',
 			required: true,
 		},
+		'expires-in-days': {
+			type: 'string',
+			description: 'Endpoint expires in N days from now (optional)',
+		},
 		validate: {
 			type: 'boolean',
 			description: 'Validate credentials against R2 endpoint on creation',
@@ -61,6 +65,15 @@ const create = defineCommand({
 			endpoint: args['r2-endpoint'],
 			bucket_names: bucketNames,
 		};
+
+		if (args['expires-in-days']) {
+			const days = Number(args['expires-in-days']);
+			if (!Number.isFinite(days) || days <= 0) {
+				error('--expires-in-days must be a positive number.');
+				process.exit(1);
+			}
+			body.expires_in_days = days;
+		}
 
 		if (args.validate) {
 			body.validate = true;
@@ -178,6 +191,73 @@ const get = defineCommand({
 	},
 });
 
+// --- upstream-r2 update ---
+const update = defineCommand({
+	meta: { name: 'update', description: 'Update an R2 endpoint (name, expiry)' },
+	args: {
+		...globalArgs,
+		id: {
+			type: 'string',
+			description: 'The R2 endpoint ID (upr2_...)',
+			required: true,
+		},
+		name: {
+			type: 'string',
+			description: 'New name for the endpoint',
+		},
+		'expires-at': {
+			type: 'string',
+			description: 'New expiry (ISO 8601 or unix ms). Set to "none" to remove expiry',
+		},
+	},
+	async run({ args }) {
+		const config = resolveConfig(args);
+
+		const body: Record<string, unknown> = {};
+
+		if (args.name) body.name = args.name;
+
+		if (args['expires-at'] !== undefined) {
+			if (args['expires-at'] === 'none') {
+				body.expires_at = null;
+			} else {
+				const ts = Number(args['expires-at']) || new Date(args['expires-at']).getTime();
+				if (!Number.isFinite(ts) || ts <= 0) {
+					error('--expires-at must be a valid ISO 8601 date, unix timestamp, or "none".');
+					process.exit(1);
+				}
+				body.expires_at = ts;
+			}
+		}
+
+		if (Object.keys(body).length === 0) {
+			error('At least one field must be provided (--name, --expires-at).');
+			process.exit(1);
+		}
+
+		const { status, data, durationMs } = await request(config, 'PATCH', `/admin/upstream-r2/${encodeURIComponent(args.id)}`, {
+			body,
+			auth: 'admin',
+			label: 'Updating R2 endpoint...',
+		});
+
+		if (args.json) {
+			assertOk(status, data);
+			printJson(data);
+			return;
+		}
+
+		assertOk(status, data);
+		const result = (data as Record<string, unknown>).result as Record<string, unknown>;
+
+		console.error('');
+		success(`R2 endpoint updated ${dim(`(${formatDuration(durationMs)})`)}`);
+		console.error('');
+		formatUpstreamR2(result);
+		console.error('');
+	},
+});
+
 // --- upstream-r2 delete ---
 const del = defineCommand({
 	meta: { name: 'delete', description: 'Delete an R2 endpoint registration (permanent, irreversible)' },
@@ -238,6 +318,13 @@ function formatUpstreamR2(ep: Record<string, unknown>): void {
 	label('Endpoint', ep.endpoint as string);
 	label('Bucket names', ep.bucket_names as string);
 	label('Created', new Date(ep.created_at as number).toISOString());
+	if (ep.expires_at) {
+		const exp = new Date(ep.expires_at as number);
+		const isExpired = exp.getTime() <= Date.now();
+		label('Expires', isExpired ? bold(`${exp.toISOString()} (EXPIRED)`) : exp.toISOString());
+	} else {
+		label('Expires', dim('never'));
+	}
 	if (ep.created_by) {
 		label('Created by', ep.created_by as string);
 	}
@@ -246,5 +333,5 @@ function formatUpstreamR2(ep: Record<string, unknown>): void {
 // --- upstream-r2 (parent) ---
 export default defineCommand({
 	meta: { name: 'upstream-r2', description: 'Manage upstream R2 endpoints for S3 proxy' },
-	subCommands: { create, list, get, delete: del, 'bulk-delete': bulkDelete },
+	subCommands: { create, list, get, update, delete: del, 'bulk-delete': bulkDelete },
 });
