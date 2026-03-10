@@ -804,6 +804,9 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const s3HardDel = await admin('DELETE', `/admin/s3/credentials/${S3_REVOKE_AK}?permanent=true`);
 	assertStatus('hard-delete revoked S3 cred -> 200', s3HardDel, 200);
 	assertJson('S3 hard-delete has deleted:true', s3HardDel.body?.result?.deleted, true);
+	// Remove from cleanup list since it's already gone
+	const s3RevIdx = state.createdS3Creds.indexOf(S3_REVOKE_AK);
+	if (s3RevIdx >= 0) state.createdS3Creds.splice(s3RevIdx, 1);
 
 	// GET -> 404
 	const getDelCred = await admin('GET', `/admin/s3/credentials/${S3_REVOKE_AK}`);

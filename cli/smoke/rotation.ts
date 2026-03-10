@@ -141,6 +141,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	});
 	assertStatus('create ref-test upstream token -> 200', refToken, 200);
 	const refTokenId = refToken.body?.result?.id;
+	if (refTokenId) state.createdUpstreamTokens.push(refTokenId);
 
 	if (refTokenId) {
 		// Create a key bound to it
@@ -153,10 +154,15 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		assertStatus('delete upstream token with bound key -> 200', delRes, 200);
 		assertTruthy('warnings returned', delRes.body?.warnings);
 		assertJson('warning type is orphaned_keys', delRes.body?.warnings?.[0]?.type, 'orphaned_keys');
+		// Remove from cleanup list since it's already gone
+		const refTIdx = state.createdUpstreamTokens.indexOf(refTokenId);
+		if (refTIdx >= 0) state.createdUpstreamTokens.splice(refTIdx, 1);
 
 		// Also delete the orphaned key
 		if (refKeyId) {
 			await admin('DELETE', `/admin/keys/${refKeyId}?permanent=true`);
+			const refKIdx = state.createdKeys.indexOf(refKeyId);
+			if (refKIdx >= 0) state.createdKeys.splice(refKIdx, 1);
 		}
 	}
 }
