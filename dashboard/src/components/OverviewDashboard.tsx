@@ -19,6 +19,7 @@ import {
 	ChevronRight,
 	Cpu,
 	Server,
+	RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -539,6 +540,18 @@ export function OverviewDashboard() {
 	return (
 		<TooltipProvider delayDuration={200}>
 			<div className="space-y-6">
+				{/* ── Refresh ────────────────────────────────────────────── */}
+				<div className="flex justify-end">
+					<button
+						onClick={() => fetchData()}
+						disabled={loading}
+						className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+					>
+						<RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+						Refresh
+					</button>
+				</div>
+
 				{/* ── Error ──────────────────────────────────────────────── */}
 				{error && <div className="rounded-lg border border-lv-red/30 bg-lv-red/10 px-4 py-3 text-sm text-lv-red">{error}</div>}
 

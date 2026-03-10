@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronRight, ChevronsDownUp, Clock, Copy, Download, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { ChevronRight, ChevronsDownUp, Clock, Copy, Download, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -292,7 +292,7 @@ export function AnalyticsPage() {
 						</div>
 					)}
 
-					{/* Limit selector */}
+					{/* Limit selector + Refresh */}
 					<div className="ml-auto flex items-center gap-2">
 						<span className={T.formLabel}>Limit</span>
 						<div className="flex rounded-md border border-border">
@@ -310,6 +310,14 @@ export function AnalyticsPage() {
 								</button>
 							))}
 						</div>
+						<button
+							onClick={() => fetchData(limit)}
+							disabled={loading}
+							className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+						>
+							<RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+							Refresh
+						</button>
 					</div>
 				</div>
 

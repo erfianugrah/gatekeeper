@@ -343,6 +343,230 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		console.log(`  ${red('FAIL')}  DeleteObject (object still exists)`);
 	}
 
+	// ─── 16b. Large Multipart Upload + Concurrent Downloads ────
+	//
+	// Tests the full multipart upload lifecycle through the proxy:
+	//   CreateMultipartUpload → concurrent UploadPart → CompleteMultipartUpload
+	// Then verifies with HEAD, concurrent range-GET downloads, and cleanup.
+	//
+	// Configurable via env vars (defaults in parentheses):
+	//   S3_LARGE_PART_MB   — size of each part in MB (50)
+	//   S3_LARGE_PARTS     — number of parts (4)       → total = 200 MB
+	//   S3_LARGE_CONCURRENCY — max concurrent uploads/downloads (4)
+	//
+	// CF edge limits per-request body to 100 MB (Free/Pro), so part size
+	// must stay under that. Multipart is the only way to push GiB-scale objects.
+
+	const PART_MB = Number(process.env['S3_LARGE_PART_MB'] || 50);
+	const PART_COUNT = Number(process.env['S3_LARGE_PARTS'] || 4);
+	const CONCURRENCY = Number(process.env['S3_LARGE_CONCURRENCY'] || 4);
+	const PART_SIZE = PART_MB * 1024 * 1024;
+	const TOTAL_SIZE = PART_SIZE * PART_COUNT;
+	const totalMB = PART_MB * PART_COUNT;
+
+	section(`S3 Multipart Upload (${PART_COUNT} x ${PART_MB} MB = ${totalMB} MB, concurrency ${CONCURRENCY})`);
+
+	const mpKey = `smoke-multipart-${Date.now()}.bin`;
+	const mpObjUrl = `${BASE}/s3/${S3_TEST_BUCKET}/${mpKey}`;
+
+	// --- Step 1: CreateMultipartUpload ---
+	const initUrl = `${mpObjUrl}?uploads`;
+	const initSigned = await fullClient.sign(initUrl, {
+		method: 'POST',
+		headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+	});
+	const initRes = await fetch(initSigned);
+	const initBody = await initRes.text();
+	const uploadIdMatch = initBody.match(/<UploadId>([^<]+)<\/UploadId>/);
+	const uploadId = uploadIdMatch?.[1];
+	assertTruthy(`multipart: CreateMultipartUpload -> ${initRes.status} (got uploadId)`, initRes.ok && uploadId);
+
+	if (uploadId) {
+		const partEtags: { partNumber: number; etag: string }[] = [];
+		let uploadOk = true;
+
+		// --- Step 2: Upload parts concurrently ---
+		/** Generate a deterministic buffer for a given part number. */
+		function makePart(partNum: number): Buffer {
+			const buf = Buffer.alloc(PART_SIZE);
+			// Fill with repeating 4-byte pattern: [partNum, offset_high, offset_mid, offset_low]
+			// This lets us verify any byte position maps back to the correct part.
+			for (let i = 0; i < PART_SIZE; i += 4) {
+				buf[i] = partNum & 0xff;
+				buf[i + 1] = (i >> 16) & 0xff;
+				buf[i + 2] = (i >> 8) & 0xff;
+				buf[i + 3] = i & 0xff;
+			}
+			return buf;
+		}
+
+		/** Upload a single part, return ETag on success. */
+		async function uploadPart(partNum: number): Promise<string | null> {
+			const partBuf = makePart(partNum);
+			const partUrl = `${mpObjUrl}?partNumber=${partNum}&uploadId=${encodeURIComponent(uploadId!)}`;
+			const signed = await fullClient.sign(partUrl, {
+				method: 'PUT',
+				headers: {
+					'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+					'content-type': 'application/octet-stream',
+					'content-length': String(PART_SIZE),
+				},
+				body: partBuf as unknown as BodyInit,
+			});
+			const res = await fetch(signed);
+			if (res.body && !res.bodyUsed) await res.text().catch(() => {});
+			if (!res.ok) return null;
+			const etag = res.headers.get('etag');
+			return etag || null;
+		}
+
+		// Fire parts in batches of CONCURRENCY
+		const t0 = Date.now();
+		for (let batch = 0; batch < PART_COUNT; batch += CONCURRENCY) {
+			const batchEnd = Math.min(batch + CONCURRENCY, PART_COUNT);
+			const promises: Promise<{ partNumber: number; etag: string | null }>[] = [];
+			for (let i = batch; i < batchEnd; i++) {
+				const partNum = i + 1; // S3 parts are 1-indexed
+				promises.push(uploadPart(partNum).then((etag) => ({ partNumber: partNum, etag })));
+			}
+			const results = await Promise.all(promises);
+			for (const r of results) {
+				if (r.etag) {
+					partEtags.push({ partNumber: r.partNumber, etag: r.etag });
+				} else {
+					uploadOk = false;
+				}
+			}
+		}
+		const uploadMs = Date.now() - t0;
+		const uploadMbps = ((totalMB * 8) / (uploadMs / 1000)).toFixed(1);
+		assertTruthy(
+			`multipart: uploaded ${PART_COUNT} parts (${totalMB} MB) in ${(uploadMs / 1000).toFixed(1)}s (${uploadMbps} Mbps)`,
+			uploadOk && partEtags.length === PART_COUNT,
+		);
+
+		// --- Step 3: CompleteMultipartUpload ---
+		partEtags.sort((a, b) => a.partNumber - b.partNumber);
+		const completeXml = [
+			'<CompleteMultipartUpload>',
+			...partEtags.map((p) => `<Part><PartNumber>${p.partNumber}</PartNumber><ETag>${p.etag}</ETag></Part>`),
+			'</CompleteMultipartUpload>',
+		].join('');
+
+		const completeUrl = `${mpObjUrl}?uploadId=${encodeURIComponent(uploadId)}`;
+		const completeSigned = await fullClient.sign(completeUrl, {
+			method: 'POST',
+			headers: {
+				'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+				'content-type': 'application/xml',
+				'content-length': String(Buffer.byteLength(completeXml)),
+			},
+			body: completeXml,
+		});
+		const completeRes = await fetch(completeSigned);
+		const completeBody = await completeRes.text();
+		const hasLocation = completeBody.includes('<Location>') || completeBody.includes('<ETag>');
+		assertTruthy(`multipart: CompleteMultipartUpload -> ${completeRes.status}`, completeRes.ok && hasLocation);
+
+		// --- Step 4: HEAD — verify total size ---
+		const headSigned = await fullClient.sign(mpObjUrl, {
+			method: 'HEAD',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+		});
+		const headRes = await fetch(headSigned);
+		const headLen = Number(headRes.headers.get('content-length') ?? 0);
+		assertTruthy(`multipart: HEAD content-length == ${TOTAL_SIZE} (got ${headLen})`, headLen === TOTAL_SIZE);
+
+		// --- Step 5: Concurrent range-GET downloads — verify content integrity ---
+		// For each part, fetch the first 16 bytes and verify the deterministic pattern.
+
+		async function verifyPartRange(partNum: number): Promise<boolean> {
+			const rangeStart = (partNum - 1) * PART_SIZE;
+			const rangeEnd = rangeStart + 15; // first 16 bytes of the part
+			const rangeSigned = await fullClient.sign(mpObjUrl, {
+				method: 'GET',
+				headers: {
+					'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+					Range: `bytes=${rangeStart}-${rangeEnd}`,
+				},
+			});
+			const rangeRes = await fetch(rangeSigned);
+			if (rangeRes.status !== 206 && rangeRes.status !== 200) return false;
+			const buf = Buffer.from(await rangeRes.arrayBuffer());
+			if (buf.length < 4) return false;
+			// Check the deterministic pattern: byte 0 = partNum, bytes 1-3 = offset encoding (offset 0)
+			return buf[0] === (partNum & 0xff) && buf[1] === 0 && buf[2] === 0 && buf[3] === 0;
+		}
+
+		const t1 = Date.now();
+		const verifyPromises: Promise<{ partNumber: number; ok: boolean }>[] = [];
+		for (let i = 1; i <= PART_COUNT; i++) {
+			verifyPromises.push(verifyPartRange(i).then((ok) => ({ partNumber: i, ok })));
+		}
+		const verifyResults = await Promise.all(verifyPromises);
+		const verifyMs = Date.now() - t1;
+		const allVerified = verifyResults.every((r) => r.ok);
+		const failedParts = verifyResults.filter((r) => !r.ok).map((r) => r.partNumber);
+		if (allVerified) {
+			assertTruthy(`multipart: ${PART_COUNT} concurrent range-GETs verified in ${verifyMs}ms`, true);
+		} else {
+			assertTruthy(`multipart: range-GET verification failed for parts: ${failedParts.join(', ')}`, false);
+		}
+
+		// --- Step 6: Concurrent full downloads (stress test) ---
+		// Fire CONCURRENCY simultaneous full-object GETs and verify they all return the right size.
+		const t2 = Date.now();
+		const dlPromises: Promise<{ idx: number; size: number; ok: boolean }>[] = [];
+		for (let i = 0; i < CONCURRENCY; i++) {
+			dlPromises.push(
+				(async () => {
+					const signed = await fullClient.sign(mpObjUrl, {
+						method: 'GET',
+						headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+					});
+					const res = await fetch(signed);
+					// Stream through to count bytes without buffering into a huge single allocation
+					let size = 0;
+					let firstByte = -1;
+					if (res.body) {
+						const reader = res.body.getReader();
+						for (;;) {
+							const { done, value } = await reader.read();
+							if (done) break;
+							if (firstByte === -1 && value.length > 0) firstByte = value[0];
+							size += value.length;
+						}
+					}
+					return { idx: i, size, ok: size === TOTAL_SIZE && firstByte === 1 };
+				})(),
+			);
+		}
+		const dlResults = await Promise.all(dlPromises);
+		const dlMs = Date.now() - t2;
+		const allDlOk = dlResults.every((r) => r.ok);
+		const dlTotalMB = CONCURRENCY * totalMB;
+		const dlMbps = ((dlTotalMB * 8) / (dlMs / 1000)).toFixed(1);
+		if (allDlOk) {
+			assertTruthy(
+				`multipart: ${CONCURRENCY} concurrent full downloads (${dlTotalMB} MB total) in ${(dlMs / 1000).toFixed(1)}s (${dlMbps} Mbps)`,
+				true,
+			);
+		} else {
+			const failedDl = dlResults.filter((r) => !r.ok);
+			for (const f of failedDl) {
+				assertTruthy(`multipart: concurrent download #${f.idx} failed (got ${f.size} bytes, expected ${TOTAL_SIZE})`, false);
+			}
+		}
+
+		// --- Step 7: Cleanup ---
+		const delSigned = await fullClient.sign(mpObjUrl, {
+			method: 'DELETE',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+		});
+		const delRes = await fetch(delSigned);
+		assertTruthy(`multipart: DeleteObject -> ${delRes.status}`, delRes.status === 204 || delRes.status === 200);
+	}
+
 	// ─── 17. S3 IAM Enforcement (read-only) ─────────────────────
 
 	section('S3 IAM Enforcement (read-only)');
@@ -1831,6 +2055,65 @@ export async function run(ctx: SmokeContext): Promise<void> {
 			state.errors.push(`hidden-deny: put normal file should succeed, got ${hfPutOkRes.status}`);
 			console.log(`  ${red('FAIL')}  hidden-deny: put normal file (got ${hfPutOkRes.status})`);
 		}
+
+		// Put hidden file (.hidden-cfg) -> 403
+		// NOTE: We use .hidden-cfg instead of .env/.gitignore because Cloudflare's WAF
+		// blocks requests to well-known sensitive filenames, returning its own 403 before
+		// the request reaches our Worker. Using a custom dot-prefixed name isolates
+		// the IAM deny logic from WAF interference.
+		const hfPutBadUrl = `${BASE}/s3/${S3_TEST_BUCKET}/config/.hidden-cfg`;
+		const hfPutBadSigned = await hfClient.sign(hfPutBadUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: 'SECRET_KEY=xxx',
+		});
+		const hfPutBadRes = await fetch(hfPutBadSigned);
+		if (hfPutBadRes.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  hidden-deny: put .hidden-cfg -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`hidden-deny: put .hidden-cfg should be 403, got ${hfPutBadRes.status}`);
+			console.log(`  ${red('FAIL')}  hidden-deny: put .hidden-cfg (got ${hfPutBadRes.status})`);
+		}
+		if (hfPutBadRes.body && !hfPutBadRes.bodyUsed) await hfPutBadRes.text().catch(() => {});
+
+		// Put hidden file (.secret-data) -> 403
+		const hfPutSecUrl = `${BASE}/s3/${S3_TEST_BUCKET}/repo/.secret-data`;
+		const hfPutSecSigned = await hfClient.sign(hfPutSecUrl, {
+			method: 'PUT',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
+			body: 'node_modules',
+		});
+		const hfPutSecRes = await fetch(hfPutSecSigned);
+		if (hfPutSecRes.status === 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  hidden-deny: put .secret-data -> 403`);
+		} else {
+			state.fail++;
+			state.errors.push(`hidden-deny: put .secret-data should be 403, got ${hfPutSecRes.status}`);
+			console.log(`  ${red('FAIL')}  hidden-deny: put .secret-data (got ${hfPutSecRes.status})`);
+		}
+		if (hfPutSecRes.body && !hfPutSecRes.bodyUsed) await hfPutSecRes.text().catch(() => {});
+
+		// GetObject on the normal file we just uploaded -> not 403 (proves GET works with this key)
+		const hfGetNormalUrl = `${BASE}/s3/${S3_TEST_BUCKET}/data/report-${hfPutOkTs}.csv`;
+		const hfGetNormalSigned = await hfClient.sign(hfGetNormalUrl, {
+			method: 'GET',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
+		});
+		const hfGetNormalRes = await fetch(hfGetNormalSigned);
+		if (hfGetNormalRes.body && !hfGetNormalRes.bodyUsed) await hfGetNormalRes.text().catch(() => {});
+		if (hfGetNormalRes.status !== 403) {
+			state.pass++;
+			console.log(`  ${green('PASS')}  hidden-deny: get normal file -> ${hfGetNormalRes.status} (deny on put only)`);
+		} else {
+			state.fail++;
+			state.errors.push('hidden-deny: get normal file should not be 403 (deny on put only)');
+			console.log(`  ${red('FAIL')}  hidden-deny: get normal file got 403`);
+		}
+
+		// Clean up the normal file after GET
 		try {
 			const cs = await fullClient.sign(hfPutOkUrl, {
 				method: 'DELETE',
@@ -1841,51 +2124,21 @@ export async function run(ctx: SmokeContext): Promise<void> {
 			/* best effort */
 		}
 
-		// Put hidden file (.env) -> 403
-		const hfPutBadUrl = `${BASE}/s3/${S3_TEST_BUCKET}/config/.env`;
-		const hfPutBadSigned = await hfClient.sign(hfPutBadUrl, {
-			method: 'PUT',
-			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
-			body: 'SECRET_KEY=xxx',
+		// DeleteObject .hidden-cfg -> not 403 (deny only on PutObject, not Delete)
+		const hfDelHiddenUrl = `${BASE}/s3/${S3_TEST_BUCKET}/config/.hidden-cfg`;
+		const hfDelHiddenSigned = await hfClient.sign(hfDelHiddenUrl, {
+			method: 'DELETE',
+			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
 		});
-		const hfPutBadRes = await fetch(hfPutBadSigned);
-		if (hfPutBadRes.status === 403) {
+		const hfDelHiddenRes = await fetch(hfDelHiddenSigned);
+		if (hfDelHiddenRes.body && !hfDelHiddenRes.bodyUsed) await hfDelHiddenRes.text().catch(() => {});
+		if (hfDelHiddenRes.status !== 403) {
 			state.pass++;
-			console.log(`  ${green('PASS')}  hidden-deny: put .env -> 403`);
+			console.log(`  ${green('PASS')}  hidden-deny: delete .hidden-cfg -> ${hfDelHiddenRes.status} (deny on put only)`);
 		} else {
 			state.fail++;
-			state.errors.push(`hidden-deny: put .env should be 403, got ${hfPutBadRes.status}`);
-			console.log(`  ${red('FAIL')}  hidden-deny: put .env (got ${hfPutBadRes.status})`);
-		}
-		if (hfPutBadRes.body && !hfPutBadRes.bodyUsed) await hfPutBadRes.text().catch(() => {});
-
-		// Put hidden file (.gitignore) -> 403
-		const hfPutGitUrl = `${BASE}/s3/${S3_TEST_BUCKET}/repo/.gitignore`;
-		const hfPutGitSigned = await hfClient.sign(hfPutGitUrl, {
-			method: 'PUT',
-			headers: { 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD', 'content-type': 'text/plain' },
-			body: 'node_modules',
-		});
-		const hfPutGitRes = await fetch(hfPutGitSigned);
-		if (hfPutGitRes.status === 403) {
-			state.pass++;
-			console.log(`  ${green('PASS')}  hidden-deny: put .gitignore -> 403`);
-		} else {
-			state.fail++;
-			state.errors.push(`hidden-deny: put .gitignore should be 403, got ${hfPutGitRes.status}`);
-			console.log(`  ${red('FAIL')}  hidden-deny: put .gitignore (got ${hfPutGitRes.status})`);
-		}
-		if (hfPutGitRes.body && !hfPutGitRes.bodyUsed) await hfPutGitRes.text().catch(() => {});
-
-		// GetObject .env -> not 403 (deny only on PutObject)
-		const hfGetOk = await s3req(hfClient, 'GET', `/${S3_TEST_BUCKET}/config/.env`);
-		if (hfGetOk.status !== 403) {
-			state.pass++;
-			console.log(`  ${green('PASS')}  hidden-deny: get .env -> ${hfGetOk.status} (deny on put only)`);
-		} else {
-			state.fail++;
-			state.errors.push('hidden-deny: get .env should not be 403 (deny on put only)');
-			console.log(`  ${red('FAIL')}  hidden-deny: get .env got 403`);
+			state.errors.push('hidden-deny: delete .hidden-cfg should not be 403 (deny on put only)');
+			console.log(`  ${red('FAIL')}  hidden-deny: delete .hidden-cfg got 403`);
 		}
 	}
 

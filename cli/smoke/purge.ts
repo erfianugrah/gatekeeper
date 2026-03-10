@@ -1171,7 +1171,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	});
 	assertStatus('url-path-deny: mixed paths -> 403', updPartial, 403);
 
-	// url.query.<key> condition: allow only when version query param exists
+	// url.query.<key> condition: allow only when ?v= query param exists
 	const urlQueryPolicy = {
 		version: '2025-01-01',
 		statements: [

@@ -11,10 +11,10 @@
  *   PUT    /namespaces/:namespaceId                          -> kv:update_namespace
  *   DELETE /namespaces/:namespaceId                          -> kv:delete_namespace
  *   GET    /namespaces/:namespaceId/keys                     -> kv:list_keys
- *   PUT    /namespaces/:namespaceId/values/:keyName          -> kv:put_value   (multipart/form-data)
- *   GET    /namespaces/:namespaceId/values/:keyName          -> kv:get_value   (returns binary)
- *   DELETE /namespaces/:namespaceId/values/:keyName          -> kv:delete_value
- *   GET    /namespaces/:namespaceId/metadata/:keyName        -> kv:get_metadata
+ *   PUT    /namespaces/:namespaceId/values/*                  -> kv:put_value   (multipart/form-data)
+ *   GET    /namespaces/:namespaceId/values/*                  -> kv:get_value   (returns binary)
+ *   DELETE /namespaces/:namespaceId/values/*                  -> kv:delete_value
+ *   GET    /namespaces/:namespaceId/metadata/*                -> kv:get_metadata
  *   PUT    /namespaces/:namespaceId/bulk                     -> kv:bulk_write
  *   POST   /namespaces/:namespaceId/bulk/delete              -> kv:bulk_delete
  *   POST   /namespaces/:namespaceId/bulk/get                 -> kv:bulk_get
@@ -43,6 +43,22 @@ import {
 import type { CfProxyEnv } from '../router';
 import type { CfProxyEvent } from '../analytics';
 import type { RequestContext } from '../../policy-types';
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Extract a KV key name from the request URL.
+ * KV keys may contain slashes (e.g., "config/app"), so the standard `:keyName`
+ * route param only captures a single path segment. Instead, we use a wildcard
+ * route (`/values/*`) and extract everything after the marker segment.
+ */
+function extractKeyName(url: string, marker: '/values/' | '/metadata/'): string {
+	const idx = url.indexOf(marker);
+	if (idx < 0) return '';
+	// Take the portion after the marker, stripping any query string
+	const raw = url.slice(idx + marker.length).split('?')[0];
+	return decodeURIComponent(raw);
+}
 
 // ─── Route ──────────────────────────────────────────────────────────────────
 
@@ -220,11 +236,11 @@ kvRoutes.get('/namespaces/:namespaceId/keys', async (c) => {
 
 // ─── Put value (multipart/form-data passthrough) ────────────────────────────
 
-kvRoutes.put('/namespaces/:namespaceId/values/:keyName', async (c) => {
+kvRoutes.put('/namespaces/:namespaceId/values/*', async (c) => {
 	const accountId: string = c.get('accountId');
 	const requestFields: Record<string, string> = c.get('requestFields');
 	const namespaceId = c.req.param('namespaceId');
-	const keyName = c.req.param('keyName');
+	const keyName = extractKeyName(c.req.url, '/values/');
 
 	try {
 		const contexts = [kvPutValueContext(accountId, namespaceId, keyName, requestFields)];
@@ -249,11 +265,11 @@ kvRoutes.put('/namespaces/:namespaceId/values/:keyName', async (c) => {
 
 // ─── Get value (binary passthrough) ─────────────────────────────────────────
 
-kvRoutes.get('/namespaces/:namespaceId/values/:keyName', async (c) => {
+kvRoutes.get('/namespaces/:namespaceId/values/*', async (c) => {
 	const accountId: string = c.get('accountId');
 	const requestFields: Record<string, string> = c.get('requestFields');
 	const namespaceId = c.req.param('namespaceId');
-	const keyName = c.req.param('keyName');
+	const keyName = extractKeyName(c.req.url, '/values/');
 
 	try {
 		const contexts = [kvGetValueContext(accountId, namespaceId, keyName, requestFields)];
@@ -275,11 +291,11 @@ kvRoutes.get('/namespaces/:namespaceId/values/:keyName', async (c) => {
 
 // ─── Delete value ───────────────────────────────────────────────────────────
 
-kvRoutes.delete('/namespaces/:namespaceId/values/:keyName', async (c) => {
+kvRoutes.delete('/namespaces/:namespaceId/values/*', async (c) => {
 	const accountId: string = c.get('accountId');
 	const requestFields: Record<string, string> = c.get('requestFields');
 	const namespaceId = c.req.param('namespaceId');
-	const keyName = c.req.param('keyName');
+	const keyName = extractKeyName(c.req.url, '/values/');
 
 	try {
 		const contexts = [kvDeleteValueContext(accountId, namespaceId, keyName, requestFields)];
@@ -301,11 +317,11 @@ kvRoutes.delete('/namespaces/:namespaceId/values/:keyName', async (c) => {
 
 // ─── Get metadata ───────────────────────────────────────────────────────────
 
-kvRoutes.get('/namespaces/:namespaceId/metadata/:keyName', async (c) => {
+kvRoutes.get('/namespaces/:namespaceId/metadata/*', async (c) => {
 	const accountId: string = c.get('accountId');
 	const requestFields: Record<string, string> = c.get('requestFields');
 	const namespaceId = c.req.param('namespaceId');
-	const keyName = c.req.param('keyName');
+	const keyName = extractKeyName(c.req.url, '/metadata/');
 
 	try {
 		const contexts = [kvGetMetadataContext(accountId, namespaceId, keyName, requestFields)];

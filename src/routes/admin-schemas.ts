@@ -40,7 +40,7 @@ const conditionValueSchema = z.union([z.string(), z.array(z.string()), z.boolean
 const leafConditionSchema = z.object({
 	field: z.string().min(1),
 	operator: z.enum(LEAF_OPERATORS),
-	value: conditionValueSchema,
+	value: conditionValueSchema.optional(),
 });
 
 /** Recursive condition schema — leaf or compound (any/all/not). */
