@@ -2,7 +2,11 @@
 
 import { AwsClient } from 'aws4fetch';
 import { CF_API_BASE } from '../constants';
+import { logAuditEvent } from '../audit-log';
+import type { AuditEvent } from '../audit-log';
+import type { Context } from 'hono';
 import type { AccessIdentity } from '../auth-access';
+import type { HonoEnv } from '../types';
 
 // ─── Identity resolution ────────────────────────────────────────────────────
 
@@ -19,6 +23,20 @@ export function resolveCreatedBy(identity: AccessIdentity | undefined, rawCreate
 	if (identity?.email) return identity.email;
 	if (typeof rawCreatedBy === 'string' && rawCreatedBy.length > 0) return `${UNVERIFIED_PREFIX}${rawCreatedBy}`;
 	return 'via admin key';
+}
+
+// ─── Audit logging ──────────────────────────────────────────────────────────
+
+/**
+ * Emit a persistent audit event via waitUntil(). Resolves the actor from
+ * the Hono context's accessIdentity (SSO email) or falls back to "via admin key".
+ */
+export function emitAudit(c: Context<HonoEnv>, event: Omit<AuditEvent, 'actor'> & { actor?: string }): void {
+	const identity = c.get('accessIdentity');
+	const actor = event.actor ?? (identity?.email ? identity.email : 'via admin key');
+	const db = c.env.ANALYTICS_DB;
+	if (!db) return; // analytics DB not bound — skip silently
+	c.executionCtx.waitUntil(logAuditEvent(db, { ...event, actor }));
 }
 
 // ─── Upstream credential validation ─────────────────────────────────────────

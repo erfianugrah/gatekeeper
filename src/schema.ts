@@ -132,3 +132,32 @@ export const CF_PROXY_EVENTS_INDEX_SERVICE_SQL = `
 CREATE INDEX IF NOT EXISTS idx_cf_proxy_service_created
 ON cf_proxy_events (service, created_at DESC);
 `;
+
+// ─── Audit events ───────────────────────────────────────────────────────────
+
+export const AUDIT_EVENTS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS audit_events (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	action TEXT NOT NULL,
+	actor TEXT NOT NULL,
+	entity_type TEXT NOT NULL,
+	entity_id TEXT,
+	detail TEXT,
+	created_at INTEGER NOT NULL
+);
+`;
+
+export const AUDIT_EVENTS_INDEX_ENTITY_SQL = `
+CREATE INDEX IF NOT EXISTS idx_audit_events_entity
+ON audit_events (entity_type, created_at DESC);
+`;
+
+export const AUDIT_EVENTS_INDEX_ACTOR_SQL = `
+CREATE INDEX IF NOT EXISTS idx_audit_events_actor
+ON audit_events (actor, created_at DESC);
+`;
+
+export const AUDIT_EVENTS_INDEX_ACTION_SQL = `
+CREATE INDEX IF NOT EXISTS idx_audit_events_action
+ON audit_events (action, created_at DESC);
+`;

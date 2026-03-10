@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { validatePolicy } from '../policy-engine';
 import { getStub } from '../do-stub';
-import { resolveCreatedBy } from './admin-helpers';
+import { resolveCreatedBy, emitAudit } from './admin-helpers';
 import { validateR2Binding } from './r2-binding';
 import {
 	createS3CredentialSchema,
@@ -92,6 +92,13 @@ adminS3App.post('/credentials', async (c) => {
 	log.accessKeyId = result.credential.access_key_id;
 	console.log(JSON.stringify(log));
 
+	emitAudit(c, {
+		action: 'create_s3_credential',
+		entity_type: 's3_credential',
+		entity_id: result.credential.access_key_id,
+		detail: JSON.stringify({ name: req.name, upstream_token_id: req.upstream_token_id }),
+	});
+
 	return c.json({ success: true, result });
 });
 
@@ -166,6 +173,13 @@ adminS3App.delete('/credentials/:id', async (c) => {
 			return jsonError(c, 404, 'Credential not found');
 		}
 
+		emitAudit(c, {
+			action: 'delete_s3_credential',
+			entity_type: 's3_credential',
+			entity_id: accessKeyId,
+			detail: JSON.stringify({ name: existing.credential.name }),
+		});
+
 		return c.json({ success: true, result: { deleted: true } });
 	}
 
@@ -183,6 +197,13 @@ adminS3App.delete('/credentials/:id', async (c) => {
 	if (!revoked) {
 		return jsonError(c, 404, 'Credential not found or already revoked');
 	}
+
+	emitAudit(c, {
+		action: 'revoke_s3_credential',
+		entity_type: 's3_credential',
+		entity_id: accessKeyId,
+		detail: JSON.stringify({ name: existing.credential.name }),
+	});
 
 	return c.json({ success: true, result: { revoked: true } });
 });
@@ -211,6 +232,14 @@ adminS3App.post('/credentials/bulk-revoke', async (c) => {
 	log.status = 200;
 	log.processed = result.processed;
 	console.log(JSON.stringify(log));
+
+	emitAudit(c, {
+		action: 'bulk_revoke_s3_credentials',
+		entity_type: 's3_credential',
+		entity_id: null,
+		detail: JSON.stringify({ ids, processed: result.processed }),
+	});
+
 	return c.json({ success: true, result });
 });
 
@@ -238,6 +267,14 @@ adminS3App.post('/credentials/bulk-delete', async (c) => {
 	log.status = 200;
 	log.processed = result.processed;
 	console.log(JSON.stringify(log));
+
+	emitAudit(c, {
+		action: 'bulk_delete_s3_credentials',
+		entity_type: 's3_credential',
+		entity_id: null,
+		detail: JSON.stringify({ ids, processed: result.processed }),
+	});
+
 	return c.json({ success: true, result });
 });
 

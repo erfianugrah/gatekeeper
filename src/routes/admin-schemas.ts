@@ -813,3 +813,18 @@ export const dnsAnalyticsSummarySchema = z
 		avg_duration_ms: z.number(),
 	})
 	.meta({ id: 'DnsAnalyticsSummary', description: 'Aggregate DNS proxy analytics' });
+
+// ─── Audit log query schemas ────────────────────────────────────────────────
+
+/** Audit log events: GET /admin/audit/events */
+export const auditEventsQuerySchema = z.object({
+	since: optionalNumericQuery,
+	until: optionalNumericQuery,
+	limit: z.coerce.number().int().min(1).max(MAX_ANALYTICS_LIMIT).optional().default(DEFAULT_ANALYTICS_LIMIT),
+	action: z.string().optional(),
+	actor: z.string().optional(),
+	entity_type: z.string().optional(),
+	entity_id: z.string().optional(),
+});
+
+export type AuditEventsQuery = z.infer<typeof auditEventsQuerySchema>;

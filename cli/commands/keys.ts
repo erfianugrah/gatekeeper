@@ -35,6 +35,11 @@ const create = defineCommand({
 			description: 'Human-readable key name',
 			required: true,
 		},
+		'upstream-token-id': {
+			type: 'string',
+			description: 'Upstream token ID to bind this key to (upt_...)',
+			required: true,
+		},
 		policy: {
 			type: 'string',
 			description: 'Policy document as JSON string or @path/to/file.json',
@@ -55,6 +60,7 @@ const create = defineCommand({
 
 		const body: Record<string, unknown> = {
 			name: args.name,
+			upstream_token_id: args['upstream-token-id'],
 			policy: parsePolicy(args.policy),
 		};
 

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getStub } from '../do-stub';
 import { CONFIG_DEFAULTS } from '../config-registry';
 import { invalidateConfigCache } from '../config-cache';
+import { emitAudit } from './admin-helpers';
 import { setConfigBodySchema, configKeyParamSchema, jsonError, parseJsonBody, parseParams } from './admin-schemas';
 import type { HonoEnv } from '../types';
 
@@ -58,6 +59,13 @@ adminConfigApp.put('/', async (c) => {
 	log.updatedBy = updatedBy;
 	console.log(JSON.stringify(log));
 
+	emitAudit(c, {
+		action: 'set_config',
+		entity_type: 'config',
+		entity_id: null,
+		detail: JSON.stringify({ keys: Object.keys(parsed), values: parsed }),
+	});
+
 	return c.json({ success: true, result: { config } });
 });
 
@@ -85,6 +93,13 @@ adminConfigApp.delete('/:key', async (c) => {
 	if (!deleted) {
 		return jsonError(c, 404, `No override found for key: ${params.key}`);
 	}
+
+	emitAudit(c, {
+		action: 'reset_config',
+		entity_type: 'config',
+		entity_id: params.key,
+		detail: null,
+	});
 
 	return c.json({ success: true, result: { config } });
 });
