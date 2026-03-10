@@ -80,7 +80,7 @@ export function d1CreateContext(accountId: string, body: Record<string, unknown>
 export function d1GetContext(accountId: string, databaseId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'd1:get',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/d1/${databaseId}`,
 		fields: { ...(requestFields ?? {}), 'd1.database_id': databaseId },
 	};
 }
@@ -89,7 +89,7 @@ export function d1GetContext(accountId: string, databaseId: string, requestField
 export function d1UpdateContext(accountId: string, databaseId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'd1:update',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/d1/${databaseId}`,
 		fields: { ...(requestFields ?? {}), 'd1.database_id': databaseId },
 	};
 }
@@ -98,7 +98,7 @@ export function d1UpdateContext(accountId: string, databaseId: string, requestFi
 export function d1DeleteContext(accountId: string, databaseId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'd1:delete',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/d1/${databaseId}`,
 		fields: { ...(requestFields ?? {}), 'd1.database_id': databaseId },
 	};
 }
@@ -116,7 +116,7 @@ export function d1QueryContext(
 	}
 	return {
 		action: 'd1:query',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/d1/${databaseId}`,
 		fields,
 	};
 }
@@ -134,7 +134,7 @@ export function d1RawContext(
 	}
 	return {
 		action: 'd1:raw',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/d1/${databaseId}`,
 		fields,
 	};
 }
@@ -143,7 +143,7 @@ export function d1RawContext(
 export function d1ExportContext(accountId: string, databaseId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'd1:export',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/d1/${databaseId}`,
 		fields: { ...(requestFields ?? {}), 'd1.database_id': databaseId },
 	};
 }
@@ -152,7 +152,7 @@ export function d1ExportContext(accountId: string, databaseId: string, requestFi
 export function d1ImportContext(accountId: string, databaseId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'd1:import',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/d1/${databaseId}`,
 		fields: { ...(requestFields ?? {}), 'd1.database_id': databaseId },
 	};
 }
@@ -161,7 +161,7 @@ export function d1ImportContext(accountId: string, databaseId: string, requestFi
 export function d1TimeTravelContext(accountId: string, databaseId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'd1:time_travel',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/d1/${databaseId}`,
 		fields: { ...(requestFields ?? {}), 'd1.database_id': databaseId },
 	};
 }

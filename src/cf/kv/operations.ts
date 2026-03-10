@@ -69,7 +69,7 @@ export function kvCreateNamespaceContext(
 export function kvGetNamespaceContext(accountId: string, namespaceId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'kv:get_namespace',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/kv/${namespaceId}`,
 		fields: { ...(requestFields ?? {}), 'kv.namespace_id': namespaceId },
 	};
 }
@@ -78,7 +78,7 @@ export function kvGetNamespaceContext(accountId: string, namespaceId: string, re
 export function kvUpdateNamespaceContext(accountId: string, namespaceId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'kv:update_namespace',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/kv/${namespaceId}`,
 		fields: { ...(requestFields ?? {}), 'kv.namespace_id': namespaceId },
 	};
 }
@@ -87,7 +87,7 @@ export function kvUpdateNamespaceContext(accountId: string, namespaceId: string,
 export function kvDeleteNamespaceContext(accountId: string, namespaceId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'kv:delete_namespace',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/kv/${namespaceId}`,
 		fields: { ...(requestFields ?? {}), 'kv.namespace_id': namespaceId },
 	};
 }
@@ -96,7 +96,7 @@ export function kvDeleteNamespaceContext(accountId: string, namespaceId: string,
 export function kvListKeysContext(accountId: string, namespaceId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'kv:list_keys',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/kv/${namespaceId}`,
 		fields: { ...(requestFields ?? {}), 'kv.namespace_id': namespaceId },
 	};
 }
@@ -110,7 +110,7 @@ export function kvPutValueContext(
 ): RequestContext {
 	return {
 		action: 'kv:put_value',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/kv/${namespaceId}`,
 		fields: { ...(requestFields ?? {}), 'kv.namespace_id': namespaceId, 'kv.key_name': keyName },
 	};
 }
@@ -124,7 +124,7 @@ export function kvGetValueContext(
 ): RequestContext {
 	return {
 		action: 'kv:get_value',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/kv/${namespaceId}`,
 		fields: { ...(requestFields ?? {}), 'kv.namespace_id': namespaceId, 'kv.key_name': keyName },
 	};
 }
@@ -138,7 +138,7 @@ export function kvDeleteValueContext(
 ): RequestContext {
 	return {
 		action: 'kv:delete_value',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/kv/${namespaceId}`,
 		fields: { ...(requestFields ?? {}), 'kv.namespace_id': namespaceId, 'kv.key_name': keyName },
 	};
 }
@@ -152,7 +152,7 @@ export function kvGetMetadataContext(
 ): RequestContext {
 	return {
 		action: 'kv:get_metadata',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/kv/${namespaceId}`,
 		fields: { ...(requestFields ?? {}), 'kv.namespace_id': namespaceId, 'kv.key_name': keyName },
 	};
 }
@@ -161,7 +161,7 @@ export function kvGetMetadataContext(
 export function kvBulkWriteContext(accountId: string, namespaceId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'kv:bulk_write',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/kv/${namespaceId}`,
 		fields: { ...(requestFields ?? {}), 'kv.namespace_id': namespaceId },
 	};
 }
@@ -170,7 +170,7 @@ export function kvBulkWriteContext(accountId: string, namespaceId: string, reque
 export function kvBulkDeleteContext(accountId: string, namespaceId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'kv:bulk_delete',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/kv/${namespaceId}`,
 		fields: { ...(requestFields ?? {}), 'kv.namespace_id': namespaceId },
 	};
 }
@@ -179,7 +179,7 @@ export function kvBulkDeleteContext(accountId: string, namespaceId: string, requ
 export function kvBulkGetContext(accountId: string, namespaceId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'kv:bulk_get',
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/kv/${namespaceId}`,
 		fields: { ...(requestFields ?? {}), 'kv.namespace_id': namespaceId },
 	};
 }

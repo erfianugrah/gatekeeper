@@ -263,6 +263,31 @@ export class UpstreamTokenManager {
 		return null;
 	}
 
+	/**
+	 * Resolve the upstream CF API token by its ID.
+	 * Used when a key is pinned to a specific upstream token via upstream_token_id.
+	 * Returns the token string if found, null otherwise.
+	 */
+	resolveTokenById(tokenId: string): string | null {
+		const cacheKey = `id:${tokenId}`;
+		const cached = this.resolveCache.get(cacheKey);
+		if (cached && Date.now() - cached.cachedAt < this.cacheTtlMs) {
+			console.log(JSON.stringify({ breadcrumb: 'upstream-token-by-id-cache-hit', tokenId }));
+			return cached.token;
+		}
+
+		const rows = queryAll<UpstreamTokenRow>(this.sql, 'SELECT * FROM upstream_tokens WHERE id = ?', tokenId);
+		if (rows.length === 0) {
+			console.log(JSON.stringify({ breadcrumb: 'upstream-token-by-id-not-found', tokenId }));
+			return null;
+		}
+
+		const row = rows[0];
+		this.resolveCache.set(cacheKey, { token: row.token, cachedAt: Date.now() });
+		console.log(JSON.stringify({ breadcrumb: 'upstream-token-by-id-resolved', tokenId }));
+		return row.token;
+	}
+
 	// ─── Private helpers ────────────────────────────────────────────────
 
 	private invalidateCache(): void {

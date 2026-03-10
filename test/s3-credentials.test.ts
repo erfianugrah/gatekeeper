@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { SELF, fetchMock } from 'cloudflare:test';
-import { s3WildcardPolicy, s3ReadOnlyPolicy } from './s3-helpers';
+import { s3WildcardPolicy, s3ReadOnlyPolicy, registerUpstreamR2, getR2EndpointId } from './s3-helpers';
 import { adminHeaders } from './helpers';
 
 // --- Helpers ---
@@ -12,7 +12,7 @@ async function createS3Credential(policy: Record<string, unknown>, name = 'test-
 	const res = await SELF.fetch('http://localhost/admin/s3/credentials', {
 		method: 'POST',
 		headers: adminHeaders(),
-		body: JSON.stringify({ name, policy, ...extra }),
+		body: JSON.stringify({ name, policy, upstream_token_id: getR2EndpointId(), ...extra }),
 	});
 	if (res.status === 200) {
 		const cloned = res.clone();
@@ -39,9 +39,10 @@ afterAll(async () => {
 // --- Tests ---
 
 describe('S3 credentials — CRUD', () => {
-	beforeAll(() => {
+	beforeAll(async () => {
 		fetchMock.activate();
 		fetchMock.disableNetConnect();
+		await registerUpstreamR2();
 	});
 
 	afterEach(() => {
@@ -267,7 +268,7 @@ describe('S3 credentials — CRUD', () => {
 		const res = await SELF.fetch('http://localhost/admin/s3/credentials', {
 			method: 'POST',
 			headers: adminHeaders(),
-			body: JSON.stringify({ policy: s3WildcardPolicy() }),
+			body: JSON.stringify({ policy: s3WildcardPolicy(), upstream_token_id: getR2EndpointId() }),
 		});
 		expect(res.status).toBe(400);
 		const data = await res.json<any>();
@@ -278,7 +279,7 @@ describe('S3 credentials — CRUD', () => {
 		const res = await SELF.fetch('http://localhost/admin/s3/credentials', {
 			method: 'POST',
 			headers: adminHeaders(),
-			body: JSON.stringify({ name: 'test' }),
+			body: JSON.stringify({ name: 'test', upstream_token_id: getR2EndpointId() }),
 		});
 		expect(res.status).toBe(400);
 		const data = await res.json<any>();
@@ -292,6 +293,7 @@ describe('S3 credentials — CRUD', () => {
 			body: JSON.stringify({
 				name: 'test',
 				policy: { version: 'wrong', statements: [] },
+				upstream_token_id: getR2EndpointId(),
 			}),
 		});
 		expect(res.status).toBe(400);

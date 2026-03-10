@@ -9,6 +9,7 @@ import {
 	registerUpstreamToken,
 	cleanupCreatedResources,
 	__testClearInflightCache,
+	getZoneTokenId,
 } from './helpers';
 import { registerUpstreamR2 } from './s3-helpers';
 
@@ -161,6 +162,7 @@ describe('Security headers - do not interfere with functionality', () => {
 			body: JSON.stringify({
 				name: 'sec-header-test',
 				zone_id: ZONE_ID,
+				upstream_token_id: getZoneTokenId(),
 				policy: wildcardPolicy(),
 			}),
 		});

@@ -4,6 +4,7 @@ import {
 	ZONE_ID,
 	adminHeaders,
 	createKeyWithPolicy,
+	getZoneTokenId,
 	hostPolicy,
 	wildcardPolicy,
 	urlPrefixPolicy,
@@ -350,6 +351,7 @@ describe('Purge — per-key rate limiting', () => {
 			body: JSON.stringify({
 				name: 'limited-key',
 				zone_id: ZONE_ID,
+				upstream_token_id: getZoneTokenId(),
 				policy: wildcardPolicy(),
 				rate_limit: { bulk_rate: 2, bulk_bucket: 2 },
 			}),
@@ -411,6 +413,7 @@ describe('Purge — MAX_KEY_BUCKETS eviction', () => {
 				body: JSON.stringify({
 					name: `bucket-test-key-${i}`,
 					zone_id: ZONE_ID,
+					upstream_token_id: getZoneTokenId(),
 					policy: wildcardPolicy(),
 					rate_limit: { bulk_rate: 10, bulk_bucket: 10 },
 				}),

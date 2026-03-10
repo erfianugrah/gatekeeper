@@ -338,7 +338,12 @@ export async function run(ctx: SmokeContext): Promise<void> {
 			},
 		],
 	};
-	const numValid = await admin('POST', '/admin/keys', { name: 'smoke-num-valid', zone_id: ZONE, policy: numValidPolicy });
+	const numValid = await admin('POST', '/admin/keys', {
+		name: 'smoke-num-valid',
+		zone_id: ZONE,
+		policy: numValidPolicy,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
+	});
 	assertStatus('numeric lt with valid value -> 200', numValid, 200);
 	const numValidId = numValid.body?.result?.key?.id;
 	if (numValidId) state.createdKeys.push(numValidId);
@@ -355,7 +360,12 @@ export async function run(ctx: SmokeContext): Promise<void> {
 			},
 		],
 	};
-	const numInvalid = await admin('POST', '/admin/keys', { name: 'x', zone_id: ZONE, policy: numInvalidPolicy });
+	const numInvalid = await admin('POST', '/admin/keys', {
+		name: 'x',
+		zone_id: ZONE,
+		policy: numInvalidPolicy,
+		upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
+	});
 	assertStatus('numeric gt with non-numeric value -> 400', numInvalid, 400);
 
 	// All four numeric operators with valid values
@@ -371,7 +381,12 @@ export async function run(ctx: SmokeContext): Promise<void> {
 				},
 			],
 		};
-		const opRes = await admin('POST', '/admin/keys', { name: `smoke-num-${op}`, zone_id: ZONE, policy: opPolicy });
+		const opRes = await admin('POST', '/admin/keys', {
+			name: `smoke-num-${op}`,
+			zone_id: ZONE,
+			policy: opPolicy,
+			upstream_token_id: ctx.UPSTREAM_TOKEN_ID,
+		});
 		assertStatus(`numeric ${op} with valid value -> 200`, opRes, 200);
 		const opId = opRes.body?.result?.key?.id;
 		if (opId) state.createdKeys.push(opId);

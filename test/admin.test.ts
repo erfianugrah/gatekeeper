@@ -7,14 +7,17 @@ import {
 	hostPolicy,
 	wildcardPolicy,
 	cleanupCreatedResources,
+	registerUpstreamToken,
+	getZoneTokenId,
 	__testClearInflightCache,
 } from './helpers';
 
 // --- Setup ---
 
-beforeAll(() => {
+beforeAll(async () => {
 	fetchMock.activate();
 	fetchMock.disableNetConnect();
+	await registerUpstreamToken();
 });
 
 beforeEach(() => {
@@ -36,7 +39,7 @@ describe('Admin — authentication', () => {
 		const res = await SELF.fetch('http://localhost/admin/keys', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ name: 'x', zone_id: ZONE_ID, policy: wildcardPolicy() }),
+			body: JSON.stringify({ name: 'x', zone_id: ZONE_ID, upstream_token_id: getZoneTokenId(), policy: wildcardPolicy() }),
 		});
 		expect(res.status).toBe(401);
 	});
@@ -45,7 +48,7 @@ describe('Admin — authentication', () => {
 		const res = await SELF.fetch('http://localhost/admin/keys', {
 			method: 'POST',
 			headers: { 'X-Admin-Key': 'wrong-key', 'Content-Type': 'application/json' },
-			body: JSON.stringify({ name: 'x', zone_id: ZONE_ID, policy: wildcardPolicy() }),
+			body: JSON.stringify({ name: 'x', zone_id: ZONE_ID, upstream_token_id: getZoneTokenId(), policy: wildcardPolicy() }),
 		});
 		expect(res.status).toBe(401);
 	});
@@ -60,6 +63,7 @@ describe('Admin — key lifecycle', () => {
 			body: JSON.stringify({
 				name: 'lifecycle-key',
 				zone_id: ZONE_ID,
+				upstream_token_id: getZoneTokenId(),
 				policy: hostPolicy('example.com'),
 			}),
 		});
@@ -104,7 +108,7 @@ describe('Admin — key lifecycle', () => {
 		const createRes = await SELF.fetch('http://localhost/admin/keys', {
 			method: 'POST',
 			headers: adminHeaders(),
-			body: JSON.stringify({ name: 'delete-me', zone_id: ZONE_ID, policy: wildcardPolicy() }),
+			body: JSON.stringify({ name: 'delete-me', zone_id: ZONE_ID, upstream_token_id: getZoneTokenId(), policy: wildcardPolicy() }),
 		});
 		const keyId = (await createRes.json<any>()).result.key.id;
 
@@ -134,7 +138,7 @@ describe('Admin — key lifecycle', () => {
 		const createRes = await SELF.fetch('http://localhost/admin/keys', {
 			method: 'POST',
 			headers: adminHeaders(),
-			body: JSON.stringify({ name: 'revoke-then-delete', zone_id: ZONE_ID, policy: wildcardPolicy() }),
+			body: JSON.stringify({ name: 'revoke-then-delete', zone_id: ZONE_ID, upstream_token_id: getZoneTokenId(), policy: wildcardPolicy() }),
 		});
 		const keyId = (await createRes.json<any>()).result.key.id;
 
@@ -169,7 +173,7 @@ describe('Admin — validation', () => {
 		const res = await SELF.fetch('http://localhost/admin/keys', {
 			method: 'POST',
 			headers: adminHeaders(),
-			body: JSON.stringify({ name: 'no-policy', zone_id: ZONE_ID }),
+			body: JSON.stringify({ name: 'no-policy', zone_id: ZONE_ID, upstream_token_id: getZoneTokenId() }),
 		});
 		expect(res.status).toBe(400);
 		const data = await res.json<any>();
@@ -183,6 +187,7 @@ describe('Admin — validation', () => {
 			body: JSON.stringify({
 				name: 'bad-policy',
 				zone_id: ZONE_ID,
+				upstream_token_id: getZoneTokenId(),
 				policy: {
 					statements: [{ effect: 'allow', actions: ['*'], resources: ['*'] }],
 				},
@@ -200,6 +205,7 @@ describe('Admin — validation', () => {
 			body: JSON.stringify({
 				name: 'empty-stmts',
 				zone_id: ZONE_ID,
+				upstream_token_id: getZoneTokenId(),
 				policy: { version: '2025-01-01', statements: [] },
 			}),
 		});
@@ -213,6 +219,7 @@ describe('Admin — validation', () => {
 			body: JSON.stringify({
 				name: 'bad-regex',
 				zone_id: ZONE_ID,
+				upstream_token_id: getZoneTokenId(),
 				policy: {
 					version: '2025-01-01',
 					statements: [
@@ -431,6 +438,7 @@ describe('Admin — zone_id validation', () => {
 			body: JSON.stringify({
 				name: 'bad-zone-key',
 				zone_id: 'NOT-A-VALID-ZONE!',
+				upstream_token_id: getZoneTokenId(),
 				policy: wildcardPolicy(),
 			}),
 		});
@@ -446,6 +454,7 @@ describe('Admin — zone_id validation', () => {
 			body: JSON.stringify({
 				name: 'short-zone-key',
 				zone_id: 'abc123',
+				upstream_token_id: getZoneTokenId(),
 				policy: wildcardPolicy(),
 			}),
 		});

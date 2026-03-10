@@ -62,7 +62,7 @@ export function vectorizeIndexContext(
 ): RequestContext {
 	return {
 		action,
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/vectorize/${indexName}`,
 		fields: {
 			...(requestFields ?? {}),
 			'vectorize.index_name': indexName,

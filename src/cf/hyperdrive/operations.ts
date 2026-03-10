@@ -46,7 +46,7 @@ export function hyperdriveConfigContext(
 ): RequestContext {
 	return {
 		action,
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/hyperdrive/${hyperdriveId}`,
 		fields: {
 			...(requestFields ?? {}),
 			'hyperdrive.config_id': hyperdriveId,

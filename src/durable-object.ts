@@ -580,6 +580,11 @@ export class Gatekeeper extends DurableObject<Env> {
 		return this.upstreamTokens.resolveTokenForAccount(accountId);
 	}
 
+	/** Resolve the CF API token by its upstream token ID. Returns null if not found. */
+	async resolveUpstreamTokenById(tokenId: string): Promise<string | null> {
+		return this.upstreamTokens.resolveTokenById(tokenId);
+	}
+
 	// ─── Upstream R2 RPC methods ────────────────────────────────────────
 
 	async createUpstreamR2(req: CreateUpstreamR2Request): Promise<{ endpoint: UpstreamR2 }> {
@@ -614,6 +619,11 @@ export class Gatekeeper extends DurableObject<Env> {
 	/** Resolve R2 credentials for ListBuckets (no specific bucket). */
 	async resolveR2ForListBuckets(): Promise<R2Credentials | null> {
 		return this.upstreamR2.resolveForListBuckets();
+	}
+
+	/** Resolve R2 credentials by upstream R2 endpoint ID. Returns null if not found. */
+	async resolveR2ById(endpointId: string): Promise<R2Credentials | null> {
+		return this.upstreamR2.resolveR2ById(endpointId);
 	}
 
 	// ─── Config Registry RPC methods ────────────────────────────────────

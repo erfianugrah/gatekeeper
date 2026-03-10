@@ -136,13 +136,22 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 		}
 
 		// Resolve upstream CF API token for this zone (after auth to avoid info leak)
-		const upstreamToken = await stub.resolveUpstreamToken(zoneId);
+		// Key-pinned upstream token takes priority over zone-based resolution
+		let upstreamToken: string | null;
+		if (authResult.upstreamTokenId) {
+			upstreamToken = await stub.resolveUpstreamTokenById(authResult.upstreamTokenId);
+		} else {
+			upstreamToken = await stub.resolveUpstreamToken(zoneId);
+		}
 		if (!upstreamToken) {
+			const detail = authResult.upstreamTokenId
+				? `Pinned upstream token ${authResult.upstreamTokenId} not found`
+				: `No upstream API token registered for zone ${zoneId}`;
 			log.status = 502;
-			log.error = 'no_upstream_token';
+			log.error = authResult.upstreamTokenId ? 'pinned_upstream_token_not_found' : 'no_upstream_token';
 			log.durationMs = Date.now() - start;
 			console.log(JSON.stringify(log));
-			return jsonError(c, 502, `No upstream API token registered for zone ${zoneId}`);
+			return jsonError(c, 502, detail);
 		}
 
 		// ── Isolate-level request collapsing ────────────────────────────────

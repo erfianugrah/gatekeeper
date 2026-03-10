@@ -6,14 +6,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { PolicyBuilder } from '@/components/PolicyBuilder';
 import { JsonHighlight } from '@/components/JsonHighlight';
 import { usePagination } from '@/hooks/use-pagination';
 import { TablePagination } from '@/components/TablePagination';
-import { listKeys, createKey, revokeKey, deleteKey, bulkRevokeKeys, bulkDeleteKeys, POLICY_VERSION } from '@/lib/api';
-import type { ApiKey, PolicyDocument } from '@/lib/api';
+import { listKeys, createKey, revokeKey, deleteKey, bulkRevokeKeys, bulkDeleteKeys, listUpstreamTokens, POLICY_VERSION } from '@/lib/api';
+import type { ApiKey, PolicyDocument, UpstreamToken } from '@/lib/api';
 import { cn, copyToClipboard } from '@/lib/utils';
 import { T } from '@/lib/typography';
 
@@ -42,30 +43,102 @@ interface CreateKeyDialogProps {
 	onCreated: (secret: string) => void;
 }
 
-function makeDefaultPolicy(): PolicyDocument {
+function makeDefaultPolicy(scopeType?: 'zone' | 'account'): PolicyDocument {
+	const defaultAction = scopeType === 'account' ? 'd1:*' : 'purge:*';
 	return {
 		version: POLICY_VERSION,
 		statements: [
 			{
 				_id: crypto.randomUUID(),
 				effect: 'allow',
-				actions: ['purge:*'],
-				resources: ['*'],
+				actions: [defaultAction],
+				resources: [],
 			},
 		],
 	};
+}
+
+/** Build a resource hint from token scope. */
+function buildResourceHint(token: UpstreamToken): string {
+	if (token.scope_type === 'zone') {
+		const ids = token.zone_ids.split(',').map((s) => s.trim());
+		if (ids.length === 1 && ids[0] === '*') return 'zone:* (all zones)';
+		if (ids.length === 1) return `zone:${ids[0]}`;
+		return ids.map((id) => `zone:${id}`).join(', ');
+	}
+	// Account-scoped
+	return `account:${token.zone_ids}`;
+}
+
+/** Build default resources from token scope. */
+function buildDefaultResources(token: UpstreamToken): string[] {
+	if (token.scope_type === 'zone') {
+		const ids = token.zone_ids.split(',').map((s) => s.trim());
+		if (ids.length === 1 && ids[0] === '*') return ['zone:*'];
+		return ids.map((id) => `zone:${id}`);
+	}
+	return [`account:${token.zone_ids}`];
 }
 
 function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 	const [open, setOpen] = useState(false);
 	const [name, setName] = useState('');
 	const [expiresInDays, setExpiresInDays] = useState('');
+	const [selectedTokenId, setSelectedTokenId] = useState('');
+	const [tokens, setTokens] = useState<UpstreamToken[]>([]);
+	const [tokensLoading, setTokensLoading] = useState(false);
 	const [policy, setPolicy] = useState<PolicyDocument>(() => makeDefaultPolicy());
 	const [creating, setCreating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
+	const selectedToken = useMemo(() => tokens.find((t) => t.id === selectedTokenId), [tokens, selectedTokenId]);
+	const scopeType = selectedToken?.scope_type;
+	const resourceHint = selectedToken ? buildResourceHint(selectedToken) : undefined;
+
+	// Group tokens by scope_type for the dropdown
+	const zoneTokens = useMemo(() => tokens.filter((t) => t.scope_type === 'zone'), [tokens]);
+	const accountTokens = useMemo(() => tokens.filter((t) => t.scope_type === 'account'), [tokens]);
+
+	// Fetch tokens when dialog opens
+	useEffect(() => {
+		if (!open) return;
+		let cancelled = false;
+		setTokensLoading(true);
+		listUpstreamTokens()
+			.then((data) => {
+				if (cancelled) return;
+				setTokens(data);
+			})
+			.catch(() => {
+				if (cancelled) return;
+				setTokens([]);
+			})
+			.finally(() => {
+				if (!cancelled) setTokensLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [open]);
+
+	// When token changes, reset policy to match scope
+	const handleTokenChange = (tokenId: string) => {
+		setSelectedTokenId(tokenId);
+		const token = tokens.find((t) => t.id === tokenId);
+		if (token) {
+			const newPolicy = makeDefaultPolicy(token.scope_type);
+			// Pre-fill resources from token scope
+			newPolicy.statements[0].resources = buildDefaultResources(token);
+			setPolicy(newPolicy);
+		}
+	};
+
 	const handleCreate = async () => {
 		setError(null);
+		if (!selectedTokenId) {
+			setError('Select an upstream token');
+			return;
+		}
 		if (policy.statements.length === 0) {
 			setError('Policy must have at least one statement');
 			return;
@@ -79,6 +152,7 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 		try {
 			const result = await createKey({
 				name,
+				upstream_token_id: selectedTokenId,
 				policy,
 				expires_in_days: expiresInDays ? Number(expiresInDays) : undefined,
 			});
@@ -86,6 +160,7 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 			setOpen(false);
 			setName('');
 			setExpiresInDays('');
+			setSelectedTokenId('');
 			setPolicy(makeDefaultPolicy());
 		} catch (e: any) {
 			setError(e.message ?? 'Failed to create key');
@@ -95,9 +170,19 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 	};
 
 	const handleOpenChange = (next: boolean) => {
-		if (next) setPolicy(makeDefaultPolicy());
+		if (next) {
+			setPolicy(makeDefaultPolicy());
+			setSelectedTokenId('');
+			setError(null);
+		}
 		setOpen(next);
 		setError(null);
+	};
+
+	/** Format token label for the dropdown. */
+	const tokenLabel = (t: UpstreamToken) => {
+		const scopeInfo = t.scope_type === 'zone' ? `zones: ${t.zone_ids}` : `account: ${t.zone_ids}`;
+		return `${t.name} (${scopeInfo})`;
 	};
 
 	return (
@@ -111,10 +196,76 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 			<DialogContent className="max-w-2xl xl:max-w-4xl 2xl:max-w-5xl max-h-[85vh] overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>Create API Key</DialogTitle>
-					<DialogDescription>Create a new purge API key. The zone is determined at purge time, not key creation.</DialogDescription>
+					<DialogDescription>Select an upstream token to determine the key's scope, then configure permissions.</DialogDescription>
 				</DialogHeader>
 
 				<div className="space-y-4">
+					{/* Step 1: Upstream Token */}
+					<div className="space-y-2">
+						<Label className={T.formLabel}>Upstream Token</Label>
+						{tokensLoading ? (
+							<Skeleton className="h-9 w-full" />
+						) : tokens.length === 0 ? (
+							<p className="text-sm text-muted-foreground">
+								No upstream tokens found. Create one in the{' '}
+								<a href="/dashboard/upstream-tokens" className="text-lv-blue hover:underline">
+									Upstream Tokens
+								</a>{' '}
+								page first.
+							</p>
+						) : (
+							<>
+								<Select value={selectedTokenId} onValueChange={handleTokenChange}>
+									<SelectTrigger className="text-xs font-data">
+										<SelectValue placeholder="Select upstream token..." />
+									</SelectTrigger>
+									<SelectContent>
+										{zoneTokens.length > 0 && (
+											<SelectGroup>
+												<SelectLabel className="text-[10px] text-muted-foreground/60">Zone-scoped (Purge, DNS)</SelectLabel>
+												{zoneTokens.map((t) => (
+													<SelectItem key={t.id} value={t.id} className="text-xs font-data">
+														{tokenLabel(t)}
+													</SelectItem>
+												))}
+											</SelectGroup>
+										)}
+										{accountTokens.length > 0 && (
+											<SelectGroup>
+												<SelectLabel className="text-[10px] text-muted-foreground/60">
+													Account-scoped (D1, KV, Workers, Queues, Vectorize, Hyperdrive)
+												</SelectLabel>
+												{accountTokens.map((t) => (
+													<SelectItem key={t.id} value={t.id} className="text-xs font-data">
+														{tokenLabel(t)}
+													</SelectItem>
+												))}
+											</SelectGroup>
+										)}
+									</SelectContent>
+								</Select>
+								{selectedToken && (
+									<p className="text-[11px] font-data text-muted-foreground">
+										<Badge
+											className={cn(
+												'text-[9px] px-1 py-0 mr-1.5',
+												scopeType === 'zone'
+													? 'bg-lv-blue/20 text-lv-blue border-lv-blue/30'
+													: 'bg-lv-peach/20 text-lv-peach border-lv-peach/30',
+											)}
+										>
+											{scopeType}
+										</Badge>
+										{scopeType === 'zone' ? 'Purge and DNS actions' : 'D1, KV, Workers, Queues, Vectorize, Hyperdrive actions'}
+										{' — '}
+										<code className="text-lv-cyan">{selectedToken.token_preview}</code>
+									</p>
+								)}
+							</>
+						)}
+					</div>
+
+					{/* Step 2: Key Name */}
 					<div className="space-y-2">
 						<Label className={T.formLabel}>Key Name</Label>
 						<Input placeholder="e.g. deploy-bot" value={name} onChange={(e: any) => setName(e.target.value)} />
@@ -131,10 +282,13 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 						/>
 					</div>
 
-					<div className="space-y-2">
-						<Label className={T.formLabel}>Policy</Label>
-						<PolicyBuilder value={policy} onChange={setPolicy} />
-					</div>
+					{/* Step 3: Policy (only shown after token selected) */}
+					{selectedTokenId && (
+						<div className="space-y-2">
+							<Label className={T.formLabel}>Policy</Label>
+							<PolicyBuilder value={policy} onChange={setPolicy} tokenScopeType={scopeType} resourceHint={resourceHint} />
+						</div>
+					)}
 
 					{error && <p className="text-sm text-lv-red">{error}</p>}
 				</div>
@@ -143,7 +297,7 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 					<Button variant="outline" onClick={() => setOpen(false)}>
 						Cancel
 					</Button>
-					<Button onClick={handleCreate} disabled={creating || !name.trim()}>
+					<Button onClick={handleCreate} disabled={creating || !name.trim() || !selectedTokenId}>
 						{creating && <Loader2 className="h-4 w-4 animate-spin" />}
 						Create
 					</Button>

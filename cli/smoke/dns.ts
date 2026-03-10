@@ -68,7 +68,8 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		statements: [{ effect: 'allow', actions: ['dns:*'], resources: [`zone:${ZONE}`] }],
 	};
 
-	const { r: wc, keyId: DNS_WILDCARD_ID } = await createKey('smoke-dns-wildcard', ZONE, WILDCARD_DNS_POLICY);
+	const dnsTokenExtra = { upstream_token_id: dnsUpstreamId };
+	const { r: wc, keyId: DNS_WILDCARD_ID } = await createKey('smoke-dns-wildcard', ZONE, WILDCARD_DNS_POLICY, dnsTokenExtra);
 	assertStatus('create dns:* wildcard key -> 200', wc, 200);
 	assertTruthy('wildcard key id starts with gw_', DNS_WILDCARD_ID.startsWith('gw_'));
 
@@ -213,7 +214,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		version: '2025-01-01',
 		statements: [{ effect: 'allow', actions: ['dns:read', 'dns:export'], resources: [`zone:${ZONE}`] }],
 	};
-	const { r: roCreate, keyId: DNS_RO_ID } = await createKey('smoke-dns-readonly', ZONE, READ_ONLY_POLICY);
+	const { r: roCreate, keyId: DNS_RO_ID } = await createKey('smoke-dns-readonly', ZONE, READ_ONLY_POLICY, dnsTokenExtra);
 	assertStatus('create read-only DNS key -> 200', roCreate, 200);
 
 	// Read-only: list allowed
@@ -238,7 +239,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		version: '2025-01-01',
 		statements: [{ effect: 'allow', actions: ['dns:create'], resources: [`zone:${ZONE}`] }],
 	};
-	const { r: coCreate, keyId: DNS_CO_ID } = await createKey('smoke-dns-create-only', ZONE, CREATE_ONLY_POLICY);
+	const { r: coCreate, keyId: DNS_CO_ID } = await createKey('smoke-dns-create-only', ZONE, CREATE_ONLY_POLICY, dnsTokenExtra);
 	assertStatus('create create-only DNS key -> 200', coCreate, 200);
 
 	// Create-only: list denied
@@ -277,7 +278,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 			},
 		],
 	};
-	const { r: aCreate, keyId: DNS_A_ID } = await createKey('smoke-dns-a-only', ZONE, A_ONLY_POLICY);
+	const { r: aCreate, keyId: DNS_A_ID } = await createKey('smoke-dns-a-only', ZONE, A_ONLY_POLICY, dnsTokenExtra);
 	assertStatus('create A-only DNS key -> 200', aCreate, 200);
 
 	// A-only: create TXT -> denied
@@ -301,7 +302,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 			{ effect: 'deny', actions: ['dns:delete'], resources: [`zone:${ZONE}`] },
 		],
 	};
-	const { r: ddCreate, keyId: DNS_DENY_DEL_ID } = await createKey('smoke-dns-deny-delete', ZONE, DENY_DELETE_POLICY);
+	const { r: ddCreate, keyId: DNS_DENY_DEL_ID } = await createKey('smoke-dns-deny-delete', ZONE, DENY_DELETE_POLICY, dnsTokenExtra);
 	assertStatus('create deny-delete DNS key -> 200', ddCreate, 200);
 
 	// deny-delete: list allowed
@@ -333,7 +334,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 		version: '2025-01-01',
 		statements: [{ effect: 'deny', actions: ['dns:*'], resources: [`zone:${ZONE}`] }],
 	};
-	const { r: doCreate, keyId: DNS_DENY_ONLY_ID } = await createKey('smoke-dns-deny-only', ZONE, DENY_ONLY_POLICY);
+	const { r: doCreate, keyId: DNS_DENY_ONLY_ID } = await createKey('smoke-dns-deny-only', ZONE, DENY_ONLY_POLICY, dnsTokenExtra);
 	assertStatus('create deny-only DNS key -> 200', doCreate, 200);
 
 	const doList = await dns(DNS_DENY_ONLY_ID, 'GET', DNS_BASE);
@@ -385,7 +386,7 @@ export async function run(ctx: SmokeContext): Promise<void> {
 			version: '2025-01-01',
 			statements: [{ effect: 'allow', actions: [at.action], resources: [`zone:${ZONE}`] }],
 		};
-		const { r: cr, keyId } = await createKey(at.name, ZONE, policy);
+		const { r: cr, keyId } = await createKey(at.name, ZONE, policy, dnsTokenExtra);
 		assertStatus(`${at.action} key created -> 200`, cr, 200);
 
 		const ok = await dns(keyId, at.okMethod, at.okPath, at.okBody);

@@ -35,10 +35,35 @@ export function extractBearerKey(authHeader: string | undefined): string | null 
 // ─── Upstream token resolution ──────────────────────────────────────────────
 
 /**
+ * Resolve the upstream CF API token by a pinned upstream_token_id.
+ * Returns the token string on success, or a CF-style JSON error Response on failure.
+ * Called when a key has upstream_token_id set (key-to-upstream binding).
+ */
+export async function resolveUpstreamTokenByIdOrError(
+	env: Env,
+	upstreamTokenId: string,
+	log: Record<string, unknown>,
+	start: number,
+): Promise<string | Response> {
+	const stub = getStub(env);
+	const upstreamToken = await stub.resolveUpstreamTokenById(upstreamTokenId);
+	if (!upstreamToken) {
+		log.status = 502;
+		log.error = 'pinned_upstream_token_not_found';
+		log.upstreamTokenId = upstreamTokenId;
+		log.durationMs = Date.now() - start;
+		console.log(JSON.stringify(log));
+		return cfJsonError(502, `Pinned upstream token ${upstreamTokenId} not found`);
+	}
+	return upstreamToken;
+}
+
+/**
  * Resolve the upstream CF API token for a given account.
  * Called AFTER authentication to prevent unauthenticated callers from probing
  * which accounts have registered tokens (would leak 502 vs 401).
  *
+ * If upstreamTokenId is provided (key-to-upstream binding), resolves by ID instead.
  * Returns the token string on success, or a CF-style JSON error Response on failure.
  */
 export async function resolveUpstreamTokenOrError(
@@ -46,7 +71,13 @@ export async function resolveUpstreamTokenOrError(
 	accountId: string,
 	log: Record<string, unknown>,
 	start: number,
+	upstreamTokenId?: string,
 ): Promise<string | Response> {
+	// Key-pinned upstream token takes priority
+	if (upstreamTokenId) {
+		return resolveUpstreamTokenByIdOrError(env, upstreamTokenId, log, start);
+	}
+
 	const stub = getStub(env);
 	const upstreamToken = await stub.resolveUpstreamAccountToken(accountId);
 	if (!upstreamToken) {
@@ -64,6 +95,7 @@ export async function resolveUpstreamTokenOrError(
  * Zone-scoped variant for DNS and other zone-level services.
  * Called AFTER authentication to prevent info leakage.
  *
+ * If upstreamTokenId is provided (key-to-upstream binding), resolves by ID instead.
  * Returns the token string on success, or a CF-style JSON error Response on failure.
  */
 export async function resolveUpstreamZoneTokenOrError(
@@ -71,7 +103,13 @@ export async function resolveUpstreamZoneTokenOrError(
 	zoneId: string,
 	log: Record<string, unknown>,
 	start: number,
+	upstreamTokenId?: string,
 ): Promise<string | Response> {
+	// Key-pinned upstream token takes priority
+	if (upstreamTokenId) {
+		return resolveUpstreamTokenByIdOrError(env, upstreamTokenId, log, start);
+	}
+
 	const stub = getStub(env);
 	const upstreamToken = await stub.resolveUpstreamToken(zoneId);
 	if (!upstreamToken) {

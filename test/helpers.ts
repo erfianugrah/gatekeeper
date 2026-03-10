@@ -63,6 +63,7 @@ export async function createKeyWithPolicy(
 		body: JSON.stringify({
 			name,
 			zone_id: ZONE_ID,
+			upstream_token_id: currentZoneTokenId,
 			policy,
 			...extra,
 		}),
@@ -74,11 +75,11 @@ export async function createKeyWithPolicy(
 }
 
 /** Create a key with no zone_id (for account-scoped policies). Returns the key ID. Auto-tracked for cleanup. */
-export async function createAccountKey(policy: PolicyDocument, name = 'cf-test-key'): Promise<string> {
+export async function createAccountKey(policy: PolicyDocument, name = 'cf-test-key', upstreamTokenId?: string): Promise<string> {
 	const res = await SELF.fetch('http://localhost/admin/keys', {
 		method: 'POST',
 		headers: adminHeaders(),
-		body: JSON.stringify({ name, policy }),
+		body: JSON.stringify({ name, policy, upstream_token_id: upstreamTokenId ?? currentAccountTokenId }),
 	});
 	const data = await res.json<any>();
 	if (!data.success) throw new Error(`createAccountKey failed: ${JSON.stringify(data.errors)}`);
@@ -86,9 +87,27 @@ export async function createAccountKey(policy: PolicyDocument, name = 'cf-test-k
 	return data.result.key.id;
 }
 
+// ─── Token binding state ────────────────────────────────────────────────────
+
+/** Current zone-scoped upstream token ID. Set by registerUpstreamToken(). Used by createKeyWithPolicy(). */
+let currentZoneTokenId = '';
+
+/** Current account-scoped upstream token ID. Set by registerAccountUpstreamToken(). Used by createAccountKey(). */
+let currentAccountTokenId = '';
+
+/** Get the current zone-scoped upstream token ID. */
+export function getZoneTokenId(): string {
+	return currentZoneTokenId;
+}
+
+/** Get the current account-scoped upstream token ID. */
+export function getAccountTokenId(): string {
+	return currentAccountTokenId;
+}
+
 // ─── Upstream token registration ────────────────────────────────────────────
 
-/** Register a wildcard upstream CF API token. Call in beforeAll. Auto-tracked for cleanup. */
+/** Register a wildcard upstream CF API token. Call in beforeAll. Auto-tracked for cleanup. Sets currentZoneTokenId. */
 export async function registerUpstreamToken(zoneIds: string[] = ['*']): Promise<string> {
 	const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
 		method: 'POST',
@@ -102,10 +121,11 @@ export async function registerUpstreamToken(zoneIds: string[] = ['*']): Promise<
 	const data = await res.json<any>();
 	if (!data.success) throw new Error(`registerUpstreamToken failed: ${JSON.stringify(data.errors)}`);
 	createdUpstreamTokenIds.push(data.result.id);
+	currentZoneTokenId = data.result.id;
 	return data.result.id;
 }
 
-/** Register an account-scoped upstream CF API token. Call in beforeAll. Auto-tracked for cleanup. */
+/** Register an account-scoped upstream CF API token. Call in beforeAll. Auto-tracked for cleanup. Sets currentAccountTokenId. */
 export async function registerAccountUpstreamToken(accountId: string, token: string, name = 'test-account-upstream'): Promise<string> {
 	const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
 		method: 'POST',
@@ -120,6 +140,7 @@ export async function registerAccountUpstreamToken(accountId: string, token: str
 	const data = await res.json<any>();
 	if (!data.success) throw new Error(`registerAccountUpstreamToken failed: ${JSON.stringify(data.errors)}`);
 	createdUpstreamTokenIds.push(data.result.id);
+	currentAccountTokenId = data.result.id;
 	return data.result.id;
 }
 

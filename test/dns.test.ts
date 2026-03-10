@@ -340,9 +340,7 @@ describe('DNS proxy — update record', () => {
 describe('DNS proxy — delete record', () => {
 	it('proxies DELETE with wildcard policy', async () => {
 		const keyId = await createKeyWithPolicy(dnsWildcardPolicy());
-		// Pre-flight GET to fetch record details
-		mockDnsUpstream('GET', `${CF_API_DNS_PATH}/rec123`);
-		// Actual DELETE
+		// No pre-flight GET — auth happens before upstream token resolution (auth-first principle)
 		mockDnsUpstream('DELETE', `${CF_API_DNS_PATH}/rec123`);
 
 		const res = await SELF.fetch(`http://localhost${DNS_BASE}/rec123`, {
@@ -354,8 +352,7 @@ describe('DNS proxy — delete record', () => {
 
 	it('403 when read-only policy tries to delete', async () => {
 		const keyId = await createKeyWithPolicy(dnsReadOnlyPolicy());
-		// Pre-flight GET
-		mockDnsUpstream('GET', `${CF_API_DNS_PATH}/rec123`);
+		// No pre-flight GET — auth rejects before any upstream interaction
 
 		const res = await SELF.fetch(`http://localhost${DNS_BASE}/rec123`, {
 			method: 'DELETE',
@@ -401,9 +398,7 @@ describe('DNS proxy — export', () => {
 describe('DNS proxy — batch', () => {
 	it('proxies batch with wildcard policy', async () => {
 		const keyId = await createKeyWithPolicy(dnsWildcardPolicy());
-		// Pre-flight GETs for deletes
-		mockDnsUpstream('GET', `${CF_API_DNS_PATH}/rec-del1`);
-		// Batch request
+		// No pre-flight GETs — auth happens before upstream token resolution (auth-first principle)
 		mockDnsUpstream('POST', `${CF_API_DNS_PATH}/batch`, 200, '{"success":true,"result":{"deletes":[],"posts":[]}}');
 
 		const res = await SELF.fetch(`http://localhost${DNS_BASE}/batch`, {
@@ -419,8 +414,7 @@ describe('DNS proxy — batch', () => {
 
 	it('403 when create-only policy tries batch with deletes', async () => {
 		const keyId = await createKeyWithPolicy(dnsCreateOnlyPolicy());
-		// Pre-flight GET for the delete target
-		mockDnsUpstream('GET', `${CF_API_DNS_PATH}/rec-del1`);
+		// No pre-flight GET — auth rejects before any upstream interaction
 
 		const res = await SELF.fetch(`http://localhost${DNS_BASE}/batch`, {
 			method: 'POST',

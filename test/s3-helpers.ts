@@ -50,7 +50,7 @@ export async function cleanupCreatedS3Resources(): Promise<void> {
 
 // ─── R2 upstream registration ───────────────────────────────────────────────
 
-/** Register a wildcard upstream R2 endpoint. Call in beforeAll. Auto-tracked for cleanup. */
+/** Register a wildcard upstream R2 endpoint. Call in beforeAll. Auto-tracked for cleanup. Sets currentR2EndpointId. */
 export async function registerUpstreamR2(bucketNames: string[] = ['*']): Promise<string> {
 	const res = await SELF.fetch('http://localhost/admin/upstream-r2', {
 		method: 'POST',
@@ -66,6 +66,7 @@ export async function registerUpstreamR2(bucketNames: string[] = ['*']): Promise
 	const data = await res.json<any>();
 	if (!data.success) throw new Error(`registerUpstreamR2 failed: ${JSON.stringify(data.errors)}`);
 	createdUpstreamR2Ids.push(data.result.id);
+	currentR2EndpointId = data.result.id;
 	return data.result.id;
 }
 
@@ -76,7 +77,7 @@ export async function createCredential(policy: Record<string, unknown>, name = '
 	const res = await SELF.fetch('http://localhost/admin/s3/credentials', {
 		method: 'POST',
 		headers: adminHeaders(),
-		body: JSON.stringify({ name, policy }),
+		body: JSON.stringify({ name, policy, upstream_token_id: currentR2EndpointId }),
 	});
 	const data = await res.json<any>();
 	if (!data.success) throw new Error(`createCredential failed: ${JSON.stringify(data.errors)}`);
@@ -86,6 +87,16 @@ export async function createCredential(policy: Record<string, unknown>, name = '
 		accessKeyId,
 		secretAccessKey: data.result.credential.secret_access_key as string,
 	};
+}
+
+// ─── R2 binding state ───────────────────────────────────────────────────────
+
+/** Current upstream R2 endpoint ID. Set by registerUpstreamR2(). Used by createCredential(). */
+let currentR2EndpointId = '';
+
+/** Get the current upstream R2 endpoint ID. */
+export function getR2EndpointId(): string {
+	return currentR2EndpointId;
 }
 
 // ─── Client + signing ───────────────────────────────────────────────────────
@@ -145,7 +156,7 @@ export function mockR2(method: string, path: string | RegExp, status: number, bo
 export function s3WildcardPolicy() {
 	return {
 		version: '2025-01-01',
-		statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['*'] }],
+		statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['account:*', 'bucket:*', 'object:*'] }],
 	};
 }
 

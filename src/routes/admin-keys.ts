@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { validatePolicy } from '../policy-engine';
 import { getStub } from '../do-stub';
 import { resolveCreatedBy } from './admin-helpers';
+import { validateTokenBinding } from './token-binding';
 import {
 	createKeySchema,
 	listKeysQuerySchema,
@@ -53,6 +54,22 @@ adminKeysApp.post('/', async (c) => {
 
 	const stub = getStub(c.env);
 
+	// Validate upstream token binding — actions and resources must match token scope
+	const bindingResult = await validateTokenBinding(stub, parsed.upstream_token_id, parsed.policy as PolicyDocument);
+	if (!bindingResult.valid) {
+		log.status = 400;
+		log.error = 'token_binding_invalid';
+		log.bindingErrors = bindingResult.errors;
+		console.log(JSON.stringify(log));
+		return c.json(
+			{
+				success: false,
+				errors: bindingResult.errors.map((e) => ({ code: 400, message: e })),
+			},
+			400,
+		);
+	}
+
 	const rateLimit = parsed.rate_limit ? validateRateLimitFields(parsed.rate_limit) : undefined;
 	if (rateLimit) {
 		const gwConfig = await stub.getConfig();
@@ -73,6 +90,7 @@ adminKeysApp.post('/', async (c) => {
 		created_by: resolveCreatedBy(identity, parsed.created_by),
 		expires_in_days: parsed.expires_in_days,
 		rate_limit: rateLimit,
+		upstream_token_id: parsed.upstream_token_id,
 	};
 
 	log.zoneId = req.zone_id ?? 'none';

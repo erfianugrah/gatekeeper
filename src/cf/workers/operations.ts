@@ -220,7 +220,7 @@ export function workersScriptContext(
 	}
 	return {
 		action,
-		resource: `account:${accountId}`,
+		resource: `account:${accountId}/workers/${scriptName}`,
 		fields,
 	};
 }

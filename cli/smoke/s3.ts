@@ -57,9 +57,13 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	// Full-access S3 credential
 	const FULL_S3_POLICY = {
 		version: '2025-01-01',
-		statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['*'] }],
+		statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['account:*', 'bucket:*', 'object:*'] }],
 	};
-	const fullCred = await admin('POST', '/admin/s3/credentials', { name: 'smoke-s3-full', policy: FULL_S3_POLICY });
+	const fullCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-full',
+		policy: FULL_S3_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
 	assertStatus('create full-access S3 credential -> 200', fullCred, 200);
 	const S3_FULL_AK = fullCred.body?.result?.credential?.access_key_id;
 	const S3_FULL_SK = fullCred.body?.result?.credential?.secret_access_key;
@@ -73,11 +77,15 @@ export async function run(ctx: SmokeContext): Promise<void> {
 			{
 				effect: 'allow',
 				actions: ['s3:GetObject', 's3:HeadObject', 's3:ListBucket', 's3:ListAllMyBuckets'],
-				resources: ['*'],
+				resources: ['account:*', 'bucket:*', 'object:*'],
 			},
 		],
 	};
-	const roCred = await admin('POST', '/admin/s3/credentials', { name: 'smoke-s3-readonly', policy: READONLY_S3_POLICY });
+	const roCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-readonly',
+		policy: READONLY_S3_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
 	assertStatus('create read-only S3 credential -> 200', roCred, 200);
 	const S3_RO_AK = roCred.body?.result?.credential?.access_key_id;
 	const S3_RO_SK = roCred.body?.result?.credential?.secret_access_key;
@@ -97,10 +105,10 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	assertJson('get cred returns correct id', getCred.body?.result?.credential?.access_key_id, S3_FULL_AK);
 
 	// Validation
-	const noCredName = await admin('POST', '/admin/s3/credentials', { policy: FULL_S3_POLICY });
+	const noCredName = await admin('POST', '/admin/s3/credentials', { policy: FULL_S3_POLICY, upstream_token_id: ctx.s3UpstreamId });
 	assertStatus('S3 cred missing name -> 400', noCredName, 400);
 
-	const noCredPol = await admin('POST', '/admin/s3/credentials', { name: 'x' });
+	const noCredPol = await admin('POST', '/admin/s3/credentials', { name: 'x', upstream_token_id: ctx.s3UpstreamId });
 	assertStatus('S3 cred missing policy -> 400', noCredPol, 400);
 
 	// ─── 16. S3 Operations (full-access) ────────────────────────
@@ -290,9 +298,13 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	): Promise<void> {
 		const pol = {
 			version: '2025-01-01',
-			statements: [{ effect: 'allow', actions: allowActions, resources: ['*'] }],
+			statements: [{ effect: 'allow', actions: allowActions, resources: ['account:*', 'bucket:*', 'object:*'] }],
 		};
-		const cr = await admin('POST', '/admin/s3/credentials', { name: `smoke-s3-${label}`, policy: pol });
+		const cr = await admin('POST', '/admin/s3/credentials', {
+			name: `smoke-s3-${label}`,
+			policy: pol,
+			upstream_token_id: ctx.s3UpstreamId,
+		});
 		assertStatus(`${label} cred created -> 200`, cr, 200);
 		const ak = cr.body?.result?.credential?.access_key_id;
 		const sk = cr.body?.result?.credential?.secret_access_key;
@@ -413,11 +425,15 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const denyPutPolicy = {
 		version: '2025-01-01',
 		statements: [
-			{ effect: 'allow', actions: ['s3:*'], resources: ['*'] },
-			{ effect: 'deny', actions: ['s3:PutObject'], resources: ['*'] },
+			{ effect: 'allow', actions: ['s3:*'], resources: ['account:*', 'bucket:*', 'object:*'] },
+			{ effect: 'deny', actions: ['s3:PutObject'], resources: ['account:*', 'bucket:*', 'object:*'] },
 		],
 	};
-	const dpCred = await admin('POST', '/admin/s3/credentials', { name: 'smoke-s3-deny-put', policy: denyPutPolicy });
+	const dpCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-deny-put',
+		policy: denyPutPolicy,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
 	assertStatus('create deny-PutObject S3 cred -> 200', dpCred, 200);
 	const S3_DENY_PUT_AK = dpCred.body?.result?.credential?.access_key_id;
 	const S3_DENY_PUT_SK = dpCred.body?.result?.credential?.secret_access_key;
@@ -480,11 +496,15 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const denyDelPolicy = {
 		version: '2025-01-01',
 		statements: [
-			{ effect: 'allow', actions: ['s3:*'], resources: ['*'] },
-			{ effect: 'deny', actions: ['s3:DeleteObject'], resources: ['*'] },
+			{ effect: 'allow', actions: ['s3:*'], resources: ['account:*', 'bucket:*', 'object:*'] },
+			{ effect: 'deny', actions: ['s3:DeleteObject'], resources: ['account:*', 'bucket:*', 'object:*'] },
 		],
 	};
-	const ddCred = await admin('POST', '/admin/s3/credentials', { name: 'smoke-s3-deny-del', policy: denyDelPolicy });
+	const ddCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-deny-del',
+		policy: denyDelPolicy,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
 	assertStatus('create deny-DeleteObject S3 cred -> 200', ddCred, 200);
 	const S3_DENY_DEL_AK = ddCred.body?.result?.credential?.access_key_id;
 	const S3_DENY_DEL_SK = ddCred.body?.result?.credential?.secret_access_key;
@@ -537,11 +557,12 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	// Deny-only S3 cred: deny s3:* with no allow → everything denied
 	const denyOnlyS3Policy = {
 		version: '2025-01-01',
-		statements: [{ effect: 'deny', actions: ['s3:*'], resources: ['*'] }],
+		statements: [{ effect: 'deny', actions: ['s3:*'], resources: ['account:*', 'bucket:*', 'object:*'] }],
 	};
 	const doS3Cred = await admin('POST', '/admin/s3/credentials', {
 		name: 'smoke-s3-deny-only',
 		policy: denyOnlyS3Policy,
+		upstream_token_id: ctx.s3UpstreamId,
 	});
 	assertStatus('create deny-only S3 cred -> 200', doS3Cred, 200);
 	const S3_DENY_ONLY_AK = doS3Cred.body?.result?.credential?.access_key_id;
@@ -574,11 +595,15 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const denyListPolicy = {
 		version: '2025-01-01',
 		statements: [
-			{ effect: 'allow', actions: ['s3:GetObject', 's3:ListBucket'], resources: ['*'] },
-			{ effect: 'deny', actions: ['s3:ListBucket'], resources: ['*'] },
+			{ effect: 'allow', actions: ['s3:GetObject', 's3:ListBucket'], resources: ['account:*', 'bucket:*', 'object:*'] },
+			{ effect: 'deny', actions: ['s3:ListBucket'], resources: ['account:*', 'bucket:*', 'object:*'] },
 		],
 	};
-	const dlCred = await admin('POST', '/admin/s3/credentials', { name: 'smoke-s3-deny-list', policy: denyListPolicy });
+	const dlCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-deny-list',
+		policy: denyListPolicy,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
 	assertStatus('create deny-ListBucket S3 cred -> 200', dlCred, 200);
 	const S3_DENY_LIST_AK = dlCred.body?.result?.credential?.access_key_id;
 	const S3_DENY_LIST_SK = dlCred.body?.result?.credential?.secret_access_key;
@@ -612,7 +637,11 @@ export async function run(ctx: SmokeContext): Promise<void> {
 
 	section('S3 Credential Revocation');
 
-	const revCred = await admin('POST', '/admin/s3/credentials', { name: 'smoke-s3-revoke', policy: FULL_S3_POLICY });
+	const revCred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-revoke',
+		policy: FULL_S3_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
 	assertStatus('create credential for revoke -> 200', revCred, 200);
 	const S3_REVOKE_AK = revCred.body?.result?.credential?.access_key_id;
 	const S3_REVOKE_SK = revCred.body?.result?.credential?.secret_access_key;
@@ -663,7 +692,11 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	assertStatus('hard-delete nonexistent S3 cred -> 404', s3HardDelNone, 404);
 
 	// Hard-delete an active credential directly
-	const hdS3Cred = await admin('POST', '/admin/s3/credentials', { name: 'smoke-s3-hard-del-active', policy: FULL_S3_POLICY });
+	const hdS3Cred = await admin('POST', '/admin/s3/credentials', {
+		name: 'smoke-s3-hard-del-active',
+		policy: FULL_S3_POLICY,
+		upstream_token_id: ctx.s3UpstreamId,
+	});
 	assertStatus('create S3 cred for hard-delete -> 200', hdS3Cred, 200);
 	const HD_S3_AK = hdS3Cred.body?.result?.credential?.access_key_id;
 	if (HD_S3_AK) state.createdS3Creds.push(HD_S3_AK);

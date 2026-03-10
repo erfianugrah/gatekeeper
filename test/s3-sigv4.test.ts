@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { SELF, fetchMock } from 'cloudflare:test';
 import { parseAuthHeader } from '../src/s3/sig-v4-verify';
 import { adminHeaders } from './helpers';
+import { registerUpstreamR2, getR2EndpointId, cleanupCreatedS3Resources } from './s3-helpers';
 
 /** Access key IDs created during tests, for cleanup in afterAll. */
 const localCreatedIds: string[] = [];
@@ -16,6 +17,7 @@ afterAll(async () => {
 			}),
 		),
 	);
+	await cleanupCreatedS3Resources();
 });
 
 // --- parseAuthHeader unit tests (runs in Workers runtime) ---
@@ -63,7 +65,8 @@ describe('S3 Sig V4 — parseAuthHeader', () => {
 // --- S3 proxy auth integration tests ---
 
 describe('S3 proxy — auth flow', () => {
-	beforeAll(() => {
+	beforeAll(async () => {
+		await registerUpstreamR2();
 		fetchMock.activate();
 		fetchMock.disableNetConnect();
 	});
@@ -115,9 +118,10 @@ describe('S3 proxy — auth flow', () => {
 			headers: adminHeaders(),
 			body: JSON.stringify({
 				name: 'sig-test',
+				upstream_token_id: getR2EndpointId(),
 				policy: {
 					version: '2025-01-01',
-					statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['*'] }],
+					statements: [{ effect: 'allow', actions: ['s3:*'], resources: ['account:*', 'bucket:*', 'object:*'] }],
 				},
 			}),
 		});

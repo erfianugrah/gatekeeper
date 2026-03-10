@@ -4,6 +4,7 @@ import {
 	UPSTREAM_HOST,
 	adminHeaders,
 	createAccountKey,
+	getAccountTokenId,
 	registerAccountUpstreamToken,
 	registerUpstreamToken,
 	cleanupCreatedResources,
@@ -600,21 +601,24 @@ describe('D1 proxy — upstream error forwarding', () => {
 
 // ─── No upstream token for account ──────────────────────────────────────────
 
-describe('D1 proxy — missing upstream token', () => {
-	it('502 when no upstream token for account', async () => {
+describe('D1 proxy — token binding rejects mismatched account', () => {
+	it('400 when key resources target a different account than the upstream token', async () => {
 		const otherAccountId = 'ffff0000eeee1111dddd2222cccc3333';
-		const keyId = await createAccountKey({
-			version: POLICY_VERSION,
-			statements: [{ effect: 'allow', actions: ['d1:*'], resources: [`account:${otherAccountId}`] }],
+		const res = await SELF.fetch('http://localhost/admin/keys', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'mismatched-account',
+				upstream_token_id: getAccountTokenId(),
+				policy: {
+					version: POLICY_VERSION,
+					statements: [{ effect: 'allow', actions: ['d1:*'], resources: [`account:${otherAccountId}`] }],
+				},
+			}),
 		});
-
-		const res = await SELF.fetch(`http://localhost/cf/accounts/${otherAccountId}/d1/database`, {
-			method: 'GET',
-			headers: { Authorization: `Bearer ${keyId}` },
-		});
-		expect(res.status).toBe(502);
+		expect(res.status).toBe(400);
 		const data = await res.json<any>();
-		expect(data.errors[0].message).toContain('No upstream API token');
+		expect(data.errors[0].message).toContain('does not match');
 	});
 });
 

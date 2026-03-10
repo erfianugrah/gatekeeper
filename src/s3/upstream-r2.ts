@@ -241,6 +241,36 @@ export class UpstreamR2Manager {
 		return { accessKeyId: row.access_key_id, secretAccessKey: row.secret_access_key, endpoint: row.endpoint };
 	}
 
+	/**
+	 * Resolve upstream R2 credentials by endpoint ID.
+	 * Used when a credential is pinned to a specific upstream R2 endpoint via upstream_token_id.
+	 * Returns credentials if found, null otherwise.
+	 */
+	resolveR2ById(endpointId: string): R2Credentials | null {
+		const cacheKey = `id:${endpointId}`;
+		const cached = this.resolveCache.get(cacheKey);
+		if (cached && Date.now() - cached.cachedAt < this.cacheTtlMs) {
+			console.log(JSON.stringify({ breadcrumb: 'upstream-r2-by-id-cache-hit', endpointId }));
+			return cached.creds;
+		}
+
+		const rows = queryAll<UpstreamR2Row>(this.sql, 'SELECT * FROM upstream_r2 WHERE id = ?', endpointId);
+		if (rows.length === 0) {
+			console.log(JSON.stringify({ breadcrumb: 'upstream-r2-by-id-not-found', endpointId }));
+			return null;
+		}
+
+		const row = rows[0];
+		const creds: R2Credentials = {
+			accessKeyId: row.access_key_id,
+			secretAccessKey: row.secret_access_key,
+			endpoint: row.endpoint,
+		};
+		this.resolveCache.set(cacheKey, { creds, cachedAt: Date.now() });
+		console.log(JSON.stringify({ breadcrumb: 'upstream-r2-by-id-resolved', endpointId }));
+		return creds;
+	}
+
 	// ─── Private helpers ────────────────────────────────────────────────
 
 	private invalidateCache(): void {
