@@ -175,6 +175,19 @@ Conventions:
 - Assertions use `expect()` with `.toBe()`, `.toEqual()`, `.toMatch(/regex/)`, etc.
 - Parse responses with `res.json<any>()`.
 
+### Built-in Authentication
+
+- `src/password.ts` — PBKDF2-SHA256 password hashing via Web Crypto API. 600k iterations, 16-byte random salt, timing-safe verification. PHC string format: `$pbkdf2-sha256$iterations$base64salt$base64hash`.
+- `src/user-manager.ts` — User CRUD in DO SQLite. Stores hashed passwords, never returns hashes to clients. Dummy hash on unknown emails to prevent timing-based user enumeration.
+- `src/session-manager.ts` — Session management in DO SQLite. 256-bit random tokens, 24h default TTL (30d max). HttpOnly/Secure/SameSite=Lax cookies. Lazy expiry cleanup + cron cleanup.
+- `src/login-page.ts` — Login page HTML with bootstrap (first-run) detection. Auto-switches between login form and account creation form.
+- `src/routes/auth.ts` — Auth endpoints: `POST /auth/login`, `POST /auth/logout`, `GET /auth/session`, `POST /auth/bootstrap`.
+- `src/routes/admin-users.ts` — Admin user CRUD: list, create, get, update role, change password, delete. Admin-only with audit logging.
+- `src/auth-admin.ts` — Three auth paths checked in order: Access JWT → X-Admin-Key → session cookie. When an Access SSO user has a matching built-in user record, the built-in user's role takes precedence.
+- Session cookie name: `gk_session`. Cookie parsing is duplicated in `auth-admin.ts` and `routes/auth.ts` (both need it independently).
+- Password changes and user deletions automatically revoke all sessions for that user.
+- Bootstrap endpoint (`POST /auth/bootstrap`) only works when zero users exist. After the first user is created, it returns 403 permanently.
+
 ### Known Pitfalls
 
 - **DO NOT add module-level caching flags to `ensureTables()` in analytics modules** (`src/analytics.ts`, `src/s3/analytics.ts`). A pattern like `let tablesInitialized = false` that skips `CREATE TABLE IF NOT EXISTS` after the first call **breaks tests** because `@cloudflare/vitest-pool-workers` gives each test file its own D1 instance while sharing the module scope. The flag gets set `true` for one D1 instance, then a different test file's D1 (with no tables) silently skips initialization and all queries return 500. `CREATE TABLE IF NOT EXISTS` is a no-op metadata check in D1 — it costs microseconds and must not be "optimized" away.

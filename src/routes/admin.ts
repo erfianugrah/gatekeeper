@@ -9,6 +9,7 @@ import { adminUpstreamTokensApp } from './admin-upstream-tokens';
 import { adminUpstreamR2App } from './admin-upstream-r2';
 import { adminConfigApp } from './admin-config';
 import { adminAuditApp } from './admin-audit';
+import { adminUsersApp } from './admin-users';
 import { jsonError } from './admin-schemas';
 import type { HonoEnv } from '../types';
 
@@ -37,14 +38,25 @@ adminApp.get('/me', (c) => {
 	const identity = c.get('accessIdentity');
 	const role = c.get('adminRole') ?? 'admin';
 
+	// Determine auth method for the UI
+	let authMethod: string;
+	if (identity?.type === 'session') {
+		authMethod = 'session';
+	} else if (identity) {
+		authMethod = 'access';
+	} else {
+		authMethod = 'api-key';
+	}
+
 	return c.json({
 		success: true,
 		result: {
 			email: identity?.email ?? null,
 			role,
 			groups: identity?.groups ?? [],
-			authMethod: identity ? 'access' : 'api-key',
-			logoutUrl: c.env.CF_ACCESS_TEAM_NAME ? '/logout' : null,
+			authMethod,
+			// Session-based auth uses /logout; Access SSO uses /logout (with CF Access redirect); API key has no logout
+			logoutUrl: authMethod !== 'api-key' ? '/logout' : null,
 		},
 	});
 });
@@ -72,6 +84,10 @@ adminApp.use('/config', requireRoleByMethod('viewer', 'admin'));
 // Audit log — viewer can read
 adminApp.use('/audit/*', requireRole('viewer'));
 
+// User management — admin only
+adminApp.use('/users/*', requireRole('admin'));
+adminApp.use('/users', requireRole('admin'));
+
 adminApp.route('/keys', adminKeysApp);
 adminApp.route('/analytics', adminAnalyticsApp);
 adminApp.route('/dns/analytics', adminDnsAnalyticsApp);
@@ -81,3 +97,4 @@ adminApp.route('/upstream-tokens', adminUpstreamTokensApp);
 adminApp.route('/upstream-r2', adminUpstreamR2App);
 adminApp.route('/config', adminConfigApp);
 adminApp.route('/audit', adminAuditApp);
+adminApp.route('/users', adminUsersApp);
