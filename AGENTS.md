@@ -180,7 +180,7 @@ Conventions:
 - `src/password.ts` — PBKDF2-SHA256 password hashing via Web Crypto API. 600k iterations, 16-byte random salt, timing-safe verification. PHC string format: `$pbkdf2-sha256$iterations$base64salt$base64hash`.
 - `src/user-manager.ts` — User CRUD in DO SQLite. Stores hashed passwords, never returns hashes to clients. Dummy hash on unknown emails to prevent timing-based user enumeration.
 - `src/session-manager.ts` — Session management in DO SQLite. 256-bit random tokens, 24h default TTL (30d max). HttpOnly/Secure/SameSite=Lax cookies. Lazy expiry cleanup + cron cleanup.
-- `src/login-page.ts` — Login page HTML with bootstrap (first-run) detection. Auto-switches between login form and account creation form.
+- `dashboard/src/components/LoginPage.tsx` — React login page with shadcn/ui. Handles both login and bootstrap (first-run) flows. Progressive enhancement: native `method="POST"` forms work without JS; JS enhances with inline errors and bootstrap detection.
 - `src/routes/auth.ts` — Auth endpoints: `POST /auth/login`, `POST /auth/logout`, `GET /auth/session`, `POST /auth/bootstrap`.
 - `src/routes/admin-users.ts` — Admin user CRUD: list, create, get, update role, change password, delete. Admin-only with audit logging.
 - `src/auth-admin.ts` — Three auth paths checked in order: Access JWT → X-Admin-Key → session cookie. When an Access SSO user has a matching built-in user record, the built-in user's role takes precedence.

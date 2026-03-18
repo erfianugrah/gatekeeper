@@ -7,6 +7,8 @@
  *   GET  /auth/session  — validate current session (for dashboard)
  *   POST /auth/bootstrap — create the first admin user (only works when no users exist)
  *
+ * Login and bootstrap accept both application/json and application/x-www-form-urlencoded.
+ * Form submissions redirect on success; JSON requests return JSON.
  * The login page is served at GET /login (see index.ts).
  */
 
@@ -28,42 +30,79 @@ function getSessionCookie(req: Request): string | null {
 	return null;
 }
 
+/** Check if the request is a form submission (vs JSON API call). */
+function isFormSubmission(req: Request): boolean {
+	const ct = req.headers.get('Content-Type') ?? '';
+	return ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data');
+}
+
+/** Parse email + password from either JSON or form-encoded body. */
+async function parseCredentials(c: any): Promise<{ email: string; password: string } | null> {
+	if (isFormSubmission(c.req.raw)) {
+		const form = await c.req.parseBody();
+		const email = typeof form.email === 'string' ? form.email : '';
+		const password = typeof form.password === 'string' ? form.password : '';
+		if (!email || !password) return null;
+		return { email, password };
+	}
+	try {
+		const body = (await c.req.json()) as { email?: string; password?: string };
+		if (!body.email || !body.password) return null;
+		return { email: body.email, password: body.password };
+	} catch {
+		return null;
+	}
+}
+
+/** Return a login-page redirect with an error message (for form submissions). */
+function loginRedirectWithError(message: string): Response {
+	return new Response(null, {
+		status: 303,
+		headers: { Location: `/dashboard/login?error=${encodeURIComponent(message)}` },
+	});
+}
+
 // ─── Routes ─────────────────────────────────────────────────────────────────
 
 export const authApp = new Hono<HonoEnv>();
 
 /** Login — verify credentials and create a session. */
 authApp.post('/login', async (c) => {
+	const form = isFormSubmission(c.req.raw);
 	try {
-		const body = await c.req.json<{ email?: string; password?: string }>();
-		if (!body.email || !body.password) {
+		const creds = await parseCredentials(c);
+		if (!creds) {
+			if (form) return loginRedirectWithError('Email and password are required');
 			return c.json({ success: false, errors: [{ code: 400, message: 'Email and password are required' }] }, 400);
 		}
 
 		const stub = getStub(c.env);
-		const user = await stub.verifyCredentials(body.email, body.password);
+		const user = await stub.verifyCredentials(creds.email, creds.password);
 
 		if (!user) {
-			console.log(JSON.stringify({ breadcrumb: 'auth-login-failed', email: body.email }));
+			console.log(JSON.stringify({ breadcrumb: 'auth-login-failed', email: creds.email }));
+			if (form) return loginRedirectWithError('Invalid email or password');
 			return c.json({ success: false, errors: [{ code: 401, message: 'Invalid email or password' }] }, 401);
 		}
 
 		// Create session
 		const session = await stub.createSession(user.id, user.email, user.role);
 		const maxAgeSec = Math.floor((session.expires_at - Date.now()) / 1000);
+		const cookie = SessionManager.buildCookie(session.id, maxAgeSec);
 
 		console.log(JSON.stringify({ breadcrumb: 'auth-login-ok', email: user.email, role: user.role }));
 
-		return c.json(
-			{
-				success: true,
-				result: { email: user.email, role: user.role },
-			},
-			200,
-			{ 'Set-Cookie': SessionManager.buildCookie(session.id, maxAgeSec) },
-		);
+		if (form) {
+			return new Response(null, {
+				status: 303,
+				headers: { Location: '/dashboard/', 'Set-Cookie': cookie },
+			});
+		}
+
+		return c.json({ success: true, result: { email: user.email, role: user.role } }, 200, { 'Set-Cookie': cookie });
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'auth.login', error: e.message }));
+		if (form) return loginRedirectWithError('Internal server error');
 		return c.json({ success: false, errors: [{ code: 500, message: 'Internal server error' }] }, 500);
 	}
 });
@@ -75,6 +114,13 @@ authApp.post('/logout', async (c) => {
 		if (sessionId) {
 			const stub = getStub(c.env);
 			await stub.deleteSession(sessionId);
+		}
+
+		if (isFormSubmission(c.req.raw)) {
+			return new Response(null, {
+				status: 303,
+				headers: { Location: '/login', 'Set-Cookie': SessionManager.clearCookie() },
+			});
 		}
 
 		return c.json({ success: true }, 200, { 'Set-Cookie': SessionManager.clearCookie() });
@@ -111,42 +157,51 @@ authApp.get('/session', async (c) => {
  * After the first user is created, this endpoint returns 403.
  */
 authApp.post('/bootstrap', async (c) => {
+	const form = isFormSubmission(c.req.raw);
 	try {
 		const stub = getStub(c.env);
 		const count = await stub.countUsers();
 
 		if (count > 0) {
+			if (form) return loginRedirectWithError('Bootstrap is disabled — users already exist');
 			return c.json({ success: false, errors: [{ code: 403, message: 'Bootstrap is disabled — users already exist' }] }, 403);
 		}
 
-		const body = await c.req.json<{ email?: string; password?: string }>();
-		if (!body.email || !body.password) {
+		const creds = await parseCredentials(c);
+		if (!creds) {
+			if (form) return loginRedirectWithError('Email and password are required');
 			return c.json({ success: false, errors: [{ code: 400, message: 'Email and password are required' }] }, 400);
 		}
 
-		if (body.password.length < 12) {
+		if (creds.password.length < 12) {
+			if (form) return loginRedirectWithError('Password must be at least 12 characters');
 			return c.json({ success: false, errors: [{ code: 400, message: 'Password must be at least 12 characters' }] }, 400);
 		}
 
-		const user = await stub.createUser({ email: body.email, password: body.password, role: 'admin' });
+		const user = await stub.createUser({ email: creds.email, password: creds.password, role: 'admin' });
 
 		console.log(JSON.stringify({ breadcrumb: 'auth-bootstrap', email: user.email }));
 
 		// Auto-login: create a session for the new user
 		const session = await stub.createSession(user.id, user.email, user.role);
 		const maxAgeSec = Math.floor((session.expires_at - Date.now()) / 1000);
+		const cookie = SessionManager.buildCookie(session.id, maxAgeSec);
+
+		if (form) {
+			return new Response(null, {
+				status: 303,
+				headers: { Location: '/dashboard/', 'Set-Cookie': cookie },
+			});
+		}
 
 		return c.json(
-			{
-				success: true,
-				result: { email: user.email, role: user.role },
-				message: 'First admin user created. You are now logged in.',
-			},
+			{ success: true, result: { email: user.email, role: user.role }, message: 'First admin user created. You are now logged in.' },
 			201,
-			{ 'Set-Cookie': SessionManager.buildCookie(session.id, maxAgeSec) },
+			{ 'Set-Cookie': cookie },
 		);
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'auth.bootstrap', error: e.message }));
+		if (form) return loginRedirectWithError(e.message);
 		return c.json({ success: false, errors: [{ code: 500, message: e.message }] }, 500);
 	}
 });
