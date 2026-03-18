@@ -8,8 +8,8 @@
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-/** PBKDF2 iteration count — OWASP minimum is 600k for SHA-256 (2023). */
-const ITERATIONS = 600_000;
+/** PBKDF2 iteration count — Cloudflare Workers caps at 100k (Web Crypto API limit). */
+const ITERATIONS = 100_000;
 
 /** Salt length in bytes. 16 bytes = 128 bits, standard recommendation. */
 const SALT_BYTES = 16;

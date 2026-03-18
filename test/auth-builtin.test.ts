@@ -41,7 +41,7 @@ function sessionHeaders(sessionId: string) {
 describe('Password — PBKDF2-SHA256', () => {
 	it('hashPassword produces a PHC-format string', async () => {
 		const hash = await hashPassword('testpassword');
-		expect(hash).toMatch(/^\$pbkdf2-sha256\$600000\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/);
+		expect(hash).toMatch(/^\$pbkdf2-sha256\$100000\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/);
 	});
 
 	it('same password -> different hashes (random salt)', async () => {

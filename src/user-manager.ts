@@ -87,7 +87,7 @@ export class UserManager {
 		const rows = queryAll<UserRow>(this.sql, 'SELECT * FROM users WHERE email = ?', email.toLowerCase().trim());
 		if (rows.length === 0) {
 			// Perform a dummy hash to prevent timing-based user enumeration
-			await verifyPassword(password, '$pbkdf2-sha256$600000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=');
+			await verifyPassword(password, '$pbkdf2-sha256$100000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=');
 			return null;
 		}
 

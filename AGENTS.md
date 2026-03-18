@@ -177,7 +177,7 @@ Conventions:
 
 ### Built-in Authentication
 
-- `src/password.ts` — PBKDF2-SHA256 password hashing via Web Crypto API. 600k iterations, 16-byte random salt, timing-safe verification. PHC string format: `$pbkdf2-sha256$iterations$base64salt$base64hash`.
+- `src/password.ts` — PBKDF2-SHA256 password hashing via Web Crypto API. 100k iterations (Workers Web Crypto max), 16-byte random salt, timing-safe verification. PHC string format: `$pbkdf2-sha256$iterations$base64salt$base64hash`.
 - `src/user-manager.ts` — User CRUD in DO SQLite. Stores hashed passwords, never returns hashes to clients. Dummy hash on unknown emails to prevent timing-based user enumeration.
 - `src/session-manager.ts` — Session management in DO SQLite. 256-bit random tokens, 24h default TTL (30d max). HttpOnly/Secure/SameSite=Lax cookies. Lazy expiry cleanup + cron cleanup.
 - `dashboard/src/components/LoginPage.tsx` — React login page with shadcn/ui. Handles both login and bootstrap (first-run) flows. Progressive enhancement: native `method="POST"` forms work without JS; JS enhances with inline errors and bootstrap detection.
