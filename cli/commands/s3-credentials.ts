@@ -3,6 +3,7 @@ import { resolveConfig, request, assertOk } from '../client.js';
 import {
 	success,
 	info,
+	error,
 	warn,
 	bold,
 	dim,
@@ -302,7 +303,16 @@ const update = defineCommand({
 		const body: Record<string, unknown> = {};
 		if (args.name) body.name = args.name;
 		if (args['expires-at'] !== undefined) {
-			body.expires_at = args['expires-at'] === 'null' ? null : Number(args['expires-at']);
+			if (args['expires-at'] === 'null') {
+				body.expires_at = null;
+			} else {
+				const ts = Number(args['expires-at']);
+				if (!Number.isFinite(ts) || ts <= 0) {
+					error('--expires-at must be a valid positive unix timestamp (ms) or "null"');
+					process.exit(1);
+				}
+				body.expires_at = ts;
+			}
 		}
 
 		if (Object.keys(body).length === 0) {

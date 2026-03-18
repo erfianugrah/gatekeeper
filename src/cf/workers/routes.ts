@@ -19,7 +19,14 @@
 import { Hono } from 'hono';
 import { getStub } from '../../do-stub';
 import { AUDIT_CREATED_BY_API_KEY } from '../../constants';
-import { proxyToCfApi, buildProxyResponse, extractResponseDetail, cfJsonError, resolveUpstreamTokenOrError } from '../proxy-helpers';
+import {
+	proxyToCfApi,
+	buildProxyResponse,
+	extractResponseDetail,
+	cfJsonError,
+	resolveUpstreamTokenOrError,
+	consumeCfProxyRateLimitOrError,
+} from '../proxy-helpers';
 import { logCfProxyEvent } from '../analytics';
 import {
 	workersListScriptsContext,
@@ -85,8 +92,12 @@ async function handleWorkersRequest(
 
 	c.set('keyName', authResult.keyName);
 
-	// Resolve upstream token (post-auth)
-	const tokenOrError = await resolveUpstreamTokenOrError(env, accountId, log, start);
+	// Rate limit — account-level CF proxy bucket (post-auth)
+	const rateLimitError = await consumeCfProxyRateLimitOrError(env, log, start);
+	if (rateLimitError) return rateLimitError;
+
+	// Resolve upstream token (post-auth) — pass key-pinned upstream token ID if present
+	const tokenOrError = await resolveUpstreamTokenOrError(env, accountId, log, start, authResult.upstreamTokenId);
 	if (tokenOrError instanceof Response) return tokenOrError;
 	const upstreamToken = tokenOrError;
 

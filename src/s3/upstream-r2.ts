@@ -254,7 +254,7 @@ export class UpstreamR2Manager {
 
 		for (const row of rows) {
 			// Skip expired endpoints
-			if (row.expires_at && row.expires_at <= now) continue;
+			if (row.expires_at !== null && row.expires_at <= now) continue;
 
 			const buckets = row.bucket_names.split(',');
 			const creds: R2Credentials = {
@@ -336,7 +336,7 @@ export class UpstreamR2Manager {
 		const row = rows[0];
 
 		// Check expiry
-		if (row.expires_at && row.expires_at <= Date.now()) {
+		if (row.expires_at !== null && row.expires_at <= Date.now()) {
 			console.log(JSON.stringify({ breadcrumb: 'upstream-r2-by-id-expired', endpointId }));
 			return null;
 		}

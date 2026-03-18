@@ -21,7 +21,6 @@
  */
 
 import { Hono } from 'hono';
-import { getStub } from '../do-stub';
 import { extractRequestFields } from '../request-fields';
 import { isValidAccountId, isValidZoneId, extractBearerKey, cfJsonError } from './proxy-helpers';
 import { d1Routes } from './d1/routes';
@@ -85,18 +84,9 @@ cfApp.use('/accounts/:accountId/*', async (c, next) => {
 	}
 	log.accountId = accountId;
 
-	// 3. Rate limit — account-level CF proxy bucket
-	const stub = getStub(c.env);
-	const consumeResult = await stub.consumeCfProxyRateLimit();
-	if (!consumeResult.allowed) {
-		log.status = 429;
-		log.error = 'rate_limited';
-		log.durationMs = Date.now() - start;
-		console.log(JSON.stringify(log));
-		return cfJsonError(429, 'Rate limit exceeded');
-	}
-
-	// 4. Extract request fields for policy conditions
+	// 3. Extract request fields for policy conditions
+	// Rate limiting is deferred to service handlers (post-auth) so unauthenticated
+	// requests cannot exhaust the rate-limit bucket.
 	const requestFields = extractRequestFields(c.req.raw);
 
 	// Set variables for downstream handlers

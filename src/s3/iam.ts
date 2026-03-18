@@ -45,7 +45,7 @@ export class S3CredentialManager extends CredentialManager<S3Credential, CachedS
 
 		const policyJson = JSON.stringify(req.policy);
 
-		const upstreamTokenId = req.upstream_token_id ?? null;
+		const upstreamTokenId = req.upstream_token_id || null;
 		this.sql.exec(
 			`INSERT INTO s3_credentials (access_key_id, secret_access_key, name, created_at, expires_at, revoked, policy, created_by, upstream_token_id)
 			 VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`,
@@ -105,7 +105,7 @@ export class S3CredentialManager extends CredentialManager<S3Credential, CachedS
 			policy,
 			created_by: fullRow.created_by ?? undefined,
 			expires_in_days: overrides?.expires_in_days,
-			upstream_token_id: fullRow.upstream_token_id ?? '',
+			upstream_token_id: fullRow.upstream_token_id ?? null!,
 		};
 
 		const { credential: newCredential } = this.createCredential(req);

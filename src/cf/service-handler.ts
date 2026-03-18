@@ -8,7 +8,14 @@
 
 import { getStub } from '../do-stub';
 import { AUDIT_CREATED_BY_API_KEY } from '../constants';
-import { proxyToCfApi, buildProxyResponse, extractResponseDetail, cfJsonError, resolveUpstreamTokenOrError } from './proxy-helpers';
+import {
+	proxyToCfApi,
+	buildProxyResponse,
+	extractResponseDetail,
+	cfJsonError,
+	resolveUpstreamTokenOrError,
+	consumeCfProxyRateLimitOrError,
+} from './proxy-helpers';
 import { logCfProxyEvent } from './analytics';
 import type { CfProxyEvent } from './analytics';
 import type { RequestContext } from '../policy-types';
@@ -55,6 +62,10 @@ export async function handleCfServiceRequest(
 	}
 
 	c.set('keyName', authResult.keyName);
+
+	// Rate limit — account-level CF proxy bucket (post-auth)
+	const rateLimitError = await consumeCfProxyRateLimitOrError(env, log, start);
+	if (rateLimitError) return rateLimitError;
 
 	// Resolve upstream token (post-auth) — key-pinned upstream takes priority
 	const tokenOrError = await resolveUpstreamTokenOrError(env, accountId, log, start, authResult.upstreamTokenId);
