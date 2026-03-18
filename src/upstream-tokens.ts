@@ -254,16 +254,17 @@ export class UpstreamTokenManager {
 			return cached.token;
 		}
 
-		// Look for a token that covers this zone — prefer exact match over wildcard.
+		// Look for a zone-scoped token that covers this zone — prefer exact match over wildcard.
+		// Filter out account-scoped tokens so they can't be misused for zone-level operations.
 		// ORDER BY created_at DESC so newest registration wins when multiple tokens claim the same zone.
-		const rows = queryAll<UpstreamTokenRow>(this.sql, 'SELECT * FROM upstream_tokens ORDER BY created_at DESC');
+		const rows = queryAll<UpstreamTokenRow>(this.sql, `SELECT * FROM upstream_tokens WHERE scope_type = 'zone' ORDER BY created_at DESC`);
 		const now = Date.now();
 
 		let wildcardToken: string | null = null;
 
 		for (const row of rows) {
 			// Skip expired tokens
-			if (row.expires_at && row.expires_at <= now) continue;
+			if (row.expires_at !== null && row.expires_at <= now) continue;
 
 			const zones = row.zone_ids.split(',');
 			if (zones.includes(zoneId)) {
@@ -309,7 +310,7 @@ export class UpstreamTokenManager {
 
 		for (const row of rows) {
 			// Skip expired tokens
-			if (row.expires_at && row.expires_at <= now) continue;
+			if (row.expires_at !== null && row.expires_at <= now) continue;
 
 			const ids = row.zone_ids.split(',');
 			if (ids.includes(accountId)) {

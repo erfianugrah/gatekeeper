@@ -10,6 +10,9 @@ import { MS_PER_DAY } from './constants';
 
 const MS_PER_HOUR = 3_600_000;
 
+/** Allowed table names for timeseries queries — prevents SQL injection via table parameter. */
+const ALLOWED_TABLES = new Set(['purge_events', 's3_events', 'dns_events', 'cf_proxy_events']);
+
 export interface TimeseriesBucket {
 	/** Start of the hour (unix ms, floored). */
 	bucket: number;
@@ -38,6 +41,11 @@ export async function queryTimeseries(
 	filters: { conditions: string[]; params: (string | number)[] },
 	timeRange: TimeseriesQuery,
 ): Promise<TimeseriesBucket[]> {
+	// Safelist check — all callers pass hardcoded table names but this guards against future misuse
+	if (!ALLOWED_TABLES.has(table)) {
+		throw new Error(`Invalid analytics table: ${table}`);
+	}
+
 	// Default: last 7 days if no since provided
 	const now = Date.now();
 	const since = timeRange.since ?? now - 7 * MS_PER_DAY;

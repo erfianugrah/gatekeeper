@@ -32,6 +32,26 @@ export function extractBearerKey(authHeader: string | undefined): string | null 
 	return key.length > 0 ? key : null;
 }
 
+// ─── Rate limiting ──────────────────────────────────────────────────────────
+
+/**
+ * Consume one CF proxy rate-limit token. Returns null if allowed, or a
+ * 429 JSON error Response if rate-limited. Called AFTER authentication so
+ * unauthenticated requests cannot exhaust the rate-limit bucket.
+ */
+export async function consumeCfProxyRateLimitOrError(env: Env, log: Record<string, unknown>, start: number): Promise<Response | null> {
+	const stub = getStub(env);
+	const result = await stub.consumeCfProxyRateLimit();
+	if (!result.allowed) {
+		log.status = 429;
+		log.error = 'rate_limited';
+		log.durationMs = Date.now() - start;
+		console.log(JSON.stringify(log));
+		return cfJsonError(429, 'Rate limit exceeded');
+	}
+	return null;
+}
+
 // ─── Upstream token resolution ──────────────────────────────────────────────
 
 /**

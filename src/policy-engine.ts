@@ -128,11 +128,15 @@ function evaluateLeaf(cond: LeafCondition, fields: Record<string, string | boole
 	// For all other operators, if the field doesn't exist, the condition fails
 	if (fieldValue === undefined || fieldValue === null) return false;
 
+	// Coerce field value to string for consistent comparison across all operators.
+	// Boolean fields (e.g., true) become "true" — matches the in/not_in behavior.
+	const strFieldValue = String(fieldValue);
+
 	switch (cond.operator) {
 		case 'eq':
-			return fieldValue === cond.value;
+			return strFieldValue === String(cond.value);
 		case 'ne':
-			return fieldValue !== cond.value;
+			return strFieldValue !== String(cond.value);
 		case 'contains':
 			return typeof fieldValue === 'string' && typeof cond.value === 'string' && fieldValue.includes(cond.value);
 		case 'not_contains':
@@ -207,19 +211,35 @@ function evalRegex(fieldValue: string | boolean, pattern: ConditionValue, negate
 	return negate ? !result : result;
 }
 
+/** Cache of compiled wildcard regexes keyed by glob pattern. */
+const WILDCARD_CACHE = new Map<string, RegExp | null>();
+
 /**
  * Glob-style wildcard matching. `*` matches any sequence of characters.
  * Case-insensitive — all wildcard comparisons ignore case by design.
  * This affects action, resource, and condition value matching.
+ * Compiled regexes are cached per-isolate to avoid repeated compilation.
  */
 function evalWildcard(value: string, pattern: string): boolean {
-	// Convert glob to regex: escape all regex chars except *, then replace * with .*
-	const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-	try {
-		return new RegExp(`^${escaped}$`, 'i').test(value);
-	} catch {
-		return false;
+	let re = WILDCARD_CACHE.get(pattern);
+	if (re === undefined) {
+		// Convert glob to regex: escape all regex chars except *, then replace * with .*
+		const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+		try {
+			re = new RegExp(`^${escaped}$`, 'i');
+		} catch {
+			re = null;
+		}
+		// Evict oldest entry if at capacity (shared limit with REGEX_CACHE)
+		if (WILDCARD_CACHE.size >= MAX_REGEX_CACHE_SIZE) {
+			const first = WILDCARD_CACHE.keys().next().value!;
+			WILDCARD_CACHE.delete(first);
+		}
+		WILDCARD_CACHE.set(pattern, re);
 	}
+
+	if (re === null) return false;
+	return re.test(value);
 }
 
 // ─── Policy validation ──────────────────────────────────────────────────────

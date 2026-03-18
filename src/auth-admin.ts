@@ -97,8 +97,11 @@ export async function adminAuth(c: Context<HonoEnv>, next: Next): Promise<Respon
 	}
 
 	// 2. Fall back to X-Admin-Key — for CLI and automation (always admin role)
+	// Completely disable this auth path if ADMIN_KEY is unset or too short — prevents
+	// empty-secret bypass and forces the operator to configure a real key.
+	const configuredKey = c.env.ADMIN_KEY;
 	const adminKey = c.req.header(ADMIN_KEY_HEADER);
-	if (adminKey && (await timingSafeEqual(adminKey, c.env.ADMIN_KEY))) {
+	if (configuredKey && configuredKey.length >= 16 && adminKey && (await timingSafeEqual(adminKey, configuredKey))) {
 		console.log(JSON.stringify({ breadcrumb: 'admin-auth-key', method: c.req.method, path: c.req.path }));
 		c.set('adminRole', 'admin');
 		await next();
@@ -117,7 +120,11 @@ export function requireRole(minRole: AdminRole) {
 	const minLevel = ROLE_LEVELS[minRole];
 
 	return async (c: Context<HonoEnv>, next: Next): Promise<Response | void> => {
-		const role = c.get('adminRole') ?? 'viewer';
+		const role = c.get('adminRole');
+		if (!role) {
+			// adminAuth middleware was not applied or did not set a role — fail closed
+			return c.json({ success: false, errors: [{ code: 403, message: 'Forbidden — no role resolved' }] }, 403);
+		}
 		const level = ROLE_LEVELS[role];
 
 		if (level < minLevel) {
@@ -146,7 +153,10 @@ export function requireRoleByMethod(readRole: AdminRole, writeRole: AdminRole) {
 	const writeLevel = ROLE_LEVELS[writeRole];
 
 	return async (c: Context<HonoEnv>, next: Next): Promise<Response | void> => {
-		const role = c.get('adminRole') ?? 'viewer';
+		const role = c.get('adminRole');
+		if (!role) {
+			return c.json({ success: false, errors: [{ code: 403, message: 'Forbidden — no role resolved' }] }, 403);
+		}
 		const level = ROLE_LEVELS[role];
 		const isWrite = c.req.method !== 'GET' && c.req.method !== 'HEAD';
 		const requiredLevel = isWrite ? writeLevel : readLevel;

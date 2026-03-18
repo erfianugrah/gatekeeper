@@ -75,7 +75,7 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 		const policyJson = JSON.stringify(req.policy);
 
 		const rl = req.rate_limit;
-		const upstreamTokenId = req.upstream_token_id ?? null;
+		const upstreamTokenId = req.upstream_token_id || null;
 		this.sql.exec(
 			`INSERT INTO api_keys (id, name, zone_id, created_at, expires_at, revoked, bulk_rate, bulk_bucket, single_rate, single_bucket, policy, created_by, upstream_token_id)
 			 VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
@@ -150,7 +150,7 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 							single_bucket: oldKey.single_bucket ?? undefined,
 						}
 					: undefined,
-			upstream_token_id: oldKey.upstream_token_id ?? '',
+			upstream_token_id: oldKey.upstream_token_id ?? null!,
 		};
 
 		const { key: newKey } = this.createKey(req);
@@ -188,8 +188,9 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 
 		const key = existing.key;
 
-		// Cannot update revoked keys
+		// Cannot update revoked or expired keys
 		if (key.revoked) return null;
+		if (key.expires_at !== null && key.expires_at <= Date.now()) return null;
 
 		const sets: string[] = [];
 		const params: unknown[] = [];
@@ -200,6 +201,10 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 		}
 
 		if (updates.expires_at !== undefined) {
+			// Enforce extend-only: new expiry must be later than current (or null to remove expiry)
+			if (updates.expires_at !== null && key.expires_at !== null && updates.expires_at <= key.expires_at) {
+				throw new Error('expires_at can only be extended, not shortened');
+			}
 			sets.push('expires_at = ?');
 			params.push(updates.expires_at);
 		}

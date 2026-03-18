@@ -98,7 +98,7 @@ export const POLICY_VERSION = '2025-01-01';
 // ─── Type guards ────────────────────────────────────────────────────────────
 
 export function isLeafCondition(c: Condition): c is LeafCondition {
-	return 'field' in c && 'operator' in c;
+	return 'field' in c && 'operator' in c && !('any' in c) && !('all' in c) && !('not' in c);
 }
 
 export function isAnyCondition(c: Condition): c is AnyCondition {
