@@ -6,6 +6,8 @@ import { S3CredentialManager } from './s3/iam';
 import { UpstreamTokenManager } from './upstream-tokens';
 import { UpstreamR2Manager } from './s3/upstream-r2';
 import { ConfigManager } from './config-registry';
+import { UserManager } from './user-manager';
+import { SessionManager } from './session-manager';
 import { generateFlightId } from './crypto';
 import { CF_API_BASE, DEFAULT_RETRY_AFTER_SEC } from './constants';
 import type {
@@ -24,6 +26,9 @@ import type { UpstreamToken, CreateUpstreamTokenRequest } from './upstream-token
 import type { UpstreamR2, CreateUpstreamR2Request, R2Credentials } from './s3/upstream-r2';
 import type { GatewayConfig, ConfigOverride } from './config-registry';
 import type { RequestContext } from './policy-types';
+import type { User, CreateUserRequest } from './user-manager';
+import type { Session } from './session-manager';
+import type { AdminRole } from './types';
 
 // ─── Rate-limit 429 builder ─────────────────────────────────────────────────
 
@@ -67,6 +72,8 @@ export class Gatekeeper extends DurableObject<Env> {
 	private upstreamTokens!: UpstreamTokenManager;
 	private upstreamR2!: UpstreamR2Manager;
 	private configManager!: ConfigManager;
+	private users!: UserManager;
+	private sessions!: SessionManager;
 
 	/** Per-key rate limit buckets. Lazily created when a key with custom limits is first used. Capped at MAX_KEY_BUCKETS. */
 	private keyBuckets = new Map<string, { bulk: TokenBucket; single: TokenBucket }>();
@@ -103,6 +110,12 @@ export class Gatekeeper extends DurableObject<Env> {
 
 			this.upstreamR2 = new UpstreamR2Manager(ctx.storage.sql, cacheTtl);
 			this.upstreamR2.initTables();
+
+			this.users = new UserManager(ctx.storage.sql);
+			this.users.initTable();
+
+			this.sessions = new SessionManager(ctx.storage.sql);
+			this.sessions.initTable();
 
 			console.log(
 				JSON.stringify({
@@ -692,18 +705,20 @@ export class Gatekeeper extends DurableObject<Env> {
 
 	// ─── Expired entity cleanup ────────────────────────────────────────
 
-	/** Revoke expired API keys + S3 credentials, delete expired upstream tokens + R2 endpoints. */
+	/** Revoke expired API keys + S3 credentials, delete expired upstream tokens + R2 endpoints + sessions. */
 	async cleanupExpired(): Promise<{
 		keysRevoked: number;
 		s3CredsRevoked: number;
 		upstreamTokensDeleted: number;
 		upstreamR2Deleted: number;
+		sessionsDeleted: number;
 	}> {
 		const keysRevoked = this.iam.revokeExpired();
 		const s3CredsRevoked = this.s3Iam.revokeExpired();
 		const upstreamTokensDeleted = this.upstreamTokens.deleteExpired();
 		const upstreamR2Deleted = this.upstreamR2.deleteExpired();
-		return { keysRevoked, s3CredsRevoked, upstreamTokensDeleted, upstreamR2Deleted };
+		const sessionsDeleted = this.sessions.deleteExpired();
+		return { keysRevoked, s3CredsRevoked, upstreamTokensDeleted, upstreamR2Deleted, sessionsDeleted };
 	}
 
 	// ─── Config Registry RPC methods ────────────────────────────────────
@@ -732,5 +747,72 @@ export class Gatekeeper extends DurableObject<Env> {
 	/** List all config overrides stored in the registry. */
 	async listConfigOverrides(): Promise<ConfigOverride[]> {
 		return this.configManager.listOverrides();
+	}
+
+	// ─── User RPC methods ──────────────────────────────────────────────
+
+	async createUser(req: CreateUserRequest): Promise<User> {
+		return this.users.createUser(req);
+	}
+
+	async verifyCredentials(email: string, password: string): Promise<User | null> {
+		return this.users.verifyCredentials(email, password);
+	}
+
+	async listUsers(): Promise<User[]> {
+		return this.users.listUsers();
+	}
+
+	async getUser(id: string): Promise<User | null> {
+		return this.users.getUser(id);
+	}
+
+	async getUserByEmail(email: string): Promise<User | null> {
+		return this.users.getUserByEmail(email);
+	}
+
+	async updateUserRole(id: string, role: AdminRole): Promise<User | null> {
+		return this.users.updateUserRole(id, role);
+	}
+
+	async updateUserPassword(id: string, newPassword: string): Promise<boolean> {
+		const result = await this.users.updateUserPassword(id, newPassword);
+		if (result) {
+			// Revoke all sessions for the user on password change
+			this.sessions.deleteUserSessions(id);
+		}
+		return result;
+	}
+
+	async deleteUser(id: string): Promise<boolean> {
+		// Revoke all sessions before deleting the user
+		this.sessions.deleteUserSessions(id);
+		return this.users.deleteUser(id);
+	}
+
+	async countUsers(): Promise<number> {
+		return this.users.countUsers();
+	}
+
+	// ─── Session RPC methods ───────────────────────────────────────────
+
+	async createSession(userId: string, email: string, role: AdminRole): Promise<Session> {
+		return this.sessions.createSession(userId, email, role);
+	}
+
+	async validateSession(sessionId: string): Promise<Session | null> {
+		return this.sessions.validateSession(sessionId);
+	}
+
+	async deleteSession(sessionId: string): Promise<boolean> {
+		return this.sessions.deleteSession(sessionId);
+	}
+
+	async deleteUserSessions(userId: string): Promise<number> {
+		return this.sessions.deleteUserSessions(userId);
+	}
+
+	async deleteExpiredSessions(): Promise<number> {
+		return this.sessions.deleteExpired();
 	}
 }

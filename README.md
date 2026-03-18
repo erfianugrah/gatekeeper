@@ -14,6 +14,53 @@ API gateway on Cloudflare Workers with an AWS IAM-style authorization engine. Fr
 8. **Analytics** — every purge, DNS, S3, and CF proxy operation is logged to D1. Query events, get summaries, filter by key/credential/zone/account/service/time range. CF proxy events are broken down by individual service (D1, KV, Workers, etc.).
 9. **Dashboard** — Astro SPA served from the same Worker via Static Assets. Unified analytics view with dynamic per-source tabs.
 
+## Authentication
+
+Three authentication methods, checked in order:
+
+1. **Cloudflare Access JWT** — SSO via any IdP (Google, Okta, Azure AD, etc.). Roles resolved from IdP groups or built-in user records.
+2. **X-Admin-Key header** — shared secret for CLI and automation. Always grants `admin` role. Requires key >= 16 characters.
+3. **Built-in email/password** — self-hosted login with no external IdP required. PBKDF2-SHA256 (600k iterations), session cookies, RBAC roles per user.
+
+All three methods coexist. Use whichever fits your deployment:
+
+| Method            | Best for                        | Setup                                                                        |
+| ----------------- | ------------------------------- | ---------------------------------------------------------------------------- |
+| Cloudflare Access | Teams with existing SSO         | Configure Access app + set `CF_ACCESS_TEAM_NAME` and `CF_ACCESS_AUD` secrets |
+| X-Admin-Key       | CLI, automation, CI/CD          | Set `ADMIN_KEY` secret (>= 16 chars)                                         |
+| Built-in auth     | Solo operators, no external IdP | Visit `/login` on first deploy to create admin account                       |
+
+### Built-in auth quick start
+
+1. Deploy the worker (no secrets needed for built-in auth)
+2. Visit `https://your-domain/login`
+3. First visit shows a "Create admin account" form (bootstrap mode)
+4. Create your admin user (email + password, min 12 chars)
+5. You're logged in — manage additional users at `/admin/users`
+
+When a built-in user has the same email as an Access SSO user, the built-in user's role takes precedence. This lets you manage roles locally even when using SSO for authentication.
+
+### User management API
+
+```
+GET    /admin/users              — list all users
+POST   /admin/users              — create user { email, password, role }
+GET    /admin/users/:id          — get user
+PATCH  /admin/users/:id          — update role { role }
+DELETE /admin/users/:id          — delete user (revokes all sessions)
+POST   /admin/users/:id/password — change password (revokes all sessions)
+```
+
+### Auth endpoints (unauthenticated)
+
+```
+GET    /login            — login page (HTML)
+POST   /auth/login       — { email, password } -> session cookie
+POST   /auth/logout      — clear session
+GET    /auth/session     — validate current session
+POST   /auth/bootstrap   — create first admin (only when 0 users exist)
+```
+
 ## Quick start
 
 ```bash
@@ -46,7 +93,7 @@ See [Deployment](docs/DEPLOYMENT.md) for production setup.
 - **Dashboard**: Astro 5 + React 19 + Tailwind CSS 4 + shadcn/ui
 - **CLI**: citty
 - **S3 signing**: aws4fetch
-- **Tests**: Vitest + @cloudflare/vitest-pool-workers (989 unit tests, ~730 e2e smoke assertions)
+- **Tests**: Vitest + @cloudflare/vitest-pool-workers (1,007 unit tests, ~730 e2e smoke assertions)
 
 ## Commands
 

@@ -1,9 +1,10 @@
 /**
  * Admin authentication + RBAC middleware.
  *
- * Two auth paths:
- * 1. Cloudflare Access JWT (dashboard SSO) — provides admin access + identity + RBAC
- * 2. X-Admin-Key header (CLI / automation) — provides admin access, always "admin" role
+ * Three auth paths (checked in order):
+ * 1. Cloudflare Access JWT (dashboard SSO) — provides identity + RBAC from IdP groups
+ * 2. X-Admin-Key header (CLI / automation) — always "admin" role
+ * 3. Session cookie (built-in auth) — provides identity + role from the user record
  *
  * Access JWT is checked first so dashboard users get identity attached to tokens.
  * CF Access is only enforced at the edge on /dashboard/*, but the CF_Authorization
@@ -16,7 +17,9 @@
 import type { Context, Next } from 'hono';
 import { validateAccessJwt } from './auth-access';
 import { timingSafeEqual } from './crypto';
+import { getStub } from './do-stub';
 import { ADMIN_KEY_HEADER } from './constants';
+import { SESSION_COOKIE } from './session-manager';
 import type { HonoEnv, AdminRole } from './types';
 
 // ─── Role hierarchy ─────────────────────────────────────────────────────────
@@ -65,17 +68,39 @@ export async function adminAuth(c: Context<HonoEnv>, next: Next): Promise<Respon
 	if (c.env.CF_ACCESS_TEAM_NAME && c.env.CF_ACCESS_AUD) {
 		const identity = await validateAccessJwt(c.req.raw, c.env.CF_ACCESS_TEAM_NAME, c.env.CF_ACCESS_AUD);
 		if (identity) {
-			const role = resolveRole(identity.groups, c.env);
-			console.log(
-				JSON.stringify({
-					breadcrumb: 'admin-auth-access',
-					email: identity.email,
-					groups: identity.groups,
-					role,
-					method: c.req.method,
-					path: c.req.path,
-				}),
-			);
+			// Check if a built-in user record exists for this email — if so, use its role
+			// instead of RBAC group resolution. This merges Access SSO identity with
+			// locally-managed user records so the role is always consistent.
+			const stub = getStub(c.env);
+			const builtInUser = identity.email ? await stub.getUserByEmail(identity.email) : null;
+
+			let role: AdminRole | null;
+			if (builtInUser) {
+				role = builtInUser.role;
+				console.log(
+					JSON.stringify({
+						breadcrumb: 'admin-auth-access-merged',
+						email: identity.email,
+						builtInUserId: builtInUser.id,
+						role,
+						method: c.req.method,
+						path: c.req.path,
+					}),
+				);
+			} else {
+				role = resolveRole(identity.groups, c.env);
+				console.log(
+					JSON.stringify({
+						breadcrumb: 'admin-auth-access',
+						email: identity.email,
+						groups: identity.groups,
+						role,
+						method: c.req.method,
+						path: c.req.path,
+					}),
+				);
+			}
+
 			if (!role) {
 				console.log(
 					JSON.stringify({
@@ -108,8 +133,41 @@ export async function adminAuth(c: Context<HonoEnv>, next: Next): Promise<Respon
 		return;
 	}
 
+	// 3. Try session cookie — built-in email/password auth
+	const sessionId = getSessionCookie(c.req.raw);
+	if (sessionId) {
+		const stub = getStub(c.env);
+		const session = await stub.validateSession(sessionId);
+		if (session) {
+			console.log(
+				JSON.stringify({
+					breadcrumb: 'admin-auth-session',
+					email: session.email,
+					role: session.role,
+					method: c.req.method,
+					path: c.req.path,
+				}),
+			);
+			c.set('accessIdentity', { email: session.email, groups: [], sub: session.user_id, type: 'session' } as any);
+			c.set('adminRole', session.role);
+			await next();
+			return;
+		}
+	}
+
 	console.log(JSON.stringify({ breadcrumb: 'admin-auth-rejected', method: c.req.method, path: c.req.path }));
 	return c.json({ success: false, errors: [{ code: 401, message: 'Unauthorized' }] }, 401);
+}
+
+/** Extract session token from the gk_session cookie. */
+function getSessionCookie(req: Request): string | null {
+	const cookieHeader = req.headers.get('Cookie');
+	if (!cookieHeader) return null;
+	for (const part of cookieHeader.split(';')) {
+		const [name, ...rest] = part.trim().split('=');
+		if (name === SESSION_COOKIE) return rest.join('=');
+	}
+	return null;
 }
 
 /**

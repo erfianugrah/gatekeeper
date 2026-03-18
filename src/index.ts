@@ -8,6 +8,8 @@ import { deleteOldDnsEvents } from './cf/dns/analytics';
 import { deleteOldCfProxyEvents } from './cf/analytics';
 import { deleteOldAuditEvents } from './audit-log';
 import { cfApp } from './cf/router';
+import { authApp } from './routes/auth';
+import { renderLoginPage } from './login-page';
 import { getStub } from './do-stub';
 import type { HonoEnv } from './types';
 
@@ -44,12 +46,31 @@ app.use('*', async (c, next) => {
 
 app.get('/health', (c) => c.json({ ok: true }));
 
+// ─── Login page ─────────────────────────────────────────────────────────────
+
+app.get('/login', (c) => {
+	return c.html(renderLoginPage(), 200, {
+		'Cache-Control': 'no-store',
+	});
+});
+
+// ─── Auth routes (login, logout, session, bootstrap) ────────────────────────
+
+app.route('/auth', authApp);
+
 // ─── Logout — clears Access session and redirects back to dashboard ─────────
 
 app.get('/logout', (c) => {
 	const teamName = c.env.CF_ACCESS_TEAM_NAME;
 	if (!teamName) {
-		return c.redirect('/dashboard/');
+		// No Access configured — clear session cookie and redirect to login
+		return new Response(null, {
+			status: 302,
+			headers: {
+				Location: '/login',
+				'Set-Cookie': 'gk_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax',
+			},
+		});
 	}
 
 	const accessOrigin = `https://${teamName}.cloudflareaccess.com`;
