@@ -9,7 +9,6 @@ import { deleteOldCfProxyEvents } from './cf/analytics';
 import { deleteOldAuditEvents } from './audit-log';
 import { cfApp } from './cf/router';
 import { authApp } from './routes/auth';
-import { renderLoginPage } from './login-page';
 import { getStub } from './do-stub';
 import type { HonoEnv } from './types';
 
@@ -46,13 +45,9 @@ app.use('*', async (c, next) => {
 
 app.get('/health', (c) => c.json({ ok: true }));
 
-// ─── Login page ─────────────────────────────────────────────────────────────
+// ─── Login page — redirect to dashboard SPA login page ──────────────────────
 
-app.get('/login', (c) => {
-	return c.html(renderLoginPage(), 200, {
-		'Cache-Control': 'no-store',
-	});
-});
+app.get('/login', (c) => c.redirect('/dashboard/login', 302));
 
 // ─── Auth routes (login, logout, session, bootstrap) ────────────────────────
 
@@ -67,7 +62,7 @@ app.get('/logout', (c) => {
 		return new Response(null, {
 			status: 302,
 			headers: {
-				Location: '/login',
+				Location: '/dashboard/login',
 				'Set-Cookie': 'gk_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax',
 			},
 		});
