@@ -58,13 +58,35 @@ async function parseCredentials(c: any): Promise<{ email: string; password: stri
 function loginRedirectWithError(message: string): Response {
 	return new Response(null, {
 		status: 303,
-		headers: { Location: `/dashboard/login?error=${encodeURIComponent(message)}` },
+		headers: { Location: `/login?error=${encodeURIComponent(message)}` },
 	});
 }
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
 
 export const authApp = new Hono<HonoEnv>();
+
+/**
+ * Auth config — tells the login page which auth methods are available.
+ * Public endpoint (no auth required).
+ */
+authApp.get('/config', async (c) => {
+	const hasAccess = !!(c.env.CF_ACCESS_TEAM_NAME && c.env.CF_ACCESS_AUD);
+	const stub = getStub(c.env);
+	const userCount = await stub.countUsers();
+
+	return c.json({
+		success: true,
+		result: {
+			/** Whether Cloudflare Access SSO is configured. */
+			access_enabled: hasAccess,
+			/** The Access team domain — used to construct the SSO login URL. */
+			access_domain: hasAccess ? `${c.env.CF_ACCESS_TEAM_NAME}.cloudflareaccess.com` : null,
+			/** Whether the bootstrap flow is needed (no users exist). */
+			bootstrap: userCount === 0,
+		},
+	});
+});
 
 /** Login — verify credentials and create a session. */
 authApp.post('/login', async (c) => {

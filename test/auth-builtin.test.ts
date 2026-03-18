@@ -363,16 +363,10 @@ describe('Auth routes (HTTP-level)', () => {
 		expect(res.status).toBe(400);
 	});
 
-	it('GET /login redirects to /dashboard/login', async () => {
-		const res = await SELF.fetch('http://localhost/login', { redirect: 'manual' });
-		expect(res.status).toBe(302);
-		expect(res.headers.get('Location')).toBe('/dashboard/login');
-	});
-
-	it('GET /logout without Access -> redirect to /dashboard/login', async () => {
+	it('GET /logout without Access -> redirect to /login with cleared cookie', async () => {
 		const res = await SELF.fetch('http://localhost/logout', { redirect: 'manual' });
 		expect(res.status).toBe(302);
-		expect(res.headers.get('Location')).toBe('/dashboard/login');
+		expect(res.headers.get('Location')).toBe('/login');
 		expect(res.headers.get('Set-Cookie')).toContain('Max-Age=0');
 	});
 
