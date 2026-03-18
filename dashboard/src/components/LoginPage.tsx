@@ -3,10 +3,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type Mode = 'loading' | 'login' | 'bootstrap';
+
+interface AuthConfig {
+	access_enabled: boolean;
+	access_domain: string | null;
+	bootstrap: boolean;
+}
 
 interface ApiError {
 	code: number;
@@ -17,37 +24,38 @@ interface ApiError {
 
 export function LoginPage() {
 	const [mode, setMode] = useState<Mode>('loading');
+	const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
 	const [confirm, setConfirm] = useState('');
 	const [error, setError] = useState('');
 	const [loading, setLoading] = useState(false);
 
-	// On mount: check session, detect bootstrap mode
+	// On mount: fetch auth config, check session, detect bootstrap
 	useEffect(() => {
 		(async () => {
 			try {
-				// Already logged in?
-				const sessRes = await fetch('/auth/session', {
-					credentials: 'include',
-				});
+				// Check if already logged in (session cookie or Access JWT)
+				const sessRes = await fetch('/auth/session', { credentials: 'include' });
 				if (sessRes.ok) {
 					window.location.replace('/dashboard/');
 					return;
 				}
 
-				// Check if bootstrap is needed
-				const bsRes = await fetch('/auth/bootstrap', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: '{}',
-					credentials: 'include',
-				});
-				const bsData = await bsRes.json();
-				if (
-					bsData.errors?.[0]?.code === 400 // missing fields = bootstrap enabled
-				) {
-					setMode('bootstrap');
+				// Also check if Access JWT works (user has Access cookie but no session)
+				const meRes = await fetch('/admin/me', { credentials: 'include' });
+				if (meRes.ok) {
+					window.location.replace('/dashboard/');
+					return;
+				}
+
+				// Fetch auth config to know what methods are available
+				const configRes = await fetch('/auth/config');
+				if (configRes.ok) {
+					const configData = await configRes.json();
+					const config = configData.result as AuthConfig;
+					setAuthConfig(config);
+					setMode(config.bootstrap ? 'bootstrap' : 'login');
 				} else {
 					setMode('login');
 				}
@@ -57,13 +65,12 @@ export function LoginPage() {
 		})();
 	}, []);
 
-	// Read ?error= from URL (server-side redirect with error)
+	// Read ?error= from URL (server-side form redirect with error)
 	useEffect(() => {
 		const params = new URLSearchParams(window.location.search);
 		const urlError = params.get('error');
 		if (urlError) {
 			setError(urlError);
-			// Clean up URL
 			window.history.replaceState({}, '', window.location.pathname);
 		}
 	}, []);
@@ -126,16 +133,23 @@ export function LoginPage() {
 		}
 	}
 
+	function handleSsoLogin() {
+		// Navigate to the Access-protected dashboard — Access will intercept,
+		// run the SSO flow, set the CF_Authorization cookie, and redirect back.
+		window.location.href = '/dashboard/';
+	}
+
 	// Loading state
 	if (mode === 'loading') {
 		return (
 			<div className="flex min-h-screen items-center justify-center bg-lovelace-950">
-				<div className="text-muted-foreground text-sm">Loading...</div>
+				<div className="text-muted-foreground text-sm animate-pulse">Loading...</div>
 			</div>
 		);
 	}
 
 	const isBootstrap = mode === 'bootstrap';
+	const hasSSO = authConfig?.access_enabled === true;
 
 	return (
 		<div className="flex min-h-screen items-center justify-center bg-lovelace-950 p-4">
@@ -158,14 +172,34 @@ export function LoginPage() {
 					<CardTitle className="text-xl">{isBootstrap ? 'Welcome' : 'Sign in'}</CardTitle>
 					<CardDescription>{isBootstrap ? 'Create your admin account to get started' : 'Gatekeeper Dashboard'}</CardDescription>
 				</CardHeader>
-				<CardContent>
+				<CardContent className="space-y-4">
 					{isBootstrap && (
-						<div className="mb-4 rounded-md border border-lv-purple/20 bg-lv-purple/5 px-3 py-2 text-xs text-lv-purple">
+						<div className="rounded-md border border-lv-purple/20 bg-lv-purple/5 px-3 py-2 text-xs text-lv-purple">
 							No users exist yet. This form creates the first admin account.
 						</div>
 					)}
 
-					{/* Native form fallback — JS overrides with preventDefault */}
+					{/* SSO button — only shown when Access is configured and not in bootstrap mode */}
+					{hasSSO && !isBootstrap && (
+						<>
+							<Button type="button" variant="outline" className="w-full" onClick={handleSsoLogin}>
+								<svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+									<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+									<polyline points="10 17 15 12 10 7" />
+									<line x1="15" y1="12" x2="3" y2="12" />
+								</svg>
+								Sign in with SSO
+							</Button>
+							<div className="relative">
+								<Separator />
+								<span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-lovelace-900 px-2 text-xs text-muted-foreground">
+									or
+								</span>
+							</div>
+						</>
+					)}
+
+					{/* Email/password form — native POST fallback + JS enhancement */}
 					<form
 						method="POST"
 						action={isBootstrap ? '/auth/bootstrap' : '/auth/login'}
@@ -180,7 +214,7 @@ export function LoginPage() {
 								type="email"
 								required
 								autoComplete="email"
-								autoFocus
+								autoFocus={!hasSSO || isBootstrap}
 								placeholder="you@example.com"
 								value={email}
 								onChange={(e) => setEmail(e.target.value)}
@@ -221,7 +255,15 @@ export function LoginPage() {
 						{error && <div className="rounded-md border border-lv-red/30 bg-lv-red/10 px-3 py-2 text-sm text-lv-red">{error}</div>}
 
 						<Button type="submit" className="w-full" disabled={loading}>
-							{loading ? (isBootstrap ? 'Creating account...' : 'Signing in...') : isBootstrap ? 'Create admin account' : 'Sign in'}
+							{loading
+								? isBootstrap
+									? 'Creating account...'
+									: 'Signing in...'
+								: isBootstrap
+									? 'Create admin account'
+									: hasSSO
+										? 'Sign in with email'
+										: 'Sign in'}
 						</Button>
 					</form>
 				</CardContent>

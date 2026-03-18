@@ -45,8 +45,7 @@
 		"directory": "./dashboard/dist/",
 		"binding": "ASSETS",
 		"not_found_handling": "single-page-application",
-		"run_worker_first": ["/v1/*", "/admin/*", "/auth/*", "/health", "/login", "/logout", "/s3", "/s3/*", "/cf/*"],
-		// /login is a worker redirect to /dashboard/login (Astro SPA page)
+		"run_worker_first": ["/v1/*", "/admin/*", "/auth/*", "/health", "/logout", "/s3", "/s3/*", "/cf/*"],
 	},
 	"triggers": {
 		"crons": ["0 3 * * *"],

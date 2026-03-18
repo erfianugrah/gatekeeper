@@ -152,7 +152,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 	// Redirect to login on 401 — session expired or not authenticated
 	if (res.status === 401 && !path.startsWith('/auth/')) {
-		window.location.replace('/dashboard/login');
+		window.location.replace('/login');
 		throw new Error('Session expired');
 	}
 

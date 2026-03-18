@@ -45,10 +45,6 @@ app.use('*', async (c, next) => {
 
 app.get('/health', (c) => c.json({ ok: true }));
 
-// ─── Login page — redirect to dashboard SPA login page ──────────────────────
-
-app.get('/login', (c) => c.redirect('/dashboard/login', 302));
-
 // ─── Auth routes (login, logout, session, bootstrap) ────────────────────────
 
 app.route('/auth', authApp);
@@ -62,7 +58,7 @@ app.get('/logout', (c) => {
 		return new Response(null, {
 			status: 302,
 			headers: {
-				Location: '/dashboard/login',
+				Location: '/login',
 				'Set-Cookie': 'gk_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax',
 			},
 		});
