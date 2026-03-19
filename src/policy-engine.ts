@@ -37,14 +37,22 @@ function evaluatePolicyForContext(policy: PolicyDocument, ctx: RequestContext): 
 /**
  * Check if a statement's action, resource, and conditions all match a request context.
  * Does NOT check effect — caller must handle allow/deny logic.
+ *
+ * For allow statements, conditions on fields that are absent from the request context
+ * are vacuously satisfied (skipped) — this lets a single `allow purge:*` statement
+ * with a host condition work for tag/prefix/everything purges that have no host field.
+ * For deny statements, absent fields cause the condition to fail, so the deny doesn't fire.
+ * See PLAN.md for the full truth table and rationale.
  */
 function matchesStatement(stmt: Statement, ctx: RequestContext): boolean {
 	if (!matchesAction(stmt.actions, ctx.action)) return false;
 	if (!matchesResource(stmt.resources, ctx.resource)) return false;
 	if (stmt.conditions && stmt.conditions.length > 0) {
-		// Conditions within a statement are AND'd
+		// Conditions within a statement are AND'd.
+		// skipMissing: allow statements skip inapplicable conditions; deny statements don't.
+		const skipMissing = stmt.effect === 'allow';
 		for (const cond of stmt.conditions) {
-			if (!evaluateCondition(cond, ctx.fields)) return false;
+			if (!evaluateCondition(cond, ctx.fields, 0, skipMissing)) return false;
 		}
 	}
 	return true;
@@ -102,31 +110,43 @@ const MAX_CONDITION_DEPTH = 20;
 
 /**
  * Evaluate a condition (leaf or compound) against request fields.
+ * When skipMissing is true (allow statements), leaf conditions on absent fields
+ * return true (vacuously satisfied). When false (deny statements), they return false.
  */
-function evaluateCondition(cond: Condition, fields: Record<string, string | boolean>, depth = 0): boolean {
+function evaluateCondition(cond: Condition, fields: Record<string, string | boolean>, depth = 0, skipMissing = false): boolean {
 	if (depth > MAX_CONDITION_DEPTH) {
 		console.log(JSON.stringify({ breadcrumb: 'policy-condition-depth-exceeded', depth }));
 		return false;
 	}
-	if (isLeafCondition(cond)) return evaluateLeaf(cond, fields);
-	if (isAnyCondition(cond)) return cond.any.some((c) => evaluateCondition(c, fields, depth + 1));
-	if (isAllCondition(cond)) return cond.all.every((c) => evaluateCondition(c, fields, depth + 1));
-	if (isNotCondition(cond)) return !evaluateCondition(cond.not, fields, depth + 1);
+	if (isLeafCondition(cond)) return evaluateLeaf(cond, fields, skipMissing);
+	if (isAnyCondition(cond)) return cond.any.some((c) => evaluateCondition(c, fields, depth + 1, skipMissing));
+	if (isAllCondition(cond)) return cond.all.every((c) => evaluateCondition(c, fields, depth + 1, skipMissing));
+	if (isNotCondition(cond)) return !evaluateCondition(cond.not, fields, depth + 1, skipMissing);
 	return false;
 }
 
 /**
  * Evaluate a leaf condition against request fields.
+ * When skipMissing is true, conditions on fields absent from the context return true
+ * (vacuously satisfied). The exists/not_exists operators are excluded — they explicitly
+ * test for field presence and must not be skipped.
  */
-function evaluateLeaf(cond: LeafCondition, fields: Record<string, string | boolean>): boolean {
+function evaluateLeaf(cond: LeafCondition, fields: Record<string, string | boolean>, skipMissing = false): boolean {
 	const fieldValue = fields[cond.field];
 
-	// exists/not_exists don't need a field value
+	// exists/not_exists don't need a field value — and are never affected by skipMissing
 	if (cond.operator === 'exists') return fieldValue !== undefined && fieldValue !== null;
 	if (cond.operator === 'not_exists') return fieldValue === undefined || fieldValue === null;
 
-	// For all other operators, if the field doesn't exist, the condition fails
-	if (fieldValue === undefined || fieldValue === null) return false;
+	// For all other operators, if the field doesn't exist:
+	// - skipMissing=true (allow): condition is vacuously satisfied (field is inapplicable)
+	// - skipMissing=false (deny): condition fails (deny doesn't fire)
+	if (fieldValue === undefined || fieldValue === null) {
+		if (skipMissing) {
+			console.log(JSON.stringify({ breadcrumb: 'condition-field-missing-skipped', field: cond.field, operator: cond.operator }));
+		}
+		return skipMissing;
+	}
 
 	// Coerce field value to string for consistent comparison across all operators.
 	// Boolean fields (e.g., true) become "true" — matches the in/not_in behavior.

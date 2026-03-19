@@ -220,6 +220,18 @@ Conventions:
 - Purge page profiles stored in `localStorage` (zone ID, name, purge type — no secrets). Last-used profile auto-restored.
 - Condition editor shows AND/OR separators between conditions, clickable to toggle join mode. Inapplicable conditions (e.g. `host` field on `dns:*` actions) show warnings with the `appliesTo` field metadata.
 
+### Policy Engine — Inapplicable Condition Handling
+
+The policy engine uses **effect-aware skip** for conditions on fields that are absent from the request context (`src/policy-engine.ts`):
+
+- **Allow statements**: Missing field → condition is vacuously satisfied (skipped). This lets `allow purge:* where host contains erfi.io` also allow tag/prefix/everything purges that have no `host` field.
+- **Deny statements**: Missing field → condition fails → deny does not fire. This ensures `deny purge:* where host contains evil.com` does not block tag purges.
+- **`exists`/`not_exists` operators**: Never affected by skip behavior — they explicitly test for field presence.
+- **`not` compound condition**: The `not` wrapper inverts the vacuously-true result, causing `allow ... where NOT(field eq X)` to fail when the field is missing. This is a known limitation — recommend using the `deny` effect for exclusion patterns instead (e.g., `deny ... where field eq X`).
+- **Request-scoped fields** (`client_ip`, `client_country`, `client_asn`, `time.hour`, `time.day_of_week`): Always populated by `src/request-fields.ts`, never missing in practice. The skip behavior does not affect these fields.
+
+The `skipMissing` flag is threaded from `matchesStatement` (based on `stmt.effect`) through `evaluateCondition` into `evaluateLeaf`. A breadcrumb log is emitted when a condition is skipped: `{ breadcrumb: 'condition-field-missing-skipped', field, operator }`.
+
 ### Known Pitfalls
 
 - **DO NOT add module-level caching flags to `ensureTables()` in analytics modules** (`src/analytics.ts`, `src/s3/analytics.ts`). A pattern like `let tablesInitialized = false` that skips `CREATE TABLE IF NOT EXISTS` after the first call **breaks tests** because `@cloudflare/vitest-pool-workers` gives each test file its own D1 instance while sharing the module scope. The flag gets set `true` for one D1 instance, then a different test file's D1 (with no tables) silently skips initialization and all queries return 500. `CREATE TABLE IF NOT EXISTS` is a no-op metadata check in D1 — it costs microseconds and must not be "optimized" away.

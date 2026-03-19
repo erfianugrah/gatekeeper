@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { evaluatePolicy } from '../src/policy-engine';
-import { makePolicy, allowStmt, makeCtx } from './policy-helpers';
+import { makePolicy, allowStmt, denyStmt, makeCtx } from './policy-helpers';
 
 // --- Action matching ---
 
@@ -173,10 +173,278 @@ describe('leaf conditions', () => {
 		});
 	});
 
-	describe('missing field handling', () => {
-		it('non-exist field fails for string operators', () => {
-			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'nonexistent', operator: 'eq', value: 'anything' }]));
+	describe('missing field handling (effect-aware skip)', () => {
+		// --- Allow + missing field: inapplicable conditions are vacuously satisfied ---
+
+		it('allow + eq + field missing -> true (skipped)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'eq', value: 'example.com' }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('allow + ne + field missing -> true (skipped)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'ne', value: 'evil.com' }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('allow + contains + field missing -> true (skipped)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'contains', value: 'example' }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('allow + not_contains + field missing -> true (skipped)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'not_contains', value: 'staging' }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('allow + starts_with + field missing -> true (skipped)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'url', operator: 'starts_with', value: 'https://' }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('allow + in + field missing -> true (skipped)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'in', value: ['a.com', 'b.com'] }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('allow + not_in + field missing -> true (skipped)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'not_in', value: ['blocked.com'] }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('allow + wildcard + field missing -> true (skipped)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'wildcard', value: '*.example.com' }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('allow + matches + field missing -> true (skipped)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'tag', operator: 'matches', value: '^release-' }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(true);
+		});
+
+		it('allow + gt + field missing -> true (skipped)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'time.hour', operator: 'gt', value: '8' }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(true);
+		});
+
+		// --- Allow + exists/not_exists: NOT skipped (these explicitly test presence) ---
+
+		it('allow + exists + field missing -> false (NOT skipped)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'header.X-Custom', operator: 'exists', value: '' }]));
 			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(false);
+		});
+
+		it('allow + not_exists + field missing -> true (unchanged)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'header.X-Custom', operator: 'not_exists', value: '' }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(true);
+		});
+
+		// --- Deny + missing field: condition fails, deny does NOT fire ---
+
+		it('deny + eq + field missing -> deny does not fire', () => {
+			const p = makePolicy(
+				allowStmt(['purge:*'], ['zone:*']),
+				denyStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'eq', value: 'evil.com' }]),
+			);
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('deny + contains + field missing -> deny does not fire', () => {
+			const p = makePolicy(
+				allowStmt(['purge:*'], ['zone:*']),
+				denyStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'contains', value: 'evil' }]),
+			);
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('deny + gt + field missing -> deny does not fire', () => {
+			const p = makePolicy(
+				allowStmt(['purge:*'], ['zone:*']),
+				denyStmt(['purge:*'], ['zone:*'], [{ field: 'time.hour', operator: 'gt', value: '22' }]),
+			);
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(true);
+		});
+
+		it('deny + matches + field missing -> deny does not fire', () => {
+			const p = makePolicy(
+				allowStmt(['purge:*'], ['zone:*']),
+				denyStmt(['purge:*'], ['zone:*'], [{ field: 'tag', operator: 'matches', value: '^internal-' }]),
+			);
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(true);
+		});
+
+		it('deny + exists + field missing -> deny does not fire', () => {
+			const p = makePolicy(
+				allowStmt(['purge:*'], ['zone:*']),
+				denyStmt(['purge:*'], ['zone:*'], [{ field: 'header.X-Evil', operator: 'exists', value: '' }]),
+			);
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(true);
+		});
+
+		// --- Mixed AND conditions: one applicable, one inapplicable ---
+
+		it('allow + AND: inapplicable field skipped, applicable field still evaluated', () => {
+			const p = makePolicy(
+				allowStmt(
+					['purge:*'],
+					['zone:*'],
+					[
+						{ field: 'host', operator: 'contains', value: 'example.com' },
+						{ field: 'client_ip', operator: 'eq', value: '1.2.3.4' },
+					],
+				),
+			);
+			// Tag purge: host missing (skipped), client_ip matches -> allowed
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { client_ip: '1.2.3.4' })])).toBe(true);
+			// Tag purge: host missing (skipped), client_ip wrong -> denied
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { client_ip: '5.6.7.8' })])).toBe(false);
+		});
+
+		// --- Compound conditions with missing fields ---
+
+		it('allow + any(OR) + all children have missing fields -> true (all skipped)', () => {
+			const p = makePolicy(
+				allowStmt(
+					['purge:*'],
+					['zone:*'],
+					[
+						{
+							any: [
+								{ field: 'host', operator: 'eq', value: 'a.com' },
+								{ field: 'url', operator: 'contains', value: '/api/' },
+							],
+						},
+					],
+				),
+			);
+			// Tag purge: both host and url missing -> both skipped -> any([true, true]) -> true
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('allow + all(AND) + one child has missing field -> true (missing child skipped)', () => {
+			const p = makePolicy(
+				allowStmt(
+					['purge:*'],
+					['zone:*'],
+					[
+						{
+							all: [
+								{ field: 'host', operator: 'eq', value: 'example.com' },
+								{ field: 'client_ip', operator: 'eq', value: '1.2.3.4' },
+							],
+						},
+					],
+				),
+			);
+			// Tag purge: host missing (skipped=true), client_ip matches -> all([true, true]) -> true
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { client_ip: '1.2.3.4' })])).toBe(true);
+			// Tag purge: host missing (skipped=true), client_ip wrong -> all([true, false]) -> false
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { client_ip: '9.9.9.9' })])).toBe(false);
+		});
+
+		it('allow + not compound + missing field -> false (known edge case)', () => {
+			// NOT inverts the vacuously-true result: not(true) = false
+			// This is a known limitation — recommend deny effect for exclusions
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ not: { field: 'host', operator: 'eq', value: 'evil.com' } }]));
+			// Tag purge: host missing -> leaf returns true (skipped) -> not(true) = false -> denied
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(false);
+			// URL purge with good host: host=good.com, eq evil.com = false -> not(false) = true -> allowed
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'good.com' })])).toBe(true);
+			// URL purge with evil host: host=evil.com, eq evil.com = true -> not(true) = false -> denied
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'evil.com' })])).toBe(false);
+		});
+
+		it('deny + not compound + missing field -> deny fires (not inverts false to true)', () => {
+			// deny + not(eq) + missing field: skipMissing=false -> leaf returns false -> not(false) = true -> deny fires
+			const p = makePolicy(
+				allowStmt(['purge:*'], ['zone:*']),
+				denyStmt(['purge:*'], ['zone:*'], [{ not: { field: 'host', operator: 'eq', value: 'good.com' } }]),
+			);
+			// URL purge with good.com: eq good.com = true -> not(true) = false -> deny doesn't fire -> allowed
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'good.com' })])).toBe(true);
+			// URL purge with evil.com: eq good.com = false -> not(false) = true -> deny fires -> denied
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'evil.com' })])).toBe(false);
+			// Tag purge: host missing -> skipMissing=false -> leaf returns false -> not(false) = true -> deny fires
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(false);
+		});
+
+		it('allow + any(OR) + mixed: one child missing, one child present-but-non-matching -> true', () => {
+			const p = makePolicy(
+				allowStmt(
+					['purge:*'],
+					['zone:*'],
+					[
+						{
+							any: [
+								{ field: 'host', operator: 'eq', value: 'a.com' },
+								{ field: 'tag', operator: 'eq', value: 'release-v1' },
+							],
+						},
+					],
+				),
+			);
+			// host missing (skipped -> true), tag present but wrong -> any([true, false]) -> true
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { tag: 'dev-build' })])).toBe(true);
+			// host present but wrong, tag present and matches -> any([false, true]) -> true
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { host: 'b.com', tag: 'release-v1' })])).toBe(true);
+			// host present but wrong, tag present and wrong -> any([false, false]) -> false
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', { host: 'b.com', tag: 'dev-build' })])).toBe(false);
+		});
+
+		it('multiple contexts: missing field skipped independently per context', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'eq', value: 'example.com' }]));
+			// Context 1: host present and matches -> allowed
+			// Context 2: host missing -> skipped -> allowed
+			// Both must individually pass -> overall allowed
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'example.com' }), makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+			// Context 1: host present but wrong -> denied
+			// Overall denied (one context failed)
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'other.com' }), makeCtx('purge:tag', 'zone:a', {})])).toBe(false);
+		});
+
+		// --- Deny + missing field: remaining operators for completeness ---
+
+		it('deny + ends_with + field missing -> deny does not fire', () => {
+			const p = makePolicy(
+				allowStmt(['purge:*'], ['zone:*']),
+				denyStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'ends_with', value: '.evil.com' }]),
+			);
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('deny + wildcard + field missing -> deny does not fire', () => {
+			const p = makePolicy(
+				allowStmt(['purge:*'], ['zone:*']),
+				denyStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'wildcard', value: '*.evil.*' }]),
+			);
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('deny + not_contains + field missing -> deny does not fire', () => {
+			const p = makePolicy(
+				allowStmt(['purge:*'], ['zone:*']),
+				denyStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'not_contains', value: 'trusted' }]),
+			);
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		it('deny + in + field missing -> deny does not fire', () => {
+			const p = makePolicy(
+				allowStmt(['purge:*'], ['zone:*']),
+				denyStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'in', value: ['a.com', 'b.com'] }]),
+			);
+			expect(evaluatePolicy(p, [makeCtx('purge:tag', 'zone:a', {})])).toBe(true);
+		});
+
+		// --- Field is present: behavior unchanged (sanity checks) ---
+
+		it('allow + eq + field present and matches -> true (unchanged)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'eq', value: 'example.com' }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'example.com' })])).toBe(true);
+		});
+
+		it('allow + eq + field present and does not match -> false (unchanged)', () => {
+			const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'host', operator: 'eq', value: 'example.com' }]));
+			expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { host: 'other.com' })])).toBe(false);
 		});
 	});
 });

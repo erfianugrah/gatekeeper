@@ -827,18 +827,19 @@ describe('Workers proxy — script-scoped policy', () => {
 		expect(res.status).toBe(403);
 	});
 
-	it('account-level actions not blocked by script-scoped policy (no script_name field)', async () => {
-		// Account subdomain has no workers.script_name field, so a script-scoped condition
-		// with eq operator should NOT match (field missing -> condition fails -> 403)
+	it('account-level actions allowed by script-scoped policy (inapplicable condition skipped)', async () => {
+		// Account subdomain has no workers.script_name field. The allow statement's
+		// script_name condition is inapplicable → vacuously satisfied → action allowed.
+		// Users who want script-only access should scope actions to workers:script:*
 		const keyId = await createAccountKey(workersScriptScopedPolicy(SCRIPT_NAME));
 
+		mockWorkersUpstream('GET', `${CF_API_WORKERS_PATH}/subdomain`);
 		const res = await SELF.fetch(`http://localhost${WORKERS_BASE}/subdomain`, {
 			method: 'GET',
 			headers: { Authorization: `Bearer ${keyId}` },
 		});
-		// Script-scoped policy with condition on workers.script_name won't match account-level action
-		// because the field is absent — policy engine treats absent field as condition failure
-		expect(res.status).toBe(403);
+		// Script-scoped condition is skipped for account-level actions (no script_name field)
+		expect(res.status).toBe(200);
 	});
 });
 
