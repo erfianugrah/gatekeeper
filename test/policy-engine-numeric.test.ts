@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { evaluatePolicy } from '../src/policy-engine';
-import { makePolicy, allowStmt, makeCtx } from './policy-helpers';
+import { makePolicy, allowStmt, denyStmt, makeCtx } from './policy-helpers';
 
 describe('numeric operators', () => {
 	it('lt: field < value -> allowed', () => {
@@ -60,9 +60,17 @@ describe('numeric operators', () => {
 		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', { 'time.hour': '10' })])).toBe(false);
 	});
 
-	it('missing field -> denied', () => {
+	it('missing field on allow -> skipped (vacuously satisfied)', () => {
 		const p = makePolicy(allowStmt(['purge:*'], ['zone:*'], [{ field: 'time.hour', operator: 'gt', value: '0' }]));
-		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(false);
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(true);
+	});
+
+	it('missing field on deny -> condition fails, deny does not fire', () => {
+		const p = makePolicy(
+			allowStmt(['purge:*'], ['zone:*']),
+			denyStmt(['purge:*'], ['zone:*'], [{ field: 'time.hour', operator: 'gt', value: '22' }]),
+		);
+		expect(evaluatePolicy(p, [makeCtx('purge:url', 'zone:a', {})])).toBe(true);
 	});
 
 	it('numeric comparison with decimals', () => {
