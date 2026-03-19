@@ -72,16 +72,19 @@ export const authApp = new Hono<HonoEnv>();
  */
 authApp.get('/config', async (c) => {
 	const hasAccess = !!(c.env.CF_ACCESS_TEAM_NAME && c.env.CF_ACCESS_AUD);
+	const hasOAuth = !!(c.env.OAUTH_CLIENT_ID && c.env.OAUTH_AUTH_ENDPOINT && c.env.OAUTH_TOKEN_ENDPOINT);
 	const stub = getStub(c.env);
 	const userCount = await stub.countUsers();
 
 	return c.json({
 		success: true,
 		result: {
-			/** Whether Cloudflare Access SSO is configured. */
-			access_enabled: hasAccess,
-			/** The Access team domain — used to construct the SSO login URL. */
+			/** Whether any SSO is configured (Access self-hosted or generic OAuth). */
+			access_enabled: hasAccess || hasOAuth,
+			/** The Access team domain (null if OAuth is not Access-based). */
 			access_domain: hasAccess ? `${c.env.CF_ACCESS_TEAM_NAME}.cloudflareaccess.com` : null,
+			/** Whether the OAuth / OIDC login flow is available. */
+			oauth_enabled: hasOAuth,
 			/** Whether the bootstrap flow is needed (no users exist). */
 			bootstrap: userCount === 0,
 		},

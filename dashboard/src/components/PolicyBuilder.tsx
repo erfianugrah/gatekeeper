@@ -332,29 +332,29 @@ function getActivePrefixes(actions: string[]): string[] {
 }
 
 const CONDITION_FIELDS: readonly FieldOption[] = [
-	// --- Purge ---
-	{ value: 'host', label: 'Host', hint: 'e.g. example.com' },
-	{ value: 'tag', label: 'Tag', hint: 'e.g. static-v2' },
-	{ value: 'prefix', label: 'Prefix', hint: 'e.g. example.com/assets/' },
-	{ value: 'url', label: 'URL', hint: 'e.g. https://example.com/page' },
-	{ value: 'url.path', label: 'URL Path', hint: 'e.g. /api/v1/' },
-	{ value: 'purge_everything', label: 'Purge Everything', hint: 'true/false' },
+	// --- Purge (action-specific) ---
+	{ value: 'host', label: 'Host', hint: 'e.g. example.com', appliesTo: ['purge'] },
+	{ value: 'tag', label: 'Tag', hint: 'e.g. static-v2', appliesTo: ['purge'] },
+	{ value: 'prefix', label: 'Prefix', hint: 'e.g. example.com/assets/', appliesTo: ['purge'] },
+	{ value: 'url', label: 'URL', hint: 'e.g. https://example.com/page', appliesTo: ['purge'] },
+	{ value: 'url.path', label: 'URL Path', hint: 'e.g. /api/v1/', appliesTo: ['purge'] },
+	{ value: 'purge_everything', label: 'Purge Everything', hint: 'true/false', appliesTo: ['purge'] },
 	// --- DNS ---
-	{ value: 'dns.name', label: 'DNS Name', hint: 'e.g. _acme-challenge.example.com' },
-	{ value: 'dns.type', label: 'DNS Type', hint: 'e.g. A, AAAA, CNAME, TXT' },
-	{ value: 'dns.content', label: 'DNS Content', hint: 'e.g. 1.2.3.4' },
-	{ value: 'dns.proxied', label: 'DNS Proxied', hint: 'true/false' },
-	{ value: 'dns.ttl', label: 'DNS TTL', hint: 'e.g. 300' },
-	{ value: 'dns.comment', label: 'DNS Comment', hint: 'e.g. managed by cert-manager' },
-	// --- D1 (content-level, not ID — use resources for database scoping) ---
-	{ value: 'd1.name', label: 'D1 Name', hint: 'e.g. my-database' },
-	{ value: 'd1.sql_command', label: 'D1 SQL Command', hint: 'e.g. SELECT, INSERT, DELETE' },
-	// --- KV (content-level) ---
-	{ value: 'kv.key_name', label: 'KV Key', hint: 'e.g. user:1234' },
-	{ value: 'kv.title', label: 'KV Title', hint: 'e.g. MY_NAMESPACE' },
-	// --- Workers (content-level) ---
-	{ value: 'workers.domain_id', label: 'Workers Domain ID', hint: 'e.g. abc123...' },
-	// --- Request context ---
+	{ value: 'dns.name', label: 'DNS Name', hint: 'e.g. _acme-challenge.example.com', appliesTo: ['dns'] },
+	{ value: 'dns.type', label: 'DNS Type', hint: 'e.g. A, AAAA, CNAME, TXT', appliesTo: ['dns'] },
+	{ value: 'dns.content', label: 'DNS Content', hint: 'e.g. 1.2.3.4', appliesTo: ['dns'] },
+	{ value: 'dns.proxied', label: 'DNS Proxied', hint: 'true/false', appliesTo: ['dns'] },
+	{ value: 'dns.ttl', label: 'DNS TTL', hint: 'e.g. 300', appliesTo: ['dns'] },
+	{ value: 'dns.comment', label: 'DNS Comment', hint: 'e.g. managed by cert-manager', appliesTo: ['dns'] },
+	// --- D1 ---
+	{ value: 'd1.name', label: 'D1 Name', hint: 'e.g. my-database', appliesTo: ['d1'] },
+	{ value: 'd1.sql_command', label: 'D1 SQL Command', hint: 'e.g. SELECT, INSERT, DELETE', appliesTo: ['d1'] },
+	// --- KV ---
+	{ value: 'kv.key_name', label: 'KV Key', hint: 'e.g. user:1234', appliesTo: ['kv'] },
+	{ value: 'kv.title', label: 'KV Title', hint: 'e.g. MY_NAMESPACE', appliesTo: ['kv'] },
+	// --- Workers ---
+	{ value: 'workers.domain_id', label: 'Workers Domain ID', hint: 'e.g. abc123...', appliesTo: ['workers'] },
+	// --- Request context (universal — applies to all actions) ---
 	{ value: 'client_ip', label: 'Client IP', hint: 'e.g. 203.0.113.42' },
 	{ value: 'client_country', label: 'Country', hint: 'e.g. US, DE, SG' },
 	{ value: 'client_asn', label: 'ASN', hint: 'e.g. 13335' },
@@ -721,6 +721,7 @@ function StatementEditor({ index, statement, onChange, onRemove, canRemove, visi
 							fields={CONDITION_FIELDS}
 							operators={OPERATORS}
 							defaultField="host"
+							activeActionPrefixes={getActivePrefixes(statement.actions)}
 						/>
 					</div>
 				</>

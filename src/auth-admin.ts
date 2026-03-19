@@ -26,37 +26,77 @@ import type { HonoEnv, AdminRole } from './types';
 
 const ROLE_LEVELS: Record<AdminRole, number> = { viewer: 0, operator: 1, admin: 2 };
 
-/** Parse comma-separated group names from an env var. Returns empty array if unset. */
-function parseGroups(envVar?: string): string[] {
+/** Parse comma-separated values from an env var. Returns empty array if unset. */
+function parseList(envVar?: string): string[] {
 	if (!envVar) return [];
 	return envVar
 		.split(',')
-		.map((g) => g.trim())
+		.map((v) => v.trim())
 		.filter(Boolean);
 }
 
-/**
- * Resolve the highest role from the user's groups.
- * Returns null if RBAC is enabled but the user has no matching group.
- * Returns 'admin' if RBAC is not configured (backward compatible).
- */
-export function resolveRole(groups: string[], env: Env): AdminRole | null {
-	const adminGroups = parseGroups(env.RBAC_ADMIN_GROUPS);
-	const operatorGroups = parseGroups(env.RBAC_OPERATOR_GROUPS);
-	const viewerGroups = parseGroups(env.RBAC_VIEWER_GROUPS);
+/** Check if an email matches a list of emails or domains (case-insensitive). */
+function emailMatchesList(email: string, emails: string[], domains: string[]): boolean {
+	const lower = email.toLowerCase();
+	if (emails.some((e) => lower === e.toLowerCase())) return true;
+	const atIdx = lower.lastIndexOf('@');
+	const domain = atIdx >= 0 ? lower.slice(atIdx + 1) : null;
+	if (domain && domains.some((d) => domain === d.toLowerCase())) return true;
+	return false;
+}
 
-	const rbacEnabled = adminGroups.length > 0 || operatorGroups.length > 0 || viewerGroups.length > 0;
+/**
+ * Resolve the highest role from the user's groups, email, or domain.
+ *
+ * Checks (in priority order):
+ *   1. Email match  — RBAC_ADMIN_EMAILS / RBAC_OPERATOR_EMAILS / RBAC_VIEWER_EMAILS
+ *   2. Domain match — RBAC_ADMIN_DOMAINS / RBAC_OPERATOR_DOMAINS / RBAC_VIEWER_DOMAINS
+ *   3. IdP group    — RBAC_ADMIN_GROUPS / RBAC_OPERATOR_GROUPS / RBAC_VIEWER_GROUPS
+ *
+ * Returns null if RBAC is enabled but the user has no match.
+ * Returns 'admin' if no RBAC env vars are set (backward compatible).
+ */
+export function resolveRole(groups: string[], env: Env, email?: string): AdminRole | null {
+	const adminGroups = parseList(env.RBAC_ADMIN_GROUPS);
+	const operatorGroups = parseList(env.RBAC_OPERATOR_GROUPS);
+	const viewerGroups = parseList(env.RBAC_VIEWER_GROUPS);
+	const adminEmails = parseList(env.RBAC_ADMIN_EMAILS);
+	const operatorEmails = parseList(env.RBAC_OPERATOR_EMAILS);
+	const viewerEmails = parseList(env.RBAC_VIEWER_EMAILS);
+	const adminDomains = parseList(env.RBAC_ADMIN_DOMAINS);
+	const operatorDomains = parseList(env.RBAC_OPERATOR_DOMAINS);
+	const viewerDomains = parseList(env.RBAC_VIEWER_DOMAINS);
+
+	const rbacEnabled =
+		adminGroups.length > 0 ||
+		operatorGroups.length > 0 ||
+		viewerGroups.length > 0 ||
+		adminEmails.length > 0 ||
+		operatorEmails.length > 0 ||
+		viewerEmails.length > 0 ||
+		adminDomains.length > 0 ||
+		operatorDomains.length > 0 ||
+		viewerDomains.length > 0;
 
 	// If no RBAC env vars are set, all authenticated users get admin (backward compatible)
 	if (!rbacEnabled) return 'admin';
 
-	// Resolve highest matching role (case-insensitive to handle IdP casing differences)
-	const lowerGroups = groups.map((g) => g.toLowerCase());
-	if (adminGroups.some((ag) => lowerGroups.includes(ag.toLowerCase()))) return 'admin';
-	if (operatorGroups.some((og) => lowerGroups.includes(og.toLowerCase()))) return 'operator';
-	if (viewerGroups.some((vg) => lowerGroups.includes(vg.toLowerCase()))) return 'viewer';
+	// 1. Check email + domain (highest priority — works without IdP groups)
+	if (email) {
+		if (emailMatchesList(email, adminEmails, adminDomains)) return 'admin';
+		if (emailMatchesList(email, operatorEmails, operatorDomains)) return 'operator';
+		if (emailMatchesList(email, viewerEmails, viewerDomains)) return 'viewer';
+	}
 
-	// RBAC enabled but user has no matching group — deny access
+	// 2. Check IdP groups (case-insensitive)
+	if (groups.length > 0) {
+		const lowerGroups = groups.map((g) => g.toLowerCase());
+		if (adminGroups.some((ag) => lowerGroups.includes(ag.toLowerCase()))) return 'admin';
+		if (operatorGroups.some((og) => lowerGroups.includes(og.toLowerCase()))) return 'operator';
+		if (viewerGroups.some((vg) => lowerGroups.includes(vg.toLowerCase()))) return 'viewer';
+	}
+
+	// RBAC enabled but user has no match — deny access
 	return null;
 }
 
@@ -88,7 +128,7 @@ export async function adminAuth(c: Context<HonoEnv>, next: Next): Promise<Respon
 					}),
 				);
 			} else {
-				role = resolveRole(identity.groups, c.env);
+				role = resolveRole(identity.groups, c.env, identity.email);
 				console.log(
 					JSON.stringify({
 						breadcrumb: 'admin-auth-access',

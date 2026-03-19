@@ -27,6 +27,7 @@
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.12.19",
+		"@playwright/test": "^1.58.2",
 		"@types/node": "^25.3.3",
 		"aws4fetch": "^1.0.20",
 		"citty": "^0.2.1",
@@ -38,5 +39,8 @@
 		"wrangler": "^4.70.0",
 		"zod": "^4.3.6",
 		"zod-openapi": "^5.4.6"
+	},
+	"dependencies": {
+		"arctic": "^3.7.0"
 	}
 }

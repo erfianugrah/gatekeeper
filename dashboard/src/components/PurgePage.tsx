@@ -1,14 +1,18 @@
-import { useState } from 'react';
-import { Send, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Send, Loader2, CheckCircle, XCircle, Save, Trash2, ChevronDown, ShieldAlert, Ban } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { PillInput } from '@/components/PillInput';
 import { cn } from '@/lib/utils';
 import { T } from '@/lib/typography';
 
 const ZONE_ID_RE = /^[a-f0-9]{32}$/;
+const PROFILES_STORAGE_KEY = 'gk_purge_profiles';
+const LAST_PROFILE_KEY = 'gk_purge_last_profile';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -21,47 +25,183 @@ interface PurgeOption {
 }
 
 const PURGE_OPTIONS: PurgeOption[] = [
-	{ value: 'urls', label: 'URLs', placeholder: 'https://example.com/css/style.css\nhttps://example.com/js/app.js' },
-	{ value: 'hosts', label: 'Hosts', placeholder: 'www.example.com\nimages.example.com' },
-	{ value: 'tags', label: 'Tags', placeholder: 'tag-a\ntag-b' },
-	{ value: 'prefixes', label: 'Prefixes', placeholder: 'www.example.com/css\nwww.example.com/js' },
+	{ value: 'urls', label: 'URLs', placeholder: 'https://example.com/style.css' },
+	{ value: 'hosts', label: 'Hosts', placeholder: 'www.example.com' },
+	{ value: 'tags', label: 'Tags', placeholder: 'tag-a' },
+	{ value: 'prefixes', label: 'Prefixes', placeholder: 'www.example.com/css' },
 	{ value: 'everything', label: 'Everything', placeholder: '' },
 ];
 
+/** Saved profile — no secrets, just convenience fields. */
+interface PurgeProfile {
+	id: string;
+	name: string;
+	zoneId: string;
+	purgeType: PurgeType;
+}
+
 interface PurgeResponse {
 	success: boolean;
+	status: number;
+	errors: Array<{ code: number; message: string }>;
+	denied: string[];
 	data: any;
+}
+
+// ─── Validators ─────────────────────────────────────────────────────
+
+function validateZoneId(value: string): string | null {
+	if (!ZONE_ID_RE.test(value)) return 'Zone ID must be a 32-character hex string';
+	return null;
+}
+
+// ─── Profile Persistence ────────────────────────────────────────────
+
+function loadProfiles(): PurgeProfile[] {
+	try {
+		const raw = localStorage.getItem(PROFILES_STORAGE_KEY);
+		return raw ? JSON.parse(raw) : [];
+	} catch {
+		return [];
+	}
+}
+
+function saveProfiles(profiles: PurgeProfile[]) {
+	localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(profiles));
+}
+
+function loadLastProfileId(): string | null {
+	try {
+		return localStorage.getItem(LAST_PROFILE_KEY);
+	} catch {
+		return null;
+	}
+}
+
+function saveLastProfileId(id: string | null) {
+	if (id) {
+		localStorage.setItem(LAST_PROFILE_KEY, id);
+	} else {
+		localStorage.removeItem(LAST_PROFILE_KEY);
+	}
 }
 
 // ─── Purge Page ─────────────────────────────────────────────────────
 
 export function PurgePage() {
-	const [zoneId, setZoneId] = useState('');
+	// ── Profile state ────────────────────────────────────────────────
+	const [profiles, setProfiles] = useState<PurgeProfile[]>([]);
+	const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+	const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+	const [saveProfileName, setSaveProfileName] = useState('');
+	const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+	const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+
+	// ── Form state ───────────────────────────────────────────────────
+	const [zoneIds, setZoneIds] = useState<string[]>([]);
 	const [purgeType, setPurgeType] = useState<PurgeType>('urls');
-	const [values, setValues] = useState('');
+	const [purgeValues, setPurgeValues] = useState<string[]>([]);
 	const [apiKey, setApiKey] = useState('');
 	const [submitting, setSubmitting] = useState(false);
 	const [response, setResponse] = useState<PurgeResponse | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const [zoneIdError, setZoneIdError] = useState<string | null>(null);
 
 	const selectedOption = PURGE_OPTIONS.find((o) => o.value === purgeType)!;
+	const activeProfile = profiles.find((p) => p.id === activeProfileId) ?? null;
+
+	// ── Load profiles on mount ───────────────────────────────────────
+	useEffect(() => {
+		const loaded = loadProfiles();
+		setProfiles(loaded);
+		const lastId = loadLastProfileId();
+		if (lastId) {
+			const profile = loaded.find((p) => p.id === lastId);
+			if (profile) {
+				setActiveProfileId(lastId);
+				setZoneIds([profile.zoneId]);
+				setPurgeType(profile.purgeType);
+			}
+		}
+	}, []);
+
+	// ── Close dropdown on outside click ──────────────────────────────
+	useEffect(() => {
+		if (!profileDropdownOpen) return;
+		const handleClick = () => setProfileDropdownOpen(false);
+		document.addEventListener('click', handleClick);
+		return () => document.removeEventListener('click', handleClick);
+	}, [profileDropdownOpen]);
+
+	// ── Profile actions ──────────────────────────────────────────────
+	const applyProfile = useCallback((profile: PurgeProfile) => {
+		setActiveProfileId(profile.id);
+		setZoneIds([profile.zoneId]);
+		setPurgeType(profile.purgeType);
+		setPurgeValues([]);
+		setResponse(null);
+		setError(null);
+		saveLastProfileId(profile.id);
+	}, []);
+
+	const clearProfile = useCallback(() => {
+		setActiveProfileId(null);
+		setZoneIds([]);
+		setApiKey('');
+		setPurgeType('urls');
+		setPurgeValues([]);
+		setResponse(null);
+		setError(null);
+		saveLastProfileId(null);
+	}, []);
+
+	const handleSaveProfile = () => {
+		const name = saveProfileName.trim();
+		if (!name || zoneIds.length === 0) return;
+
+		const newProfile: PurgeProfile = {
+			id: crypto.randomUUID(),
+			name,
+			zoneId: zoneIds[0],
+			purgeType,
+		};
+
+		const updated = [...profiles, newProfile];
+		setProfiles(updated);
+		saveProfiles(updated);
+		setActiveProfileId(newProfile.id);
+		saveLastProfileId(newProfile.id);
+		setSaveDialogOpen(false);
+		setSaveProfileName('');
+	};
+
+	const handleUpdateProfile = () => {
+		if (!activeProfileId || zoneIds.length === 0) return;
+		const updated = profiles.map((p) => (p.id === activeProfileId ? { ...p, zoneId: zoneIds[0], purgeType } : p));
+		setProfiles(updated);
+		saveProfiles(updated);
+	};
+
+	const handleDeleteProfile = (id: string) => {
+		const updated = profiles.filter((p) => p.id !== id);
+		setProfiles(updated);
+		saveProfiles(updated);
+		if (activeProfileId === id) {
+			clearProfile();
+		}
+		setDeleteConfirmId(null);
+	};
+
+	// ── Purge logic ──────────────────────────────────────────────────
 
 	const buildBody = (): Record<string, any> => {
 		if (purgeType === 'everything') {
 			return { purge_everything: true };
 		}
 
-		const lines = values
-			.split('\n')
-			.map((l) => l.trim())
-			.filter(Boolean);
-
-		if (lines.length === 0) {
+		if (purgeValues.length === 0) {
 			throw new Error('Enter at least one value');
 		}
 
-		// Map purge type to the Cloudflare API field name
 		const fieldMap: Record<string, string> = {
 			urls: 'files',
 			hosts: 'hosts',
@@ -69,21 +209,15 @@ export function PurgePage() {
 			prefixes: 'prefixes',
 		};
 
-		return { [fieldMap[purgeType]]: lines };
+		return { [fieldMap[purgeType]]: purgeValues };
 	};
 
 	const handleSubmit = async () => {
 		setError(null);
 		setResponse(null);
-		setZoneIdError(null);
 
-		const trimmedZone = zoneId.trim();
-		if (!trimmedZone) {
-			setZoneIdError('Zone ID is required');
-			return;
-		}
-		if (!ZONE_ID_RE.test(trimmedZone)) {
-			setZoneIdError('Zone ID must be a 32-character hex string');
+		if (zoneIds.length === 0) {
+			setError('Zone ID is required');
 			return;
 		}
 		if (!apiKey.trim()) {
@@ -101,7 +235,7 @@ export function PurgePage() {
 
 		setSubmitting(true);
 		try {
-			const res = await fetch(`/v1/zones/${trimmedZone}/purge_cache`, {
+			const res = await fetch(`/v1/zones/${zoneIds[0]}/purge_cache`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -117,7 +251,13 @@ export function PurgePage() {
 				setError(`Server returned non-JSON response (HTTP ${res.status})`);
 				return;
 			}
-			setResponse({ success: data.success ?? res.ok, data });
+			setResponse({
+				success: data.success ?? res.ok,
+				status: res.status,
+				errors: data.errors ?? [],
+				denied: data.denied ?? [],
+				data,
+			});
 		} catch (e: any) {
 			setError(e.message ?? 'Request failed');
 		} finally {
@@ -125,8 +265,118 @@ export function PurgePage() {
 		}
 	};
 
+	// ── Check if form has diverged from active profile ───────────────
+	const formDirty = activeProfile !== null && ((zoneIds[0] ?? '') !== activeProfile.zoneId || purgeType !== activeProfile.purgeType);
+
 	return (
 		<div className="mx-auto max-w-2xl space-y-6">
+			{/* ── Profile Selector ──────────────────────────────────── */}
+			<Card>
+				<CardContent className="py-4">
+					<div className="flex items-center gap-3">
+						<Label className={cn(T.formLabel, 'shrink-0')}>Profile</Label>
+						<div className="relative flex-1">
+							<button
+								type="button"
+								onClick={(e) => {
+									e.stopPropagation();
+									setProfileDropdownOpen(!profileDropdownOpen);
+								}}
+								className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+							>
+								<span className={activeProfile ? 'text-foreground' : 'text-muted-foreground'}>
+									{activeProfile ? activeProfile.name : 'Select a profile...'}
+								</span>
+								<ChevronDown className="h-4 w-4 text-muted-foreground" />
+							</button>
+
+							{profileDropdownOpen && (
+								<div className="absolute left-0 top-full z-50 mt-1 w-full rounded-md border border-border bg-card shadow-lg">
+									{profiles.length === 0 ? (
+										<div className="px-3 py-4 text-center text-xs text-muted-foreground">
+											No saved profiles. Fill in the form below and save one.
+										</div>
+									) : (
+										<div className="max-h-60 overflow-y-auto py-1">
+											{profiles.map((profile) => (
+												<div key={profile.id} className="group flex items-center justify-between px-3 py-2 hover:bg-muted/50">
+													<button
+														type="button"
+														onClick={() => {
+															applyProfile(profile);
+															setProfileDropdownOpen(false);
+														}}
+														className="flex flex-1 flex-col items-start gap-0.5 text-left"
+													>
+														<span className={cn('text-sm', profile.id === activeProfileId && 'font-medium text-lv-purple')}>
+															{profile.name}
+														</span>
+														<span className="font-data text-[10px] text-muted-foreground">
+															{profile.zoneId.slice(0, 8)}...{profile.zoneId.slice(-4)}
+														</span>
+													</button>
+													<button
+														type="button"
+														onClick={(e) => {
+															e.stopPropagation();
+															setDeleteConfirmId(profile.id);
+															setProfileDropdownOpen(false);
+														}}
+														className="rounded p-1 opacity-0 transition-opacity hover:bg-lv-red/20 group-hover:opacity-100"
+														title="Delete profile"
+													>
+														<Trash2 className="h-3.5 w-3.5 text-lv-red" />
+													</button>
+												</div>
+											))}
+										</div>
+									)}
+									{activeProfile && (
+										<>
+											<Separator />
+											<button
+												type="button"
+												onClick={() => {
+													clearProfile();
+													setProfileDropdownOpen(false);
+												}}
+												className="w-full px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/50"
+											>
+												Clear selection
+											</button>
+										</>
+									)}
+								</div>
+							)}
+						</div>
+
+						{/* Save / Update buttons */}
+						<div className="flex shrink-0 gap-2">
+							{activeProfile && formDirty && (
+								<Button variant="outline" size="sm" onClick={handleUpdateProfile} title="Update this profile">
+									<Save className="mr-1 h-3.5 w-3.5" />
+									Update
+								</Button>
+							)}
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => {
+									setSaveProfileName('');
+									setSaveDialogOpen(true);
+								}}
+								disabled={zoneIds.length === 0}
+								title="Save as new profile"
+							>
+								<Save className="mr-1 h-3.5 w-3.5" />
+								Save As
+							</Button>
+						</div>
+					</div>
+				</CardContent>
+			</Card>
+
+			{/* ── Manual Purge Form ────────────────────────────────── */}
 			<Card>
 				<CardHeader>
 					<CardTitle className={T.sectionHeading}>Manual Purge</CardTitle>
@@ -136,16 +386,14 @@ export function PurgePage() {
 					{/* ── Zone ID ────────────────────────────────────────── */}
 					<div className="space-y-2">
 						<Label className={T.formLabel}>Zone ID</Label>
-						<Input
+						<PillInput
+							values={zoneIds}
+							onChange={setZoneIds}
 							placeholder="e.g. abc123def456..."
-							value={zoneId}
-							onChange={(e) => {
-								setZoneId(e.target.value);
-								setZoneIdError(null);
-							}}
-							className={cn('font-data', zoneIdError && 'border-lv-red')}
+							validate={validateZoneId}
+							max={1}
+							ariaLabel="Zone ID"
 						/>
-						{zoneIdError && <p className="text-xs text-lv-red">{zoneIdError}</p>}
 					</div>
 
 					{/* ── API Key ────────────────────────────────────────── */}
@@ -168,7 +416,10 @@ export function PurgePage() {
 						<Label className={T.formLabel}>Purge Type</Label>
 						<select
 							value={purgeType}
-							onChange={(e) => setPurgeType(e.target.value as PurgeType)}
+							onChange={(e) => {
+								setPurgeType(e.target.value as PurgeType);
+								setPurgeValues([]);
+							}}
 							className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
 						>
 							{PURGE_OPTIONS.map((opt) => (
@@ -179,16 +430,12 @@ export function PurgePage() {
 						</select>
 					</div>
 
-					{/* ── Values textarea ─────────────────────────────────── */}
+					{/* ── Values pills ────────────────────────────────────── */}
 					{purgeType !== 'everything' && (
 						<div className="space-y-2">
-							<Label className={T.formLabel}>Values (one per line)</Label>
-							<textarea
-								className="flex min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 font-data text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-								placeholder={selectedOption.placeholder}
-								value={values}
-								onChange={(e) => setValues(e.target.value)}
-							/>
+							<Label className={T.formLabel}>Values</Label>
+							<PillInput values={purgeValues} onChange={setPurgeValues} placeholder={selectedOption.placeholder} ariaLabel="Purge values" />
+							<p className={T.muted}>Press Enter or comma to add. Paste multiple values at once.</p>
 						</div>
 					)}
 
@@ -199,7 +446,7 @@ export function PurgePage() {
 					)}
 
 					{/* ── Submit ──────────────────────────────────────────── */}
-					<Button onClick={handleSubmit} disabled={submitting || !zoneId.trim() || !apiKey.trim()} className="w-full">
+					<Button onClick={handleSubmit} disabled={submitting || zoneIds.length === 0 || !apiKey.trim()} className="w-full">
 						{submitting ? (
 							<>
 								<Loader2 className="h-4 w-4 animate-spin" />
@@ -230,19 +477,120 @@ export function PurgePage() {
 								</>
 							) : (
 								<>
-									<XCircle className="h-4 w-4 text-lv-red" />
-									<span className="text-lv-red">Error</span>
+									{response.status === 403 ? (
+										<ShieldAlert className="h-4 w-4 text-lv-peach" />
+									) : (
+										<XCircle className="h-4 w-4 text-lv-red" />
+									)}
+									<span className={response.status === 403 ? 'text-lv-peach' : 'text-lv-red'}>
+										{response.status === 401
+											? 'Unauthorized'
+											: response.status === 403
+												? 'Forbidden'
+												: response.status === 429
+													? 'Rate Limited'
+													: `Error ${response.status}`}
+									</span>
 								</>
 							)}
 						</CardTitle>
 					</CardHeader>
-					<CardContent>
-						<pre className="overflow-auto rounded-lg bg-lovelace-950 p-4 font-data text-xs leading-relaxed text-foreground">
-							{JSON.stringify(response.data, null, 2)}
-						</pre>
+					<CardContent className="space-y-3">
+						{/* Error messages */}
+						{!response.success && response.errors.length > 0 && (
+							<div className="space-y-1.5">
+								{response.errors.map((err, i) => (
+									<div key={i} className="flex items-start gap-2 text-sm">
+										<Ban className="mt-0.5 h-3.5 w-3.5 shrink-0 text-lv-red" />
+										<span className="text-foreground">{err.message}</span>
+									</div>
+								))}
+							</div>
+						)}
+
+						{/* Denied items (policy violations) */}
+						{response.denied.length > 0 && (
+							<div className="space-y-1.5">
+								<p className={cn(T.formLabel, 'text-lv-peach')}>Denied targets</p>
+								<div className="flex flex-wrap gap-1.5">
+									{response.denied.map((item, i) => (
+										<span key={i} className="inline-flex items-center rounded-md bg-lv-red/10 px-2 py-0.5 font-data text-xs text-lv-red">
+											{item}
+										</span>
+									))}
+								</div>
+							</div>
+						)}
+
+						{/* Raw response (collapsible for debugging) */}
+						<details className="group">
+							<summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Raw response</summary>
+							<pre className="mt-2 overflow-auto rounded-lg bg-lovelace-950 p-4 font-data text-xs leading-relaxed text-foreground">
+								{JSON.stringify(response.data, null, 2)}
+							</pre>
+						</details>
 					</CardContent>
 				</Card>
 			)}
+
+			{/* ── Save Profile Dialog ──────────────────────────────── */}
+			<Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Save Profile</DialogTitle>
+						<DialogDescription>
+							Save the current zone ID and purge type as a reusable profile. Profiles are stored locally in your browser.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="space-y-2">
+						<Label className={T.formLabel}>Profile Name</Label>
+						<Input
+							placeholder="e.g. Production CDN, Staging site..."
+							value={saveProfileName}
+							onChange={(e) => setSaveProfileName(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === 'Enter') handleSaveProfile();
+							}}
+							autoFocus
+						/>
+						{zoneIds[0] && (
+							<p className={T.muted}>
+								Zone: {zoneIds[0].slice(0, 8)}...{zoneIds[0].slice(-4)}
+							</p>
+						)}
+					</div>
+					<DialogFooter>
+						<DialogClose asChild>
+							<Button variant="outline">Cancel</Button>
+						</DialogClose>
+						<Button onClick={handleSaveProfile} disabled={!saveProfileName.trim()}>
+							<Save className="mr-1 h-3.5 w-3.5" />
+							Save Profile
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			{/* ── Delete Confirmation Dialog ───────────────────────── */}
+			<Dialog open={deleteConfirmId !== null} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Delete Profile</DialogTitle>
+						<DialogDescription>
+							Are you sure you want to delete &ldquo;{profiles.find((p) => p.id === deleteConfirmId)?.name}&rdquo;? This cannot be undone.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<DialogClose asChild>
+							<Button variant="outline">Cancel</Button>
+						</DialogClose>
+						<Button variant="destructive" onClick={() => deleteConfirmId && handleDeleteProfile(deleteConfirmId)}>
+							<Trash2 className="mr-1 h-3.5 w-3.5" />
+							Delete
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

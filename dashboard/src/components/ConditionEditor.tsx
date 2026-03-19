@@ -1,9 +1,10 @@
-import { useState, useRef, useCallback } from 'react';
-import { Plus, Trash2, X, GitBranch } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Plus, Trash2, X, GitBranch, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Condition, LeafCondition, AnyCondition, AllCondition, NotCondition } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +14,8 @@ export interface FieldOption {
 	value: string;
 	label: string;
 	hint: string;
+	/** Which action prefixes this field applies to (e.g. ['purge']). Omit for universal fields. */
+	appliesTo?: string[];
 }
 
 export interface OperatorOption {
@@ -26,6 +29,8 @@ export interface ConditionEditorProps {
 	fields: readonly FieldOption[];
 	operators: readonly OperatorOption[];
 	defaultField: string;
+	/** Currently selected action prefixes — used to highlight inapplicable conditions. */
+	activeActionPrefixes?: string[];
 }
 
 // ─── Constants ──────────────────────────────────────────────────────
@@ -58,8 +63,17 @@ function isNot(c: Condition): c is NotCondition {
 	return 'not' in c;
 }
 
+// ─── Applicability check ────────────────────────────────────────────
+
+/** Check if a field is applicable given the active action prefixes. */
+function isFieldApplicable(field: string, fields: readonly FieldOption[], activePrefixes?: string[]): boolean {
+	if (!activePrefixes || activePrefixes.length === 0) return true;
+	const def = fields.find((f) => f.value === field);
+	if (!def || !def.appliesTo) return true; // universal field
+	return def.appliesTo.some((p) => activePrefixes.includes(p));
+}
+
 // ─── Pills Input ────────────────────────────────────────────────────
-// For in/not_in operators — renders values as removable pills.
 
 interface PillsInputProps {
 	values: string[];
@@ -159,14 +173,17 @@ interface LeafRowProps {
 	onRemove: () => void;
 	fields: readonly FieldOption[];
 	operators: readonly OperatorOption[];
+	/** Whether this field is applicable to the current actions. */
+	applicable: boolean;
 }
 
-function LeafRow({ condition, onChange, onRemove, fields, operators }: LeafRowProps) {
+function LeafRow({ condition, onChange, onRemove, fields, operators, applicable }: LeafRowProps) {
 	const isArray = ARRAY_OPERATORS.has(condition.operator);
 	const noValue = NO_VALUE_OPERATORS.has(condition.operator);
+	const fieldDef = fields.find((f) => f.value === condition.field);
 
 	return (
-		<div className="space-y-1.5">
+		<div className={cn('space-y-1.5', !applicable && 'opacity-60')}>
 			<div className="flex items-start gap-2">
 				<Select value={condition.field} onValueChange={(v) => onChange({ ...condition, field: v })}>
 					<SelectTrigger className="w-[130px] text-xs font-data">
@@ -184,7 +201,6 @@ function LeafRow({ condition, onChange, onRemove, fields, operators }: LeafRowPr
 				<Select
 					value={condition.operator}
 					onValueChange={(v) => {
-						// Reset value when switching to/from array operators
 						const wasArray = ARRAY_OPERATORS.has(condition.operator);
 						const nowArray = ARRAY_OPERATORS.has(v);
 						const nowNoValue = NO_VALUE_OPERATORS.has(v);
@@ -213,7 +229,7 @@ function LeafRow({ condition, onChange, onRemove, fields, operators }: LeafRowPr
 
 				{!noValue && !isArray && (
 					<Input
-						placeholder={fields.find((f) => f.value === condition.field)?.hint ?? 'value'}
+						placeholder={fieldDef?.hint ?? 'value'}
 						value={typeof condition.value === 'string' ? condition.value : String(condition.value ?? '')}
 						onChange={(e) => onChange({ ...condition, value: e.target.value })}
 						className="flex-1 text-xs font-data"
@@ -233,13 +249,24 @@ function LeafRow({ condition, onChange, onRemove, fields, operators }: LeafRowPr
 				</Button>
 			</div>
 
+			{/* Inapplicable warning */}
+			{!applicable && fieldDef && (
+				<p className="text-[10px] text-lv-peach flex items-center gap-1">
+					<Info className="h-3 w-3" />
+					<span>
+						<strong>{fieldDef.label}</strong> only applies to {fieldDef.appliesTo?.join(', ') ?? 'specific'} actions. This condition will
+						fail for other action types.
+					</span>
+				</p>
+			)}
+
 			{/* Pills row for in/not_in */}
 			{isArray && !noValue && (
 				<div className="ml-0 pl-0">
 					<PillsInput
 						values={Array.isArray(condition.value) ? condition.value : []}
 						onChange={(vals) => onChange({ ...condition, value: vals })}
-						placeholder={fields.find((f) => f.value === condition.field)?.hint ?? 'Type value, press Enter'}
+						placeholder={fieldDef?.hint ?? 'Type value, press Enter'}
 					/>
 				</div>
 			)}
@@ -248,7 +275,6 @@ function LeafRow({ condition, onChange, onRemove, fields, operators }: LeafRowPr
 }
 
 // ─── Condition Group ────────────────────────────────────────────────
-// Recursive component for any/all/not compound conditions.
 
 interface ConditionNodeProps {
 	condition: Condition;
@@ -258,14 +284,33 @@ interface ConditionNodeProps {
 	operators: readonly OperatorOption[];
 	defaultField: string;
 	depth: number;
+	activeActionPrefixes?: string[];
 }
 
-function ConditionNode({ condition, onChange, onRemove, fields, operators, defaultField, depth }: ConditionNodeProps) {
+function ConditionNode({
+	condition,
+	onChange,
+	onRemove,
+	fields,
+	operators,
+	defaultField,
+	depth,
+	activeActionPrefixes,
+}: ConditionNodeProps) {
 	if (isLeaf(condition)) {
-		return <LeafRow condition={condition} onChange={onChange} onRemove={onRemove} fields={fields} operators={operators} />;
+		const applicable = isFieldApplicable(condition.field, fields, activeActionPrefixes);
+		return (
+			<LeafRow
+				condition={condition}
+				onChange={onChange}
+				onRemove={onRemove}
+				fields={fields}
+				operators={operators}
+				applicable={applicable}
+			/>
+		);
 	}
 
-	// Determine group type and children
 	let groupType: GroupType;
 	let children: Condition[];
 
@@ -303,7 +348,6 @@ function ConditionNode({ condition, onChange, onRemove, fields, operators, defau
 	const addChild = () => {
 		const newChild: LeafCondition = { _id: crypto.randomUUID(), field: defaultField, operator: 'eq', value: '' };
 		if (groupType === 'not') {
-			// NOT can only have one child — wrap current in ALL with new sibling
 			onChange({ _id: crypto.randomUUID(), all: [condition, newChild] });
 		} else {
 			updateChildren([...children, newChild]);
@@ -326,17 +370,17 @@ function ConditionNode({ condition, onChange, onRemove, fields, operators, defau
 	};
 
 	const groupLabel = groupType === 'any' ? 'Match ANY (OR)' : groupType === 'all' ? 'Match ALL (AND)' : 'NOT';
-	const groupColor = groupType === 'any' ? 'lv-yellow' : groupType === 'all' ? 'lv-cyan' : 'lv-red';
 	const borderColor = groupType === 'any' ? 'border-lv-yellow/30' : groupType === 'all' ? 'border-lv-cyan/30' : 'border-lv-red/30';
 	const bgColor = groupType === 'any' ? 'bg-lv-yellow/5' : groupType === 'all' ? 'bg-lv-cyan/5' : 'bg-lv-red/5';
+	const labelColor = groupType === 'any' ? 'text-lv-yellow' : groupType === 'all' ? 'text-lv-cyan' : 'text-lv-red';
 
 	return (
 		<div className={cn('rounded-md border pl-3 pr-2 py-2 space-y-2', borderColor, bgColor)}>
 			{/* Group header */}
 			<div className="flex items-center gap-2">
-				<GitBranch className={cn('h-3 w-3', `text-${groupColor}`)} />
+				<GitBranch className={cn('h-3 w-3', labelColor)} />
 				<Select value={groupType} onValueChange={(v) => switchGroupType(v as GroupType)}>
-					<SelectTrigger className={cn('w-[150px] h-7 text-[11px] font-medium', `text-${groupColor}`)}>
+					<SelectTrigger className={cn('w-[150px] h-7 text-[11px] font-medium', labelColor)}>
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
@@ -380,12 +424,13 @@ function ConditionNode({ condition, onChange, onRemove, fields, operators, defau
 							operators={operators}
 							defaultField={defaultField}
 							depth={depth + 1}
+							activeActionPrefixes={activeActionPrefixes}
 						/>
 					);
 				})}
 			</div>
 
-			{/* Add child (not for NOT which only holds one) */}
+			{/* Add child */}
 			{groupType !== 'not' && (
 				<Button
 					type="button"
@@ -403,10 +448,21 @@ function ConditionNode({ condition, onChange, onRemove, fields, operators, defau
 }
 
 // ─── Main ConditionEditor ───────────────────────────────────────────
-// Top-level: manages a flat list of conditions (the statement.conditions array).
-// Each item can be a leaf or a compound group.
 
-export function ConditionEditor({ conditions, onChange, fields, operators, defaultField }: ConditionEditorProps) {
+export function ConditionEditor({ conditions, onChange, fields, operators, defaultField, activeActionPrefixes }: ConditionEditorProps) {
+	const [showGroupMenu, setShowGroupMenu] = useState(false);
+
+	// Close group menu on outside click (delayed registration to avoid catching the opening click)
+	useEffect(() => {
+		if (!showGroupMenu) return;
+		const handleClick = () => setShowGroupMenu(false);
+		const timer = setTimeout(() => document.addEventListener('click', handleClick), 0);
+		return () => {
+			clearTimeout(timer);
+			document.removeEventListener('click', handleClick);
+		};
+	}, [showGroupMenu]);
+
 	const addLeaf = () => {
 		onChange([...conditions, { _id: crypto.randomUUID(), field: defaultField, operator: 'eq', value: '' }]);
 	};
@@ -416,6 +472,7 @@ export function ConditionEditor({ conditions, onChange, fields, operators, defau
 		if (type === 'any') onChange([...conditions, { _id: crypto.randomUUID(), any: [child] }]);
 		else if (type === 'all') onChange([...conditions, { _id: crypto.randomUUID(), all: [child] }]);
 		else onChange([...conditions, { _id: crypto.randomUUID(), not: child }]);
+		setShowGroupMenu(false);
 	};
 
 	const updateCondition = (index: number, c: Condition) => {
@@ -428,76 +485,192 @@ export function ConditionEditor({ conditions, onChange, fields, operators, defau
 		onChange(conditions.filter((_, i) => i !== index));
 	};
 
+	/** Detect if top-level is a single OR group wrapping leaf conditions. */
+	const isSingleOrGroup = conditions.length === 1 && isAny(conditions[0]);
+	/** The effective join mode for the separator toggle. */
+	const joinMode: 'and' | 'or' = isSingleOrGroup ? 'or' : 'and';
+	/** The conditions to render — either the flat array or the OR group's children. */
+	const displayConditions = isSingleOrGroup ? (conditions[0] as AnyCondition).any : conditions;
+
+	/** Toggle between AND (flat) and OR (wrap in any group). */
+	const toggleJoin = () => {
+		if (joinMode === 'and') {
+			// Wrap all flat conditions into an OR group
+			onChange([{ _id: crypto.randomUUID(), any: [...conditions] }]);
+		} else {
+			// Unwrap: pull children out of the single OR group
+			const children = (conditions[0] as AnyCondition).any;
+			onChange([...children]);
+		}
+	};
+
+	/** When inside OR mode, updates go to the any group's children. */
+	const updateDisplayCondition = (index: number, c: Condition) => {
+		if (isSingleOrGroup) {
+			const next = [...(conditions[0] as AnyCondition).any];
+			next[index] = c;
+			onChange([{ ...conditions[0], any: next }]);
+		} else {
+			updateCondition(index, c);
+		}
+	};
+
+	const removeDisplayCondition = (index: number) => {
+		if (isSingleOrGroup) {
+			const next = (conditions[0] as AnyCondition).any.filter((_: Condition, i: number) => i !== index);
+			if (next.length === 0) {
+				onChange([]);
+			} else if (next.length === 1) {
+				// Unwrap single remaining child back to flat
+				onChange([next[0]]);
+			} else {
+				onChange([{ ...conditions[0], any: next }]);
+			}
+		} else {
+			removeCondition(index);
+		}
+	};
+
+	const addDisplayLeaf = () => {
+		const leaf: LeafCondition = { _id: crypto.randomUUID(), field: defaultField, operator: 'eq', value: '' };
+		if (isSingleOrGroup) {
+			const next = [...(conditions[0] as AnyCondition).any, leaf];
+			onChange([{ ...conditions[0], any: next }]);
+		} else {
+			addLeaf();
+		}
+	};
+
 	return (
 		<div className="space-y-2">
-			{conditions.length === 0 && <p className="text-xs text-muted-foreground italic">No conditions — all matching actions are allowed.</p>}
+			{conditions.length === 0 && (
+				<p className="text-xs text-muted-foreground italic">No conditions -- all matching actions are allowed.</p>
+			)}
 
-			{conditions.map((rawC, i) => {
+			{displayConditions.map((rawC, i) => {
 				const c = ensureConditionId(rawC);
-				if (c !== rawC) conditions[i] = c;
+				if (c !== rawC) displayConditions[i] = c;
 				return (
-					<ConditionNode
-						key={c._id}
-						condition={c}
-						onChange={(updated) => updateCondition(i, updated)}
-						onRemove={() => removeCondition(i)}
-						fields={fields}
-						operators={operators}
-						defaultField={defaultField}
-						depth={0}
-					/>
+					<div key={c._id}>
+						{/* AND/OR separator toggle between conditions */}
+						{i > 0 && (
+							<div className="flex items-center gap-2 py-1">
+								<div className="flex-1 border-t border-border" />
+								<button
+									type="button"
+									onClick={toggleJoin}
+									className={cn(
+										'text-[10px] font-semibold uppercase tracking-widest transition-colors rounded px-2 py-0.5',
+										'hover:bg-muted/50 cursor-pointer',
+										joinMode === 'and' ? 'text-lv-cyan' : 'text-lv-yellow',
+									)}
+									title={joinMode === 'and' ? 'Click to switch to OR (any match)' : 'Click to switch to AND (all match)'}
+								>
+									{joinMode === 'and' ? 'AND' : 'OR'}
+								</button>
+								<div className="flex-1 border-t border-border" />
+							</div>
+						)}
+						<ConditionNode
+							condition={c}
+							onChange={(updated) => updateDisplayCondition(i, updated)}
+							onRemove={() => removeDisplayCondition(i)}
+							fields={fields}
+							operators={operators}
+							defaultField={defaultField}
+							depth={0}
+							activeActionPrefixes={activeActionPrefixes}
+						/>
+					</div>
 				);
 			})}
 
-			{/* Add buttons */}
-			<div className="flex items-center gap-1.5">
+			{/* Add buttons -- simplified */}
+			<div className="flex items-center gap-1.5 relative">
 				<Button
 					type="button"
 					variant="ghost"
 					size="sm"
-					className="h-6 text-xs text-muted-foreground hover:text-foreground"
-					onClick={addLeaf}
+					className="h-7 text-xs text-muted-foreground hover:text-foreground"
+					onClick={addDisplayLeaf}
 				>
 					<Plus className="h-3 w-3 mr-1" />
-					Condition
+					Add condition
 				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					size="sm"
-					className="h-6 text-xs text-muted-foreground hover:text-foreground"
-					onClick={() => addGroup('all')}
-				>
-					<GitBranch className="h-3 w-3 mr-1" />
-					AND group
-				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					size="sm"
-					className="h-6 text-xs text-muted-foreground hover:text-foreground"
-					onClick={() => addGroup('any')}
-				>
-					<GitBranch className="h-3 w-3 mr-1" />
-					OR group
-				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					size="sm"
-					className="h-6 text-xs text-muted-foreground hover:text-foreground"
-					onClick={() => addGroup('not')}
-				>
-					<GitBranch className="h-3 w-3 mr-1" />
-					NOT
-				</Button>
+
+				<div className="relative">
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						className="h-7 text-xs text-muted-foreground hover:text-foreground"
+						onClick={(e) => {
+							e.stopPropagation();
+							setShowGroupMenu(!showGroupMenu);
+						}}
+					>
+						<GitBranch className="h-3 w-3 mr-1" />
+						Add group
+					</Button>
+					{showGroupMenu && (
+						<div
+							data-testid="group-menu"
+							className="absolute left-0 top-full z-50 mt-1 rounded-md border border-border bg-card shadow-lg py-1 w-44"
+							onClick={(e) => e.stopPropagation()}
+						>
+							<button
+								type="button"
+								className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted/50 flex items-center gap-2"
+								onClick={() => addGroup('any')}
+							>
+								<span className="font-medium text-lv-yellow">OR group</span>
+								<span className="text-muted-foreground">at least one</span>
+							</button>
+							<button
+								type="button"
+								className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted/50 flex items-center gap-2"
+								onClick={() => addGroup('all')}
+							>
+								<span className="font-medium text-lv-cyan">AND group</span>
+								<span className="text-muted-foreground">every one</span>
+							</button>
+							<button
+								type="button"
+								className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted/50 flex items-center gap-2"
+								onClick={() => addGroup('not')}
+							>
+								<span className="font-medium text-lv-red">NOT</span>
+								<span className="text-muted-foreground">invert</span>
+							</button>
+						</div>
+					)}
+				</div>
+
+				{conditions.length === 0 && (
+					<TooltipProvider>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Info className="h-3.5 w-3.5 text-muted-foreground/50 cursor-help" />
+							</TooltipTrigger>
+							<TooltipContent side="right" className="max-w-xs text-xs">
+								<p>
+									Conditions narrow when a statement applies. Multiple conditions are AND'd together. Use an OR group if you need any-of
+									matching.
+								</p>
+								<p className="mt-1 text-muted-foreground">
+									Some conditions only apply to specific action types (e.g. <strong>host</strong> applies to purge URL/host actions, not tag
+									purges).
+								</p>
+							</TooltipContent>
+						</Tooltip>
+					</TooltipProvider>
+				)}
 			</div>
 		</div>
 	);
 }
 
 // ─── Statement Summary ──────────────────────────────────────────────
-// Human-readable one-liner describing what a statement does.
 
 export function summarizeStatement(
 	statement: { effect: string; actions: string[]; resources: string[]; conditions?: Condition[] },
@@ -505,7 +678,6 @@ export function summarizeStatement(
 ): string {
 	const { actions, resources, conditions } = statement;
 
-	// Actions
 	let actionStr: string;
 	if (actions.length === 0) {
 		actionStr = 'nothing';
@@ -515,7 +687,6 @@ export function summarizeStatement(
 		actionStr = actions.map((a) => a.replace(`${actionPrefix}:`, '')).join(', ');
 	}
 
-	// Resources
 	let resourceStr: string;
 	if (resources.length === 0 || (resources.length === 1 && resources[0] === '*')) {
 		resourceStr = '';
@@ -523,7 +694,6 @@ export function summarizeStatement(
 		resourceStr = ` on ${resources.join(', ')}`;
 	}
 
-	// Conditions
 	let condStr = '';
 	if (conditions && conditions.length > 0) {
 		const parts = conditions.map(summarizeCondition);
