@@ -466,6 +466,23 @@ This matches requests where the host is either `a.example.com` OR `b.example.com
 
 Most policies do not need compound conditions. Multiple statements with different conditions handle most OR cases naturally.
 
+### Inapplicable Conditions (Missing Fields)
+
+When a condition references a field that doesn't exist in the request context (e.g., a `host` condition on a tag purge), the engine uses **effect-aware skip**:
+
+| Effect | Field Status | Result                                                                     |
+| ------ | ------------ | -------------------------------------------------------------------------- |
+| allow  | missing      | Condition is vacuously satisfied (skipped) — the statement can still match |
+| deny   | missing      | Condition fails — the deny does not fire                                   |
+
+This means `allow purge:* where host contains erfi.io` allows tag purges (no `host` field → condition skipped), while `deny purge:* where host contains evil.com` does not block tag purges (no `host` field → deny doesn't fire).
+
+**Exceptions:**
+
+- `exists` / `not_exists` operators are never skipped — they explicitly test for field presence.
+- The `not` compound condition inverts the vacuous result: `allow ... where NOT(host eq X)` will fail on a tag purge (missing → true → NOT inverts to false). Use the `deny` effect for exclusion patterns instead.
+- Request-scoped fields (`client_ip`, `client_country`, `client_asn`, `time.hour`, `time.day_of_week`) are always populated and never missing.
+
 ### Authorization Flow
 
 ```mermaid
