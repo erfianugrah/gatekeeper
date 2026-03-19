@@ -1456,6 +1456,8 @@ curl -X POST "$GATEKEEPER_URL/v1/zones/$ZONE_ID/purge_cache" \
   }'
 ```
 
+The dashboard purge page also supports this format — when using the URLs purge type, expand any URL entry to attach custom cache key headers.
+
 ### 5.6 Purge everything
 
 **CLI:**
@@ -2559,6 +2561,8 @@ The current and only supported policy version is `"2025-01-01"`.
 - `any: [...]`: OR (any child must match)
 - `all: [...]`: explicit AND
 - `not: {...}`: negation
+
+**Missing fields**: When a condition references a field absent from the request context (e.g., `host` on a tag purge), `allow` statements treat it as vacuously satisfied (skipped), while `deny` statements treat it as a failed condition (deny doesn't fire). This lets `allow purge:* where host contains X` work for all purge types without splitting into multiple statements. See [Security > Inapplicable Conditions](SECURITY.md#inapplicable-conditions-missing-fields) for details.
 
 ### Condition fields -- purge
 

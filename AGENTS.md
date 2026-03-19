@@ -217,7 +217,8 @@ Conventions:
 - **React islands** via `client:load`. No SPA routing — each page is a full Astro page load.
 - Pages at `src/pages/dashboard/*.astro` → URL `/dashboard/*`. Login at `src/pages/login.astro` → URL `/login`.
 - `PillInput` component (`dashboard/src/components/PillInput.tsx`) — reusable pill/tag input with Enter/comma/paste commit, backspace removal, deduplication, validation, and optional max count.
-- Purge page profiles stored in `localStorage` (zone ID, name, purge type — no secrets). Last-used profile auto-restored.
+- Purge page profiles stored in `localStorage` (zone ID, name, purge type, values, URL entries with headers — no secrets). Last-used profile auto-restored with all saved values. Revert button restores the last saved state when the form is dirty.
+- `UrlEntryEditor` component (`dashboard/src/components/PurgePage.tsx`) — URL purge type uses a list-based editor instead of PillInput. Each URL entry has an expandable headers section for custom cache key headers (CF-Device-Type, Accept-Language, etc.). Entries with headers emit `{ url, headers }` objects in the API body; plain strings otherwise.
 - Condition editor shows AND/OR separators between conditions, clickable to toggle join mode. Inapplicable conditions (e.g. `host` field on `dns:*` actions) show warnings with the `appliesTo` field metadata.
 
 ### Policy Engine — Inapplicable Condition Handling

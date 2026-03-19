@@ -1,5 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Send, Loader2, CheckCircle, XCircle, Save, Trash2, ChevronDown, ShieldAlert, Ban, Plus, X, ChevronRight } from 'lucide-react';
+import {
+	Send,
+	Loader2,
+	CheckCircle,
+	XCircle,
+	Save,
+	Trash2,
+	ChevronDown,
+	ShieldAlert,
+	Ban,
+	Plus,
+	X,
+	ChevronRight,
+	RotateCcw,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -583,13 +597,19 @@ export function PurgePage() {
 							)}
 						</div>
 
-						{/* Save / Update buttons */}
+						{/* Revert / Update / Save As buttons */}
 						<div className="flex shrink-0 gap-2">
 							{activeProfile && formDirty && (
-								<Button variant="outline" size="sm" onClick={handleUpdateProfile} title="Update this profile">
-									<Save className="mr-1 h-3.5 w-3.5" />
-									Update
-								</Button>
+								<>
+									<Button variant="ghost" size="sm" onClick={() => applyProfile(activeProfile)} title="Revert to last saved state">
+										<RotateCcw className="mr-1 h-3.5 w-3.5" />
+										Revert
+									</Button>
+									<Button variant="outline" size="sm" onClick={handleUpdateProfile} title="Update this profile">
+										<Save className="mr-1 h-3.5 w-3.5" />
+										Update
+									</Button>
+								</>
 							)}
 							<Button
 								variant="outline"
