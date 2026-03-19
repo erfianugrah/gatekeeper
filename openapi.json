@@ -5741,8 +5741,7 @@
         },
         "required": [
           "field",
-          "operator",
-          "value"
+          "operator"
         ]
       },
       "__schema0": {

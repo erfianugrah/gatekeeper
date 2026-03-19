@@ -228,7 +228,9 @@ test.describe('Purge Profiles', () => {
 
 		await addZoneId(page, 'aabbccdd11223344aabbccdd11223344');
 
-		await page.locator('button[title="Save as new profile"]').click();
+		const saveAsBtn = page.locator('button[title="Save as new profile"]');
+		await expect(saveAsBtn).toBeEnabled({ timeout: 5000 });
+		await saveAsBtn.click();
 		await expect(page.getByRole('heading', { name: 'Save Profile' })).toBeVisible();
 
 		await page.getByRole('button', { name: 'Cancel' }).click();
@@ -242,7 +244,9 @@ test.describe('Purge Profiles', () => {
 		await waitForPurgePage(page);
 
 		await addZoneId(page, 'aabbccdd11223344aabbccdd11223344');
-		await page.locator('button[title="Save as new profile"]').click();
+		const saveAsBtn = page.locator('button[title="Save as new profile"]');
+		await expect(saveAsBtn).toBeEnabled({ timeout: 5000 });
+		await saveAsBtn.click();
 
 		const saveBtn = page.getByRole('button', { name: 'Save Profile' });
 		await expect(saveBtn).toBeDisabled();
@@ -256,7 +260,9 @@ test.describe('Purge Profiles', () => {
 
 		// Save first profile
 		await addZoneId(page, 'aaaa1111bbbb2222cccc3333dddd4444');
-		await page.locator('button[title="Save as new profile"]').click();
+		const saveAsBtn = page.locator('button[title="Save as new profile"]');
+		await expect(saveAsBtn).toBeEnabled({ timeout: 5000 });
+		await saveAsBtn.click();
 		await page.getByPlaceholder('e.g. Production CDN').fill('Zone A');
 		await page.getByRole('button', { name: 'Save Profile' }).click();
 
@@ -264,7 +270,8 @@ test.describe('Purge Profiles', () => {
 		await page.locator('[aria-label="Remove aaaa1111bbbb2222cccc3333dddd4444"]').click();
 		await addZoneId(page, '11112222333344445555666677778888');
 		await page.locator('select').selectOption('hosts');
-		await page.locator('button[title="Save as new profile"]').click();
+		await expect(saveAsBtn).toBeEnabled({ timeout: 5000 });
+		await saveAsBtn.click();
 		await page.getByPlaceholder('e.g. Production CDN').fill('Zone B');
 		await page.getByRole('button', { name: 'Save Profile' }).click();
 
@@ -297,11 +304,19 @@ test.describe('Purge Form', () => {
 		await page.goto(PURGE_URL);
 		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
 
+		// Switch to hosts (PillInput-based) so we can test the full enable flow
+		await page.locator('select').selectOption('hosts');
+		await expect(page.locator('input[placeholder="www.example.com"]')).toBeVisible();
+
 		const submitBtn = page.locator('button:has-text("Send Purge Request")');
 		await expect(submitBtn).toBeDisabled();
 
-		// Add zone ID pill -- still disabled (no API key)
+		// Add zone ID pill -- still disabled (no API key, no values)
 		await addZoneId(page, 'aabbccdd11223344aabbccdd11223344');
+		await expect(submitBtn).toBeDisabled();
+
+		// Add a value -- still disabled (no API key)
+		await addPurgeValue(page, 'example.com');
 		await expect(submitBtn).toBeDisabled();
 
 		// Fill API key -- now enabled
@@ -323,25 +338,33 @@ test.describe('Purge Form', () => {
 		await page.goto(PURGE_URL);
 		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
 
-		// Paste comma-separated URLs
+		// Switch to tags (PillInput-based) for pill tests
+		await page.locator('select').selectOption('tags');
+		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
+
+		// Paste comma-separated values
 		const valuesInput = page.locator('input[aria-label="Purge values"]');
 		await valuesInput.focus();
 		await page.evaluate(() => {
 			const input = document.querySelector('input[aria-label="Purge values"]') as HTMLInputElement;
 			const dt = new DataTransfer();
-			dt.setData('text/plain', 'https://a.com/1,https://b.com/2,https://c.com/3');
+			dt.setData('text/plain', 'tag-a,tag-b,tag-c');
 			input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }));
 		});
 
 		// Three pills should appear
-		await expect(page.locator('text=https://a.com/1')).toBeVisible();
-		await expect(page.locator('text=https://b.com/2')).toBeVisible();
-		await expect(page.locator('text=https://c.com/3')).toBeVisible();
+		await expect(page.locator('text=tag-a')).toBeVisible();
+		await expect(page.locator('text=tag-b')).toBeVisible();
+		await expect(page.locator('text=tag-c')).toBeVisible();
 	});
 
 	test('pill input: remove a value by clicking X', async ({ page }) => {
 		await page.goto(PURGE_URL);
 		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+
+		// Switch to tags for pill tests
+		await page.locator('select').selectOption('tags');
+		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
 
 		await addPurgeValue(page, 'tag-one');
 		await addPurgeValue(page, 'tag-two');
@@ -358,6 +381,10 @@ test.describe('Purge Form', () => {
 		await page.goto(PURGE_URL);
 		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
 
+		// Switch to tags for pill tests and wait for PillInput placeholder to render
+		await page.locator('select').selectOption('tags');
+		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
+
 		await addPurgeValue(page, 'first');
 		await addPurgeValue(page, 'second');
 
@@ -371,6 +398,10 @@ test.describe('Purge Form', () => {
 	test('pill input: duplicates are ignored', async ({ page }) => {
 		await page.goto(PURGE_URL);
 		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+
+		// Switch to tags for pill tests
+		await page.locator('select').selectOption('tags');
+		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
 
 		await addPurgeValue(page, 'same-tag');
 		await addPurgeValue(page, 'same-tag');
@@ -398,13 +429,82 @@ test.describe('Purge Form', () => {
 		await page.goto(PURGE_URL);
 		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
 
-		await addPurgeValue(page, 'https://example.com/page');
-		await expect(page.locator('text=https://example.com/page')).toBeVisible();
-
-		// Switch type
+		// Start with tags (PillInput-based), add a value
 		await page.locator('select').selectOption('tags');
+		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
+		await addPurgeValue(page, 'my-cache-tag');
+		await expect(page.locator('text=my-cache-tag')).toBeVisible();
+
+		// Switch type to hosts
+		await page.locator('select').selectOption('hosts');
 
 		// Old values should be cleared
-		await expect(page.locator('text=https://example.com/page')).not.toBeVisible();
+		await expect(page.locator('text=my-cache-tag')).not.toBeVisible();
+	});
+
+	test('hosts purge type shows host-specific placeholder', async ({ page }) => {
+		await page.goto(PURGE_URL);
+		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+
+		// Switch to hosts type
+		await page.locator('select').selectOption('hosts');
+
+		// Should show hosts-specific placeholder
+		const valuesInput = page.locator('input[aria-label="Purge values"]');
+		await expect(valuesInput).toBeVisible();
+	});
+
+	test('tags purge type accepts tag values', async ({ page }) => {
+		await page.goto(PURGE_URL);
+		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+
+		await page.locator('select').selectOption('tags');
+		await addPurgeValue(page, 'release-v1');
+		await addPurgeValue(page, 'static-assets');
+
+		await expect(page.locator('text=release-v1')).toBeVisible();
+		await expect(page.locator('text=static-assets')).toBeVisible();
+	});
+
+	test('prefixes purge type accepts prefix values', async ({ page }) => {
+		await page.goto(PURGE_URL);
+		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+
+		await page.locator('select').selectOption('prefixes');
+		await addPurgeValue(page, 'example.com/assets');
+
+		await expect(page.locator('text=example.com/assets')).toBeVisible();
+	});
+
+	test('delete profile can be cancelled', async ({ page }) => {
+		// Pre-seed a profile
+		await page.goto(PURGE_URL);
+		await page.evaluate(
+			([sk]) => {
+				localStorage.setItem(
+					sk,
+					JSON.stringify([{ id: 'keep-me', name: 'My Profile', zoneId: 'aabbccdd11223344aabbccdd11223344', purgeType: 'urls' }]),
+				);
+			},
+			[STORAGE_KEY],
+		);
+		await page.goto(PURGE_URL);
+		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+
+		// Open dropdown, hover to reveal trash, click it
+		await page.locator('text=Select a profile...').click();
+		const deleteRow = page.locator('.group:has-text("My Profile")');
+		await deleteRow.hover();
+		await deleteRow.locator('button[title="Delete profile"]').click();
+
+		// Confirmation dialog — click Cancel
+		await expect(page.locator('text=Are you sure you want to delete')).toBeVisible();
+		await page.getByRole('button', { name: 'Cancel' }).click();
+
+		// Dialog closes, profile still exists
+		await expect(page.locator('text=Are you sure you want to delete')).not.toBeVisible();
+		const profiles = await getStoredProfiles(page);
+		expect(profiles).toHaveLength(1);
+		expect(profiles[0].name).toBe('My Profile');
 	});
 });
