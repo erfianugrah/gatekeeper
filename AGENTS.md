@@ -29,15 +29,18 @@ For all limits and quotas, retrieve from the product's `/platform/limits/` page.
 | `npm run build:cli`                                      | Build the CLI only                                 |
 | `npm run preflight`                                      | typecheck + lint + test + build (run before PR)    |
 | `npm run cli -- <command>`                               | Run the CLI locally (uses tsx + .env)              |
+| `npx playwright test`                                    | Run Playwright E2E tests (needs wrangler dev)      |
+| `npx playwright test e2e/purge-profiles.spec.ts`         | Run a single E2E test file                         |
 
 Run `wrangler types` after changing bindings in wrangler.jsonc.
 
 ### Test architecture
 
-There are two Vitest projects configured in `vitest.config.ts`:
+There are three test layers:
 
 - **worker** (`vitest.worker.config.ts`): Uses `@cloudflare/vitest-pool-workers` to run `test/**/*.test.ts` in the Workers runtime. Tests use `SELF.fetch()` and Durable Object stubs.
 - **cli** (`vitest.cli.config.ts`): Runs `cli/**/*.test.ts` in plain Node.js.
+- **e2e** (`playwright.config.ts`): Playwright browser tests in `e2e/**/*.spec.ts`. Runs against `http://localhost:8787` (start `npx wrangler dev` first). Tests dashboard UI interactions: purge profiles, pill inputs, condition editor, form validation.
 
 When running a single worker test file, you do NOT need `-c vitest.worker.config.ts` because the default config includes both projects. For CLI tests, you DO need `-c vitest.cli.config.ts` or run via `npm run test:cli`.
 
@@ -152,7 +155,8 @@ Conventions:
 
 ### Hono Patterns
 
-- Two Hono instances: main `app` and sub-app `admin`, mounted via `app.route("/admin", admin)`.
+- Multiple Hono sub-apps: `authApp` (`/auth`), `oauthApp` (`/auth/oauth`), `adminApp` (`/admin`), `purgeRoute` (`/`), `s3App` (`/s3`), `cfApp` (`/cf`).
+- **Route mounting order matters**: more specific prefixes must be mounted before less specific ones (e.g. `/auth/oauth` before `/auth`) because Hono's prefix matching is first-match.
 - Typed environment: `type HonoEnv = { Bindings: Env }` passed to `new Hono<HonoEnv>()`.
 - Access bindings via `c.env`, params via `c.req.param()`, query via `c.req.query()`.
 - Use `c.executionCtx.waitUntil()` for fire-and-forget async work.
@@ -187,6 +191,34 @@ Conventions:
 - Session cookie name: `gk_session`. Cookie parsing is duplicated in `auth-admin.ts` and `routes/auth.ts` (both need it independently).
 - Password changes and user deletions automatically revoke all sessions for that user.
 - Bootstrap endpoint (`POST /auth/bootstrap`) only works when zero users exist. After the first user is created, it returns 403 permanently.
+
+### OAuth / OIDC Authentication (Access for SaaS)
+
+- `src/auth-oauth.ts` — Generic OAuth2/OIDC client using `arctic` library. Works with any OIDC provider (Cloudflare Access for SaaS, Auth0, Okta, Keycloak, Google, Entra ID, etc.).
+- Uses **PKCE (S256)** for the authorization code flow. State and code verifier stored in short-lived HttpOnly cookies (10 min TTL).
+- Flow: `GET /auth/oauth/login` → redirect to IdP → `GET /auth/oauth/callback` → exchange code for tokens → decode ID token → create session → redirect to `/dashboard/`.
+- ID token is decoded (not signature-verified) via `arctic.decodeIdToken()`. This is acceptable because the token comes from a direct HTTPS call to the token endpoint, not via the browser.
+- `OAUTH_CLIENT_SECRET` is optional (supports public clients with PKCE-only).
+- Configurable claim names: `OAUTH_EMAIL_CLAIM` (default: `email`), `OAUTH_GROUPS_CLAIM` (default: `groups`).
+- The `LoginPage.tsx` SSO button checks `oauth_enabled` from `/auth/config` to decide between the OAuth flow (`/auth/oauth/login`) and legacy Access self-hosted (`/dashboard/`).
+
+### RBAC (Role-Based Access Control)
+
+- `resolveRole()` in `auth-admin.ts` resolves the highest matching role from three sources (checked in priority order):
+  1. **Email match** — `RBAC_ADMIN_EMAILS`, `RBAC_OPERATOR_EMAILS`, `RBAC_VIEWER_EMAILS`
+  2. **Domain match** — `RBAC_ADMIN_DOMAINS`, `RBAC_OPERATOR_DOMAINS`, `RBAC_VIEWER_DOMAINS`
+  3. **IdP group** — `RBAC_ADMIN_GROUPS`, `RBAC_OPERATOR_GROUPS`, `RBAC_VIEWER_GROUPS`
+- If no RBAC env vars are set, all authenticated users get `admin` (backward compatible).
+- Email/domain matching is useful when IdPs don't provide group claims (e.g. Google, Cloudflare Access PIN).
+
+### Dashboard Architecture
+
+- **Astro** with `output: "static"` and `base: "/"`. Assets served from `/_astro/` (outside Access protection).
+- **React islands** via `client:load`. No SPA routing — each page is a full Astro page load.
+- Pages at `src/pages/dashboard/*.astro` → URL `/dashboard/*`. Login at `src/pages/login.astro` → URL `/login`.
+- `PillInput` component (`dashboard/src/components/PillInput.tsx`) — reusable pill/tag input with Enter/comma/paste commit, backspace removal, deduplication, validation, and optional max count.
+- Purge page profiles stored in `localStorage` (zone ID, name, purge type — no secrets). Last-used profile auto-restored.
+- Condition editor shows AND/OR separators between conditions, clickable to toggle join mode. Inapplicable conditions (e.g. `host` field on `dns:*` actions) show warnings with the `appliesTo` field metadata.
 
 ### Known Pitfalls
 

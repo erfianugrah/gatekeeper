@@ -12,6 +12,7 @@ type Mode = 'loading' | 'login' | 'bootstrap';
 interface AuthConfig {
 	access_enabled: boolean;
 	access_domain: string | null;
+	oauth_enabled: boolean;
 	bootstrap: boolean;
 }
 
@@ -134,9 +135,15 @@ export function LoginPage() {
 	}
 
 	function handleSsoLogin() {
-		// Navigate to the Access-protected dashboard — Access will intercept,
-		// run the SSO flow, set the CF_Authorization cookie, and redirect back.
-		window.location.href = '/dashboard/';
+		if (authConfig?.oauth_enabled) {
+			// OAuth / OIDC flow — redirect to the Worker's OAuth login endpoint
+			// which starts the PKCE authorization code flow.
+			window.location.href = '/auth/oauth/login';
+		} else {
+			// Legacy Access self-hosted — navigate to the Access-protected dashboard.
+			// Access will intercept, run the SSO flow, and redirect back.
+			window.location.href = '/dashboard/';
+		}
 	}
 
 	// Loading state
