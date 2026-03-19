@@ -304,11 +304,19 @@ test.describe('Purge Form', () => {
 		await page.goto(PURGE_URL);
 		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
 
+		// Switch to hosts (PillInput-based) so we can test the full enable flow
+		await page.locator('select').selectOption('hosts');
+		await expect(page.locator('input[placeholder="www.example.com"]')).toBeVisible();
+
 		const submitBtn = page.locator('button:has-text("Send Purge Request")');
 		await expect(submitBtn).toBeDisabled();
 
-		// Add zone ID pill -- still disabled (no API key)
+		// Add zone ID pill -- still disabled (no API key, no values)
 		await addZoneId(page, 'aabbccdd11223344aabbccdd11223344');
+		await expect(submitBtn).toBeDisabled();
+
+		// Add a value -- still disabled (no API key)
+		await addPurgeValue(page, 'example.com');
 		await expect(submitBtn).toBeDisabled();
 
 		// Fill API key -- now enabled
@@ -330,25 +338,33 @@ test.describe('Purge Form', () => {
 		await page.goto(PURGE_URL);
 		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
 
-		// Paste comma-separated URLs
+		// Switch to tags (PillInput-based) for pill tests
+		await page.locator('select').selectOption('tags');
+		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
+
+		// Paste comma-separated values
 		const valuesInput = page.locator('input[aria-label="Purge values"]');
 		await valuesInput.focus();
 		await page.evaluate(() => {
 			const input = document.querySelector('input[aria-label="Purge values"]') as HTMLInputElement;
 			const dt = new DataTransfer();
-			dt.setData('text/plain', 'https://a.com/1,https://b.com/2,https://c.com/3');
+			dt.setData('text/plain', 'tag-a,tag-b,tag-c');
 			input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }));
 		});
 
 		// Three pills should appear
-		await expect(page.locator('text=https://a.com/1')).toBeVisible();
-		await expect(page.locator('text=https://b.com/2')).toBeVisible();
-		await expect(page.locator('text=https://c.com/3')).toBeVisible();
+		await expect(page.locator('text=tag-a')).toBeVisible();
+		await expect(page.locator('text=tag-b')).toBeVisible();
+		await expect(page.locator('text=tag-c')).toBeVisible();
 	});
 
 	test('pill input: remove a value by clicking X', async ({ page }) => {
 		await page.goto(PURGE_URL);
 		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+
+		// Switch to tags for pill tests
+		await page.locator('select').selectOption('tags');
+		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
 
 		await addPurgeValue(page, 'tag-one');
 		await addPurgeValue(page, 'tag-two');
@@ -365,6 +381,10 @@ test.describe('Purge Form', () => {
 		await page.goto(PURGE_URL);
 		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
 
+		// Switch to tags for pill tests and wait for PillInput placeholder to render
+		await page.locator('select').selectOption('tags');
+		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
+
 		await addPurgeValue(page, 'first');
 		await addPurgeValue(page, 'second');
 
@@ -378,6 +398,10 @@ test.describe('Purge Form', () => {
 	test('pill input: duplicates are ignored', async ({ page }) => {
 		await page.goto(PURGE_URL);
 		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+
+		// Switch to tags for pill tests
+		await page.locator('select').selectOption('tags');
+		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
 
 		await addPurgeValue(page, 'same-tag');
 		await addPurgeValue(page, 'same-tag');
@@ -405,14 +429,17 @@ test.describe('Purge Form', () => {
 		await page.goto(PURGE_URL);
 		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
 
-		await addPurgeValue(page, 'https://example.com/page');
-		await expect(page.locator('text=https://example.com/page')).toBeVisible();
-
-		// Switch type
+		// Start with tags (PillInput-based), add a value
 		await page.locator('select').selectOption('tags');
+		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
+		await addPurgeValue(page, 'my-cache-tag');
+		await expect(page.locator('text=my-cache-tag')).toBeVisible();
+
+		// Switch type to hosts
+		await page.locator('select').selectOption('hosts');
 
 		// Old values should be cleared
-		await expect(page.locator('text=https://example.com/page')).not.toBeVisible();
+		await expect(page.locator('text=my-cache-tag')).not.toBeVisible();
 	});
 
 	test('hosts purge type shows host-specific placeholder', async ({ page }) => {
