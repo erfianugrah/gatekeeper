@@ -451,16 +451,18 @@ function ConditionNode({
 
 export function ConditionEditor({ conditions, onChange, fields, operators, defaultField, activeActionPrefixes }: ConditionEditorProps) {
 	const [showGroupMenu, setShowGroupMenu] = useState(false);
+	const groupMenuRef = useRef<HTMLDivElement>(null);
 
-	// Close group menu on outside click (delayed registration to avoid catching the opening click)
+	// Close group menu on outside click — uses ref containment check.
 	useEffect(() => {
 		if (!showGroupMenu) return;
-		const handleClick = () => setShowGroupMenu(false);
-		const timer = setTimeout(() => document.addEventListener('click', handleClick), 0);
-		return () => {
-			clearTimeout(timer);
-			document.removeEventListener('click', handleClick);
+		const handleClick = (e: MouseEvent) => {
+			if (groupMenuRef.current && !groupMenuRef.current.contains(e.target as Node)) {
+				setShowGroupMenu(false);
+			}
 		};
+		document.addEventListener('click', handleClick);
+		return () => document.removeEventListener('click', handleClick);
 	}, [showGroupMenu]);
 
 	const addLeaf = () => {
@@ -598,16 +600,13 @@ export function ConditionEditor({ conditions, onChange, fields, operators, defau
 					Add condition
 				</Button>
 
-				<div className="relative">
+				<div className="relative" ref={groupMenuRef}>
 					<Button
 						type="button"
 						variant="ghost"
 						size="sm"
 						className="h-7 text-xs text-muted-foreground hover:text-foreground"
-						onClick={(e) => {
-							e.stopPropagation();
-							setShowGroupMenu(!showGroupMenu);
-						}}
+						onClick={() => setShowGroupMenu(!showGroupMenu)}
 					>
 						<GitBranch className="h-3 w-3 mr-1" />
 						Add group
@@ -616,10 +615,10 @@ export function ConditionEditor({ conditions, onChange, fields, operators, defau
 						<div
 							data-testid="group-menu"
 							className="absolute left-0 top-full z-50 mt-1 rounded-md border border-border bg-card shadow-lg py-1 w-44"
-							onClick={(e) => e.stopPropagation()}
 						>
 							<button
 								type="button"
+								data-testid="group-option-or"
 								className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted/50 flex items-center gap-2"
 								onClick={() => addGroup('any')}
 							>
@@ -628,6 +627,7 @@ export function ConditionEditor({ conditions, onChange, fields, operators, defau
 							</button>
 							<button
 								type="button"
+								data-testid="group-option-and"
 								className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted/50 flex items-center gap-2"
 								onClick={() => addGroup('all')}
 							>
@@ -636,6 +636,7 @@ export function ConditionEditor({ conditions, onChange, fields, operators, defau
 							</button>
 							<button
 								type="button"
+								data-testid="group-option-not"
 								className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted/50 flex items-center gap-2"
 								onClick={() => addGroup('not')}
 							>
