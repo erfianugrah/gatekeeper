@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Send, Loader2, CheckCircle, XCircle, Save, Trash2, ChevronDown, ShieldAlert, Ban } from 'lucide-react';
+import { Send, Loader2, CheckCircle, XCircle, Save, Trash2, ChevronDown, ShieldAlert, Ban, Plus, X, ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,12 +32,22 @@ const PURGE_OPTIONS: PurgeOption[] = [
 	{ value: 'everything', label: 'Everything', placeholder: '' },
 ];
 
+/** A URL entry that optionally includes custom cache key headers (CF API files format). */
+interface UrlEntry {
+	url: string;
+	headers?: Record<string, string>;
+}
+
 /** Saved profile — no secrets, just convenience fields. */
 interface PurgeProfile {
 	id: string;
 	name: string;
 	zoneId: string;
 	purgeType: PurgeType;
+	/** Saved purge values (hosts, tags, prefixes, or URLs). Omitted in legacy profiles. */
+	values?: string[];
+	/** Saved URL entries with optional headers. Used when purgeType is 'urls'. */
+	urlEntries?: UrlEntry[];
 }
 
 interface PurgeResponse {
@@ -86,6 +96,189 @@ function saveLastProfileId(id: string | null) {
 	}
 }
 
+// ─── URL Entry Editor ───────────────────────────────────────────
+
+/** Common CF cache key headers for the header name suggestions. */
+const CF_CACHE_HEADERS = ['CF-Device-Type', 'CF-IPCountry', 'Accept-Language', 'Accept-Encoding', 'Cookie', 'Origin', 'Referer'];
+
+function UrlEntryEditor({ entries, onChange }: { entries: UrlEntry[]; onChange: (entries: UrlEntry[]) => void }) {
+	const [inputValue, setInputValue] = useState('');
+	const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+
+	const addUrl = () => {
+		const url = inputValue.trim();
+		if (!url) return;
+		// Deduplicate by URL
+		if (entries.some((e) => e.url === url)) {
+			setInputValue('');
+			return;
+		}
+		onChange([...entries, { url }]);
+		setInputValue('');
+	};
+
+	const removeEntry = (index: number) => {
+		onChange(entries.filter((_, i) => i !== index));
+		if (expandedIndex === index) setExpandedIndex(null);
+		else if (expandedIndex !== null && expandedIndex > index) setExpandedIndex(expandedIndex - 1);
+	};
+
+	const addHeader = (index: number) => {
+		const updated = [...entries];
+		const existing = updated[index].headers ?? {};
+		updated[index] = { ...updated[index], headers: { ...existing, '': '' } };
+		onChange(updated);
+	};
+
+	const updateHeaderKey = (entryIndex: number, oldKey: string, newKey: string) => {
+		const updated = [...entries];
+		const headers = { ...updated[entryIndex].headers };
+		const value = headers[oldKey] ?? '';
+		delete headers[oldKey];
+		headers[newKey] = value;
+		updated[entryIndex] = { ...updated[entryIndex], headers };
+		onChange(updated);
+	};
+
+	const updateHeaderValue = (entryIndex: number, key: string, value: string) => {
+		const updated = [...entries];
+		updated[entryIndex] = { ...updated[entryIndex], headers: { ...updated[entryIndex].headers, [key]: value } };
+		onChange(updated);
+	};
+
+	const removeHeader = (entryIndex: number, key: string) => {
+		const updated = [...entries];
+		const headers = { ...updated[entryIndex].headers };
+		delete headers[key];
+		updated[entryIndex] = { ...updated[entryIndex], headers: Object.keys(headers).length > 0 ? headers : undefined };
+		onChange(updated);
+	};
+
+	const handleKeyDown = (e: React.KeyboardEvent) => {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			addUrl();
+		}
+	};
+
+	const handlePaste = (e: React.ClipboardEvent) => {
+		const text = e.clipboardData.getData('text');
+		const lines = text
+			.split(/[\n,]+/)
+			.map((s) => s.trim())
+			.filter(Boolean);
+		if (lines.length > 1) {
+			e.preventDefault();
+			const existing = new Set(entries.map((en) => en.url));
+			const newEntries = lines.filter((l) => !existing.has(l)).map((url) => ({ url }));
+			onChange([...entries, ...newEntries]);
+			setInputValue('');
+		}
+	};
+
+	return (
+		<div className="space-y-2">
+			{/* URL list */}
+			{entries.length > 0 && (
+				<div className="space-y-1">
+					{entries.map((entry, i) => {
+						const headerCount = entry.headers ? Object.keys(entry.headers).length : 0;
+						const isExpanded = expandedIndex === i;
+						return (
+							<div key={i} className="rounded-md border border-border bg-lovelace-950/50">
+								<div className="flex items-center gap-1.5 px-2 py-1.5">
+									<button
+										type="button"
+										onClick={() => setExpandedIndex(isExpanded ? null : i)}
+										className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+										title={isExpanded ? 'Collapse headers' : 'Expand headers'}
+									>
+										<ChevronRight className={cn('h-3 w-3 transition-transform', isExpanded && 'rotate-90')} />
+									</button>
+									<span className="min-w-0 flex-1 truncate font-data text-xs text-foreground">{entry.url}</span>
+									{headerCount > 0 && (
+										<span className="shrink-0 rounded bg-lv-purple/20 px-1.5 py-0.5 text-[10px] font-medium text-lv-purple">
+											{headerCount} header{headerCount !== 1 ? 's' : ''}
+										</span>
+									)}
+									<button
+										type="button"
+										onClick={() => removeEntry(i)}
+										className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-lv-red"
+										aria-label={`Remove ${entry.url}`}
+									>
+										<X className="h-3 w-3" />
+									</button>
+								</div>
+								{isExpanded && (
+									<div className="border-t border-border/50 px-3 py-2 space-y-1.5">
+										<p className="text-[10px] text-muted-foreground">
+											Custom cache key headers (e.g. CF-Device-Type for device-specific cache variants)
+										</p>
+										{entry.headers &&
+											Object.entries(entry.headers).map(([key, value]) => (
+												<div key={key || '__new'} className="flex items-center gap-1.5">
+													<Input
+														placeholder="Header name"
+														defaultValue={key}
+														onBlur={(e) => updateHeaderKey(i, key, e.target.value.trim())}
+														className="h-7 flex-1 font-data text-xs"
+														list="cf-header-suggestions"
+													/>
+													<Input
+														placeholder="Value"
+														value={value}
+														onChange={(e) => updateHeaderValue(i, key, e.target.value)}
+														className="h-7 flex-1 font-data text-xs"
+													/>
+													<button
+														type="button"
+														onClick={() => removeHeader(i, key)}
+														className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-lv-red"
+													>
+														<X className="h-3 w-3" />
+													</button>
+												</div>
+											))}
+										<Button type="button" variant="ghost" size="sm" className="h-6 text-[11px]" onClick={() => addHeader(i)}>
+											<Plus className="mr-1 h-3 w-3" />
+											Add header
+										</Button>
+									</div>
+								)}
+							</div>
+						);
+					})}
+				</div>
+			)}
+
+			{/* Add URL input */}
+			<div className="flex gap-1.5">
+				<Input
+					placeholder="https://example.com/style.css"
+					value={inputValue}
+					onChange={(e) => setInputValue(e.target.value)}
+					onKeyDown={handleKeyDown}
+					onPaste={handlePaste}
+					className="font-data text-xs"
+					aria-label="Purge values"
+				/>
+				<Button type="button" variant="outline" size="sm" onClick={addUrl} disabled={!inputValue.trim()} className="shrink-0">
+					<Plus className="h-3.5 w-3.5" />
+				</Button>
+			</div>
+			<p className={T.muted}>Enter URLs to purge. Expand each entry to add custom cache key headers. Paste multiple URLs at once.</p>
+
+			{/* Datalist for header name suggestions */}
+			<datalist id="cf-header-suggestions">
+				{CF_CACHE_HEADERS.map((h) => (
+					<option key={h} value={h} />
+				))}
+			</datalist>
+		</div>
+	);
+}
+
 // ─── Purge Page ─────────────────────────────────────────────────────
 
 export function PurgePage() {
@@ -101,6 +294,7 @@ export function PurgePage() {
 	const [zoneIds, setZoneIds] = useState<string[]>([]);
 	const [purgeType, setPurgeType] = useState<PurgeType>('urls');
 	const [purgeValues, setPurgeValues] = useState<string[]>([]);
+	const [urlEntries, setUrlEntries] = useState<UrlEntry[]>([]);
 	const [apiKey, setApiKey] = useState('');
 	const [submitting, setSubmitting] = useState(false);
 	const [response, setResponse] = useState<PurgeResponse | null>(null);
@@ -120,6 +314,11 @@ export function PurgePage() {
 				setActiveProfileId(lastId);
 				setZoneIds([profile.zoneId]);
 				setPurgeType(profile.purgeType);
+				if (profile.purgeType === 'urls' && profile.urlEntries) {
+					setUrlEntries(profile.urlEntries);
+				} else if (profile.values) {
+					setPurgeValues(profile.values);
+				}
 			}
 		}
 	}, []);
@@ -137,7 +336,13 @@ export function PurgePage() {
 		setActiveProfileId(profile.id);
 		setZoneIds([profile.zoneId]);
 		setPurgeType(profile.purgeType);
-		setPurgeValues([]);
+		if (profile.purgeType === 'urls' && profile.urlEntries) {
+			setUrlEntries(profile.urlEntries);
+			setPurgeValues([]);
+		} else {
+			setPurgeValues(profile.values ?? []);
+			setUrlEntries([]);
+		}
 		setResponse(null);
 		setError(null);
 		saveLastProfileId(profile.id);
@@ -149,6 +354,7 @@ export function PurgePage() {
 		setApiKey('');
 		setPurgeType('urls');
 		setPurgeValues([]);
+		setUrlEntries([]);
 		setResponse(null);
 		setError(null);
 		saveLastProfileId(null);
@@ -163,6 +369,9 @@ export function PurgePage() {
 			name,
 			zoneId: zoneIds[0],
 			purgeType,
+			...(purgeType === 'urls'
+				? { urlEntries: urlEntries.length > 0 ? urlEntries : undefined }
+				: { values: purgeValues.length > 0 ? purgeValues : undefined }),
 		};
 
 		const updated = [...profiles, newProfile];
@@ -176,7 +385,18 @@ export function PurgePage() {
 
 	const handleUpdateProfile = () => {
 		if (!activeProfileId || zoneIds.length === 0) return;
-		const updated = profiles.map((p) => (p.id === activeProfileId ? { ...p, zoneId: zoneIds[0], purgeType } : p));
+		const updated = profiles.map((p) =>
+			p.id === activeProfileId
+				? {
+						...p,
+						zoneId: zoneIds[0],
+						purgeType,
+						...(purgeType === 'urls'
+							? { urlEntries: urlEntries.length > 0 ? urlEntries : undefined, values: undefined }
+							: { values: purgeValues.length > 0 ? purgeValues : undefined, urlEntries: undefined }),
+					}
+				: p,
+		);
 		setProfiles(updated);
 		saveProfiles(updated);
 	};
@@ -198,12 +418,20 @@ export function PurgePage() {
 			return { purge_everything: true };
 		}
 
+		if (purgeType === 'urls') {
+			if (urlEntries.length === 0) throw new Error('Enter at least one URL');
+			// Emit { url, headers } objects when headers are present, plain strings otherwise
+			const files = urlEntries.map((entry) =>
+				entry.headers && Object.keys(entry.headers).length > 0 ? { url: entry.url, headers: entry.headers } : entry.url,
+			);
+			return { files };
+		}
+
 		if (purgeValues.length === 0) {
 			throw new Error('Enter at least one value');
 		}
 
 		const fieldMap: Record<string, string> = {
-			urls: 'files',
 			hosts: 'hosts',
 			tags: 'tags',
 			prefixes: 'prefixes',
@@ -266,7 +494,12 @@ export function PurgePage() {
 	};
 
 	// ── Check if form has diverged from active profile ───────────────
-	const formDirty = activeProfile !== null && ((zoneIds[0] ?? '') !== activeProfile.zoneId || purgeType !== activeProfile.purgeType);
+	const valuesChanged =
+		purgeType === 'urls'
+			? JSON.stringify(urlEntries) !== JSON.stringify(activeProfile?.urlEntries ?? [])
+			: JSON.stringify(purgeValues) !== JSON.stringify(activeProfile?.values ?? []);
+	const formDirty =
+		activeProfile !== null && ((zoneIds[0] ?? '') !== activeProfile.zoneId || purgeType !== activeProfile.purgeType || valuesChanged);
 
 	return (
 		<div className="mx-auto max-w-2xl space-y-6">
@@ -419,6 +652,7 @@ export function PurgePage() {
 							onChange={(e) => {
 								setPurgeType(e.target.value as PurgeType);
 								setPurgeValues([]);
+								setUrlEntries([]);
 							}}
 							className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
 						>
@@ -430,8 +664,14 @@ export function PurgePage() {
 						</select>
 					</div>
 
-					{/* ── Values pills ────────────────────────────────────── */}
-					{purgeType !== 'everything' && (
+					{/* ── Values ──────────────────────────────────────────── */}
+					{purgeType === 'urls' && (
+						<div className="space-y-2">
+							<Label className={T.formLabel}>URLs</Label>
+							<UrlEntryEditor entries={urlEntries} onChange={setUrlEntries} />
+						</div>
+					)}
+					{purgeType !== 'everything' && purgeType !== 'urls' && (
 						<div className="space-y-2">
 							<Label className={T.formLabel}>Values</Label>
 							<PillInput values={purgeValues} onChange={setPurgeValues} placeholder={selectedOption.placeholder} ariaLabel="Purge values" />
@@ -446,7 +686,17 @@ export function PurgePage() {
 					)}
 
 					{/* ── Submit ──────────────────────────────────────────── */}
-					<Button onClick={handleSubmit} disabled={submitting || zoneIds.length === 0 || !apiKey.trim()} className="w-full">
+					<Button
+						onClick={handleSubmit}
+						disabled={
+							submitting ||
+							zoneIds.length === 0 ||
+							!apiKey.trim() ||
+							(purgeType === 'urls' && urlEntries.length === 0) ||
+							(purgeType !== 'urls' && purgeType !== 'everything' && purgeValues.length === 0)
+						}
+						className="w-full"
+					>
 						{submitting ? (
 							<>
 								<Loader2 className="h-4 w-4 animate-spin" />
@@ -539,7 +789,7 @@ export function PurgePage() {
 					<DialogHeader>
 						<DialogTitle>Save Profile</DialogTitle>
 						<DialogDescription>
-							Save the current zone ID and purge type as a reusable profile. Profiles are stored locally in your browser.
+							Save the current zone ID, purge type, and values as a reusable profile. Profiles are stored locally in your browser.
 						</DialogDescription>
 					</DialogHeader>
 					<div className="space-y-2">
