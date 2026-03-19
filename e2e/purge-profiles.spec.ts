@@ -228,7 +228,9 @@ test.describe('Purge Profiles', () => {
 
 		await addZoneId(page, 'aabbccdd11223344aabbccdd11223344');
 
-		await page.locator('button[title="Save as new profile"]').click();
+		const saveAsBtn = page.locator('button[title="Save as new profile"]');
+		await expect(saveAsBtn).toBeEnabled({ timeout: 5000 });
+		await saveAsBtn.click();
 		await expect(page.getByRole('heading', { name: 'Save Profile' })).toBeVisible();
 
 		await page.getByRole('button', { name: 'Cancel' }).click();
@@ -242,7 +244,9 @@ test.describe('Purge Profiles', () => {
 		await waitForPurgePage(page);
 
 		await addZoneId(page, 'aabbccdd11223344aabbccdd11223344');
-		await page.locator('button[title="Save as new profile"]').click();
+		const saveAsBtn = page.locator('button[title="Save as new profile"]');
+		await expect(saveAsBtn).toBeEnabled({ timeout: 5000 });
+		await saveAsBtn.click();
 
 		const saveBtn = page.getByRole('button', { name: 'Save Profile' });
 		await expect(saveBtn).toBeDisabled();
@@ -256,7 +260,9 @@ test.describe('Purge Profiles', () => {
 
 		// Save first profile
 		await addZoneId(page, 'aaaa1111bbbb2222cccc3333dddd4444');
-		await page.locator('button[title="Save as new profile"]').click();
+		const saveAsBtn = page.locator('button[title="Save as new profile"]');
+		await expect(saveAsBtn).toBeEnabled({ timeout: 5000 });
+		await saveAsBtn.click();
 		await page.getByPlaceholder('e.g. Production CDN').fill('Zone A');
 		await page.getByRole('button', { name: 'Save Profile' }).click();
 
@@ -264,7 +270,8 @@ test.describe('Purge Profiles', () => {
 		await page.locator('[aria-label="Remove aaaa1111bbbb2222cccc3333dddd4444"]').click();
 		await addZoneId(page, '11112222333344445555666677778888');
 		await page.locator('select').selectOption('hosts');
-		await page.locator('button[title="Save as new profile"]').click();
+		await expect(saveAsBtn).toBeEnabled({ timeout: 5000 });
+		await saveAsBtn.click();
 		await page.getByPlaceholder('e.g. Production CDN').fill('Zone B');
 		await page.getByRole('button', { name: 'Save Profile' }).click();
 
@@ -406,5 +413,71 @@ test.describe('Purge Form', () => {
 
 		// Old values should be cleared
 		await expect(page.locator('text=https://example.com/page')).not.toBeVisible();
+	});
+
+	test('hosts purge type shows host-specific placeholder', async ({ page }) => {
+		await page.goto(PURGE_URL);
+		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+
+		// Switch to hosts type
+		await page.locator('select').selectOption('hosts');
+
+		// Should show hosts-specific placeholder
+		const valuesInput = page.locator('input[aria-label="Purge values"]');
+		await expect(valuesInput).toBeVisible();
+	});
+
+	test('tags purge type accepts tag values', async ({ page }) => {
+		await page.goto(PURGE_URL);
+		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+
+		await page.locator('select').selectOption('tags');
+		await addPurgeValue(page, 'release-v1');
+		await addPurgeValue(page, 'static-assets');
+
+		await expect(page.locator('text=release-v1')).toBeVisible();
+		await expect(page.locator('text=static-assets')).toBeVisible();
+	});
+
+	test('prefixes purge type accepts prefix values', async ({ page }) => {
+		await page.goto(PURGE_URL);
+		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+
+		await page.locator('select').selectOption('prefixes');
+		await addPurgeValue(page, 'example.com/assets');
+
+		await expect(page.locator('text=example.com/assets')).toBeVisible();
+	});
+
+	test('delete profile can be cancelled', async ({ page }) => {
+		// Pre-seed a profile
+		await page.goto(PURGE_URL);
+		await page.evaluate(
+			([sk]) => {
+				localStorage.setItem(
+					sk,
+					JSON.stringify([{ id: 'keep-me', name: 'My Profile', zoneId: 'aabbccdd11223344aabbccdd11223344', purgeType: 'urls' }]),
+				);
+			},
+			[STORAGE_KEY],
+		);
+		await page.goto(PURGE_URL);
+		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+
+		// Open dropdown, hover to reveal trash, click it
+		await page.locator('text=Select a profile...').click();
+		const deleteRow = page.locator('.group:has-text("My Profile")');
+		await deleteRow.hover();
+		await deleteRow.locator('button[title="Delete profile"]').click();
+
+		// Confirmation dialog — click Cancel
+		await expect(page.locator('text=Are you sure you want to delete')).toBeVisible();
+		await page.getByRole('button', { name: 'Cancel' }).click();
+
+		// Dialog closes, profile still exists
+		await expect(page.locator('text=Are you sure you want to delete')).not.toBeVisible();
+		const profiles = await getStoredProfiles(page);
+		expect(profiles).toHaveLength(1);
+		expect(profiles[0].name).toBe('My Profile');
 	});
 });
