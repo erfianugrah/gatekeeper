@@ -135,6 +135,50 @@ Policy: `allow purge:* where host contains erfi.io AND client_ip eq 1.2.3.4`
 | URL purge | present      | ❌ denied                      | ❌ denied                                                         |
 | Tag purge | **missing**  | ✅ allowed (deny doesn't fire) | ✅ allowed (deny doesn't fire — exists returns false for missing) |
 
+### Scenario 7: `not` compound condition with missing field
+
+Policy: `allow purge:* where NOT(host eq evil.com)`
+
+| Request            | Field `host` | Current    | Proposed                                                                              |
+| ------------------ | ------------ | ---------- | ------------------------------------------------------------------------------------- |
+| URL purge good.com | `good.com`   | ✅ allowed | ✅ allowed                                                                            |
+| URL purge evil.com | `evil.com`   | ❌ denied  | ❌ denied                                                                             |
+| Tag purge `static` | **missing**  | ✅ allowed | ❌ **denied** (missing → skipMissing=true → leaf returns true → NOT inverts to false) |
+
+**This is a known counterintuitive edge case.** The `not` compound inverts the vacuously-true result for the missing field. The user expects "don't allow evil.com" to also allow tag purges, but the `not` wrapper breaks this.
+
+**Resolution**: Do NOT attempt to fix this by flipping `skipMissing` inside `not` — that creates new contradictions with deeply nested conditions. Instead:
+
+- Document this as a known limitation.
+- Recommend the deny form instead: `deny purge:* where host eq evil.com` (which correctly has no effect on tag purges because deny + missing field → deny doesn't fire).
+- The `not` compound condition is already rare in practice; users almost always use the deny effect for exclusions.
+
+### Scenario 8: Negation operators (`ne`, `not_contains`, `not_in`, `not_matches`) with missing field
+
+Policy: `allow purge:* where host ne evil.com`
+
+| Request            | Field `host` | Current    | Proposed                          |
+| ------------------ | ------------ | ---------- | --------------------------------- |
+| URL purge good.com | `good.com`   | ✅ allowed | ✅ allowed                        |
+| URL purge evil.com | `evil.com`   | ❌ denied  | ❌ denied                         |
+| Tag purge          | **missing**  | ❌ denied  | ✅ **allowed** (skipped in allow) |
+
+This is correct behavior. `ne` is a leaf operator — the user is saying "allow when host is not evil.com". A tag purge has no host at all, so the condition is inapplicable and should not block it. Same logic applies to `not_contains`, `not_in`, and `not_matches`.
+
+## Decisions
+
+### Decision 1: Workers script-scoped policy + account-level actions
+
+**Decision: Allow.** Account-level actions (e.g., subdomain management) are not script-specific. A key with `workers:* where script_name eq my-worker` should be able to perform account-level actions that have no script context. If the user wants to restrict a key to script-only operations, they should scope actions to `workers:script:*` rather than `workers:*`.
+
+### Decision 2: Header condition on plain URL strings
+
+**Decision: Allow.** When a URL purge is submitted as a plain string (no `{ url, headers }` object), header fields are absent from the context. Under the new behavior, the header condition is skipped (inapplicable), and the purge is allowed if the host condition matches. This is correct — the user's intent with a header condition is to restrict _which headers_ are acceptable when headers are present, not to require headers on every purge.
+
+### Decision 3: `not` compound condition edge case
+
+**Decision: Document as known limitation.** The `not` compound inverts `skipMissing` behavior, causing missing fields to fail inside `not` blocks on allow statements. Recommend using `deny` effect for exclusion patterns instead of `not` in allow statements. This is an acceptable trade-off — the `not` compound is rare, and the deny form is more idiomatic.
+
 ## Existing Tests That Will Change Behavior
 
 These tests currently expect `false`/403 for missing fields and will need updating:
@@ -170,16 +214,26 @@ These tests verify behavior that must remain unchanged:
 Add to `test/policy-engine.test.ts`:
 
 - `allow + eq + field missing → true (skipped)` (new)
-- `deny + eq + field missing → false (deny doesn't fire)` (existing, verify)
+- `deny + eq + field missing → false (deny doesn't fire)` (new)
 - `allow + exists + field missing → false (NOT skipped)` (existing, verify)
-- `deny + exists + field missing → false` (existing, verify)
+- `deny + exists + field missing → false` (new)
 - `allow + not_exists + field missing → true` (existing, verify)
 - `allow + contains + field missing → true (skipped)` (new)
 - `deny + contains + field missing → false` (new)
 - `allow + in + field missing → true (skipped)` (new)
 - `allow + gt + field missing → true (skipped)` (new)
 - `deny + gt + field missing → false` (new)
+- `allow + ne + field missing → true (skipped)` (new)
+- `allow + not_contains + field missing → true (skipped)` (new)
+- `allow + not_in + field missing → true (skipped)` (new)
+- `allow + wildcard + field missing → true (skipped)` (new)
+- `allow + starts_with + field missing → true (skipped)` (new)
+- `allow + matches + field missing → true (skipped)` (new)
+- `deny + matches + field missing → false` (new)
 - Mixed AND conditions: one applicable, one inapplicable (new)
+- `not` compound + missing field on allow → false (counterintuitive but documented) (new)
+- `any` compound + all children have missing fields on allow → true (new)
+- `all` compound + one child has missing field on allow → true (skipped) (new)
 
 Add integration tests:
 
@@ -238,11 +292,22 @@ if (fieldValue === undefined || fieldValue === null) {
 
 ### Step 7: Run the full test suite
 
-All 1006 tests must pass. Run Playwright E2E tests too.
+Run `npm run preflight` (typecheck + lint + test + build). All tests must pass.
 
 ### Step 8: Update AGENTS.md
 
-Document the new behavior in the Known Pitfalls or a new Policy Engine section.
+Document the new behavior in a new Policy Engine section under Known Pitfalls:
+
+- Effect-aware skip behavior for missing fields
+- `exists`/`not_exists` exception
+- `not` compound condition edge case and recommended workaround
+
+## Architecture Notes
+
+- `matchesStatement` is only called from `evaluatePolicyForContext`, which already has `stmt.effect` in scope. No other callers need updating.
+- `evaluateLeaf` and `evaluateCondition` are internal (non-exported). Only `evaluatePolicy` and `validatePolicy` are exported. The signature changes are invisible to consumers.
+- No test exports (`__testPrefixed`) are needed — all tests use the public `evaluatePolicy` API.
+- Request-scoped fields like `client_ip`, `client_country`, `client_asn`, `time.hour`, and `time.day_of_week` are always populated by `src/request-fields.ts` for every inbound request. These fields are never "missing" in practice, so the behavioral change does not affect IP/geo/time conditions.
 
 ## Branch
 

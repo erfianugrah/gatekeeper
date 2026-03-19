@@ -217,8 +217,21 @@ Conventions:
 - **React islands** via `client:load`. No SPA routing — each page is a full Astro page load.
 - Pages at `src/pages/dashboard/*.astro` → URL `/dashboard/*`. Login at `src/pages/login.astro` → URL `/login`.
 - `PillInput` component (`dashboard/src/components/PillInput.tsx`) — reusable pill/tag input with Enter/comma/paste commit, backspace removal, deduplication, validation, and optional max count.
-- Purge page profiles stored in `localStorage` (zone ID, name, purge type — no secrets). Last-used profile auto-restored.
+- Purge page profiles stored in `localStorage` (zone ID, name, purge type, values, URL entries with headers — no secrets). Last-used profile auto-restored with all saved values. Revert button restores the last saved state when the form is dirty.
+- `UrlEntryEditor` component (`dashboard/src/components/PurgePage.tsx`) — URL purge type uses a list-based editor instead of PillInput. Each URL entry has an expandable headers section for custom cache key headers (CF-Device-Type, Accept-Language, etc.). Entries with headers emit `{ url, headers }` objects in the API body; plain strings otherwise.
 - Condition editor shows AND/OR separators between conditions, clickable to toggle join mode. Inapplicable conditions (e.g. `host` field on `dns:*` actions) show warnings with the `appliesTo` field metadata.
+
+### Policy Engine — Inapplicable Condition Handling
+
+The policy engine uses **effect-aware skip** for conditions on fields that are absent from the request context (`src/policy-engine.ts`):
+
+- **Allow statements**: Missing field → condition is vacuously satisfied (skipped). This lets `allow purge:* where host contains erfi.io` also allow tag/prefix/everything purges that have no `host` field.
+- **Deny statements**: Missing field → condition fails → deny does not fire. This ensures `deny purge:* where host contains evil.com` does not block tag purges.
+- **`exists`/`not_exists` operators**: Never affected by skip behavior — they explicitly test for field presence.
+- **`not` compound condition**: The `not` wrapper inverts the vacuously-true result, causing `allow ... where NOT(field eq X)` to fail when the field is missing. This is a known limitation — recommend using the `deny` effect for exclusion patterns instead (e.g., `deny ... where field eq X`).
+- **Request-scoped fields** (`client_ip`, `client_country`, `client_asn`, `time.hour`, `time.day_of_week`): Always populated by `src/request-fields.ts`, never missing in practice. The skip behavior does not affect these fields.
+
+The `skipMissing` flag is threaded from `matchesStatement` (based on `stmt.effect`) through `evaluateCondition` into `evaluateLeaf`. A breadcrumb log is emitted when a condition is skipped: `{ breadcrumb: 'condition-field-missing-skipped', field, operator }`.
 
 ### Known Pitfalls
 

@@ -390,25 +390,25 @@ Chart color slots: `#c574dd`, `#5adecd`, `#f37e96`, `#f1a171`, `#8796f4`.
 | `/dashboard/upstream-tokens` | Upstream CF API token registry                                                                    |
 | `/dashboard/upstream-r2`     | Upstream R2 endpoint registry                                                                     |
 | `/dashboard/analytics`       | Unified event log (purge + DNS + S3 + CF proxy) with filters, expandable detail rows, JSON export |
-| `/dashboard/purge`           | Manual purge form with live rate-limit status                                                     |
+| `/dashboard/purge`           | Manual purge form with saved profiles, URL entries with custom cache key headers                  |
 | `/dashboard/settings`        | Config registry editor with inline edit, reset-to-default                                         |
 
 ### Component Inventory
 
-| Component           | Purpose                                                       |
-| ------------------- | ------------------------------------------------------------- |
-| `DashboardLayout`   | Astro layout: sidebar, header, content slot                   |
-| `OverviewDashboard` | Stat cards (count-up), traffic chart, purge type donut        |
-| `KeysPage`          | API key CRUD with expandable detail rows and policy builder   |
-| `S3CredentialsPage` | S3 credential CRUD with S3 policy builder                     |
-| `AnalyticsPage`     | Unified event log with expandable details                     |
-| `PolicyBuilder`     | Visual purge + DNS policy editor with condition tree          |
-| `S3PolicyBuilder`   | Visual S3 policy editor (19 action toggles, AWS IAM import)   |
-| `ConditionEditor`   | Recursive condition tree: leaf/AND/OR/NOT groups, pill inputs |
-| `TablePagination`   | Shared pagination bar with page size selector                 |
-| `usePagination`     | Client-side pagination hook [10, 25, 50, 100]                 |
-| `PurgePage`         | Manual purge form with type selector and zone picker          |
-| `SettingsPage`      | Config registry editor with inline edit and reset             |
+| Component           | Purpose                                                                           |
+| ------------------- | --------------------------------------------------------------------------------- |
+| `DashboardLayout`   | Astro layout: sidebar, header, content slot                                       |
+| `OverviewDashboard` | Stat cards (count-up), traffic chart, purge type donut                            |
+| `KeysPage`          | API key CRUD with expandable detail rows and policy builder                       |
+| `S3CredentialsPage` | S3 credential CRUD with S3 policy builder                                         |
+| `AnalyticsPage`     | Unified event log with expandable details                                         |
+| `PolicyBuilder`     | Visual purge + DNS policy editor with condition tree                              |
+| `S3PolicyBuilder`   | Visual S3 policy editor (19 action toggles, AWS IAM import)                       |
+| `ConditionEditor`   | Recursive condition tree: leaf/AND/OR/NOT groups, pill inputs                     |
+| `TablePagination`   | Shared pagination bar with page size selector                                     |
+| `usePagination`     | Client-side pagination hook [10, 25, 50, 100]                                     |
+| `PurgePage`         | Manual purge with saved profiles, URL entry editor with cache key headers, revert |
+| `SettingsPage`      | Config registry editor with inline edit and reset                                 |
 
 ---
 
@@ -560,7 +560,7 @@ cli/
     upstream-tokens.ts               gk upstream-tokens {create,list,get,delete,bulk-delete}
     upstream-r2.ts                   gk upstream-r2 {create,list,get,delete,bulk-delete}
     config.ts                        gk config {get,set,reset}
-test/                                32 test files (691 tests, with 1 CLI test in cli/)
+test/                                44 test files (1,038 tests, with 1 CLI test in cli/)
   helpers.ts                         Test factories, upstream token registration, mock helpers
   s3-helpers.ts                      R2 upstream registration, test constants
   policy-helpers.ts                  Shared policy test helpers

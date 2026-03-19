@@ -566,12 +566,15 @@ describe('Purge — policy authorization', () => {
 		});
 		expect(res2.status).toBe(403);
 
+		// Plain URL string has no headers object, so header.CF-Device-Type is absent from context.
+		// The inapplicable header condition is skipped; host still matches → allowed.
+		mockUpstreamSuccess();
 		const res3 = await SELF.fetch(`http://localhost/v1/zones/${ZONE_ID}/purge_cache`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ files: ['https://cdn.example.com/img/logo.png'] }),
 		});
-		expect(res3.status).toBe(403);
+		expect(res3.status).toBe(200);
 	});
 
 	it('denies action not in policy', async () => {
@@ -603,6 +606,104 @@ describe('Purge — policy authorization', () => {
 			body: JSON.stringify({ hosts: ['example.com'] }),
 		});
 		expect(res.status).toBe(403);
+	});
+
+	it('allow purge:* with host condition — tag purge allowed (inapplicable field skipped)', async () => {
+		// Scenario 1 from PLAN.md: the primary motivating use case.
+		// A host-conditioned allow on purge:* should let tag purges through
+		// because the host field is inapplicable to tag purges.
+		const keyId = await createKeyWithPolicy({
+			version: '2025-01-01',
+			statements: [
+				{
+					effect: 'allow',
+					actions: ['purge:*'],
+					resources: [`zone:${ZONE_ID}`],
+					conditions: [{ field: 'host', operator: 'contains', value: 'example.com' }],
+				},
+			],
+		});
+
+		// URL purge with matching host -> allowed
+		mockUpstreamSuccess();
+		const res1 = await SELF.fetch(`http://localhost/v1/zones/${ZONE_ID}/purge_cache`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ files: ['https://cdn.example.com/img.png'] }),
+		});
+		expect(res1.status).toBe(200);
+
+		// URL purge with non-matching host -> denied
+		const res2 = await SELF.fetch(`http://localhost/v1/zones/${ZONE_ID}/purge_cache`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ files: ['https://evil.com/page'] }),
+		});
+		expect(res2.status).toBe(403);
+
+		// Tag purge: host field is absent -> skipped -> allowed
+		mockUpstreamSuccess();
+		const res3 = await SELF.fetch(`http://localhost/v1/zones/${ZONE_ID}/purge_cache`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ tags: ['static-v2'] }),
+		});
+		expect(res3.status).toBe(200);
+
+		// Purge everything: host field is absent -> skipped -> allowed
+		mockUpstreamSuccess();
+		const res4 = await SELF.fetch(`http://localhost/v1/zones/${ZONE_ID}/purge_cache`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ purge_everything: true }),
+		});
+		expect(res4.status).toBe(200);
+	});
+
+	it('deny purge:* with host condition — tag purge not blocked (deny does not fire on missing field)', async () => {
+		// Scenario 2 from PLAN.md: deny with inapplicable field should not fire.
+		const keyId = await createKeyWithPolicy({
+			version: '2025-01-01',
+			statements: [
+				{
+					effect: 'allow',
+					actions: ['purge:*'],
+					resources: [`zone:${ZONE_ID}`],
+				},
+				{
+					effect: 'deny',
+					actions: ['purge:*'],
+					resources: [`zone:${ZONE_ID}`],
+					conditions: [{ field: 'host', operator: 'contains', value: 'evil.com' }],
+				},
+			],
+		});
+
+		// URL purge with denied host -> blocked by deny
+		const res1 = await SELF.fetch(`http://localhost/v1/zones/${ZONE_ID}/purge_cache`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ files: ['https://evil.com/page'] }),
+		});
+		expect(res1.status).toBe(403);
+
+		// URL purge with good host -> deny does not fire, allow matches
+		mockUpstreamSuccess();
+		const res2 = await SELF.fetch(`http://localhost/v1/zones/${ZONE_ID}/purge_cache`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ files: ['https://good.com/page'] }),
+		});
+		expect(res2.status).toBe(200);
+
+		// Tag purge: host field absent -> deny condition fails -> deny does not fire -> allow matches
+		mockUpstreamSuccess();
+		const res3 = await SELF.fetch(`http://localhost/v1/zones/${ZONE_ID}/purge_cache`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ tags: ['anything'] }),
+		});
+		expect(res3.status).toBe(200);
 	});
 });
 
