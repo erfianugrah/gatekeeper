@@ -462,28 +462,42 @@ export function ConditionEditor({ conditions, onChange, fields, operators, defau
 	const [showGroupMenu, setShowGroupMenu] = useState(false);
 	const groupMenuRef = useRef<HTMLDivElement>(null);
 
-	// Close group menu on outside click — uses ref containment check.
+	// Keep a ref to the latest conditions so event handlers always see fresh data.
+	// This avoids stale closure bugs where addGroup captures an old conditions array.
+	const conditionsRef = useRef(conditions);
+	conditionsRef.current = conditions;
+
+	const onChangeRef = useRef(onChange);
+	onChangeRef.current = onChange;
+
+	// Close group menu on outside mousedown — uses mousedown instead of click
+	// to avoid racing with onClick handlers inside the menu (which fire on click).
 	useEffect(() => {
 		if (!showGroupMenu) return;
-		const handleClick = (e: MouseEvent) => {
+		const handleMouseDown = (e: MouseEvent) => {
 			if (groupMenuRef.current && !groupMenuRef.current.contains(e.target as Node)) {
 				setShowGroupMenu(false);
 			}
 		};
-		document.addEventListener('click', handleClick);
-		return () => document.removeEventListener('click', handleClick);
+		document.addEventListener('mousedown', handleMouseDown);
+		return () => document.removeEventListener('mousedown', handleMouseDown);
 	}, [showGroupMenu]);
 
 	const addLeaf = () => {
-		onChange([...conditions, { _id: crypto.randomUUID(), field: defaultField, operator: 'eq', value: '' }]);
+		onChangeRef.current([...conditionsRef.current, { _id: crypto.randomUUID(), field: defaultField, operator: 'eq', value: '' }]);
 	};
 
-	const addGroup = (type: GroupType) => {
+	const addGroup = useCallback((type: GroupType, e: React.MouseEvent) => {
+		// Stop propagation so the outside-click (mousedown) handler doesn't
+		// race with this click and swallow the state update.
+		e.stopPropagation();
+		e.preventDefault();
 		const child: LeafCondition = { _id: crypto.randomUUID(), field: defaultField, operator: 'eq', value: '' };
-		if (type === 'any') onChange([...conditions, { _id: crypto.randomUUID(), any: [child] }]);
-		else onChange([...conditions, { _id: crypto.randomUUID(), all: [child] }]);
+		const current = conditionsRef.current;
+		if (type === 'any') onChangeRef.current([...current, { _id: crypto.randomUUID(), any: [child] }]);
+		else onChangeRef.current([...current, { _id: crypto.randomUUID(), all: [child] }]);
 		setShowGroupMenu(false);
-	};
+	}, [defaultField]);
 
 	const updateCondition = (index: number, c: Condition) => {
 		const next = [...conditions];
@@ -624,20 +638,22 @@ export function ConditionEditor({ conditions, onChange, fields, operators, defau
 							data-testid="group-menu"
 							className="absolute left-0 top-full z-50 mt-1 rounded-md border border-border bg-card shadow-lg py-1 w-44"
 						>
-							<button
-								type="button"
-								data-testid="group-option-or"
-								className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted/50 flex items-center gap-2"
-								onClick={() => addGroup('any')}
-							>
-								<span className="font-medium text-lv-yellow">OR group</span>
-								<span className="text-muted-foreground">at least one</span>
-							</button>
+						<button
+							type="button"
+							data-testid="group-option-or"
+							className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted/50 flex items-center gap-2"
+							onMouseDown={(e) => e.stopPropagation()}
+							onClick={(e) => addGroup('any', e)}
+						>
+							<span className="font-medium text-lv-yellow">OR group</span>
+							<span className="text-muted-foreground">at least one</span>
+						</button>
 						<button
 							type="button"
 							data-testid="group-option-and"
 							className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted/50 flex items-center gap-2"
-							onClick={() => addGroup('all')}
+							onMouseDown={(e) => e.stopPropagation()}
+							onClick={(e) => addGroup('all', e)}
 						>
 							<span className="font-medium text-lv-cyan">AND group</span>
 							<span className="text-muted-foreground">every one</span>
