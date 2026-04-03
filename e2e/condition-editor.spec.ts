@@ -82,10 +82,10 @@ test.describe('Condition Editor', () => {
 		await expect(page.locator('[data-testid="group-option-not"]')).not.toBeVisible();
 	});
 
-	// TODO: OR group click doesn't register in Playwright despite correct targeting.
-	// The addGroup('any') handler fires but the parent re-render loses the update.
-	// AND/NOT groups work fine. Likely a React closure staleness issue specific to the first menu option.
-	test.fixme('OR group can be added and shows label', async ({ page }) => {
+	// NOTE: This test requires a live wrangler dev server with Assets binding.
+	// The mousedown/click event race on the custom dropdown menu is only
+	// reproducible in Playwright when the Astro static assets are served.
+	test('OR group can be added and shows label', async ({ page }) => {
 		await openPolicyBuilder(page);
 
 		await page.locator('button:has-text("Add group")').first().click();
