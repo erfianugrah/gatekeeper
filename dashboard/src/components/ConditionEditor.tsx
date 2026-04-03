@@ -43,7 +43,7 @@ function ensureConditionId<T extends Condition>(c: T): T {
 	return c._id ? c : { ...c, _id: crypto.randomUUID() };
 }
 
-type GroupType = 'all' | 'any' | 'not';
+type GroupType = 'all' | 'any';
 
 // ─── Type guards ────────────────────────────────────────────────────
 
@@ -321,7 +321,10 @@ function ConditionNode({
 		groupType = 'all';
 		children = condition.all;
 	} else if (isNot(condition)) {
-		groupType = 'not';
+		// Legacy NOT groups: render as AND with the inner condition.
+		// NOT groups can no longer be created via the UI, but existing
+		// policies that use them are displayed gracefully.
+		groupType = 'all';
 		children = [condition.not];
 	} else {
 		return null;
@@ -329,16 +332,13 @@ function ConditionNode({
 
 	const updateChildren = (newChildren: Condition[]) => {
 		if (groupType === 'any') onChange({ any: newChildren });
-		else if (groupType === 'all') onChange({ all: newChildren });
-		else if (groupType === 'not' && newChildren.length > 0) onChange({ not: newChildren[0] });
+		else onChange({ all: newChildren });
 	};
 
 	const switchGroupType = (newType: GroupType) => {
 		if (newType === groupType) return;
 		const fallback: LeafCondition = { _id: crypto.randomUUID(), field: defaultField, operator: 'eq', value: '' };
-		if (newType === 'not') {
-			onChange({ _id: condition._id, not: children[0] ?? fallback });
-		} else if (newType === 'any') {
+		if (newType === 'any') {
 			onChange({ _id: condition._id, any: children.length > 0 ? children : [fallback] });
 		} else {
 			onChange({ _id: condition._id, all: children.length > 0 ? children : [fallback] });
@@ -347,11 +347,7 @@ function ConditionNode({
 
 	const addChild = () => {
 		const newChild: LeafCondition = { _id: crypto.randomUUID(), field: defaultField, operator: 'eq', value: '' };
-		if (groupType === 'not') {
-			onChange({ _id: crypto.randomUUID(), all: [condition, newChild] });
-		} else {
-			updateChildren([...children, newChild]);
-		}
+		updateChildren([...children, newChild]);
 	};
 
 	const removeChild = (index: number) => {
@@ -369,10 +365,9 @@ function ConditionNode({
 		updateChildren(next);
 	};
 
-	const groupLabel = groupType === 'any' ? 'Match ANY (OR)' : groupType === 'all' ? 'Match ALL (AND)' : 'NOT';
-	const borderColor = groupType === 'any' ? 'border-lv-yellow/30' : groupType === 'all' ? 'border-lv-cyan/30' : 'border-lv-red/30';
-	const bgColor = groupType === 'any' ? 'bg-lv-yellow/5' : groupType === 'all' ? 'bg-lv-cyan/5' : 'bg-lv-red/5';
-	const labelColor = groupType === 'any' ? 'text-lv-yellow' : groupType === 'all' ? 'text-lv-cyan' : 'text-lv-red';
+	const borderColor = groupType === 'any' ? 'border-lv-yellow/30' : 'border-lv-cyan/30';
+	const bgColor = groupType === 'any' ? 'bg-lv-yellow/5' : 'bg-lv-cyan/5';
+	const labelColor = groupType === 'any' ? 'text-lv-yellow' : 'text-lv-cyan';
 
 	return (
 		<div className={cn('rounded-md border pl-3 pr-2 py-2 space-y-2', borderColor, bgColor)}>
@@ -383,21 +378,18 @@ function ConditionNode({
 					<SelectTrigger className={cn('w-[150px] h-7 text-[11px] font-medium', labelColor)}>
 						<SelectValue />
 					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="all" className="text-xs">
-							Match ALL (AND)
-						</SelectItem>
-						<SelectItem value="any" className="text-xs">
-							Match ANY (OR)
-						</SelectItem>
-						<SelectItem value="not" className="text-xs">
-							NOT
-						</SelectItem>
-					</SelectContent>
+				<SelectContent>
+					<SelectItem value="all" className="text-xs">
+						Match ALL (AND)
+					</SelectItem>
+					<SelectItem value="any" className="text-xs">
+						Match ANY (OR)
+					</SelectItem>
+				</SelectContent>
 				</Select>
-				<span className="text-[10px] text-muted-foreground">
-					{groupType === 'any' ? 'at least one must match' : groupType === 'all' ? 'every condition must match' : 'inverts the result'}
-				</span>
+			<span className="text-[10px] text-muted-foreground">
+				{groupType === 'any' ? 'at least one must match' : 'every condition must match'}
+			</span>
 				<Button
 					type="button"
 					variant="ghost"
@@ -409,14 +401,32 @@ function ConditionNode({
 				</Button>
 			</div>
 
-			{/* Children */}
-			<div className="space-y-2">
-				{children.map((rawChild, i) => {
-					const child = ensureConditionId(rawChild);
-					if (child !== rawChild) children[i] = child;
-					return (
+		{/* Children with AND/OR separators */}
+		<div className="space-y-0">
+			{children.map((rawChild, i) => {
+				const child = ensureConditionId(rawChild);
+				if (child !== rawChild) children[i] = child;
+				return (
+					<div key={child._id}>
+						{i > 0 && (
+							<div className="flex items-center gap-2 py-1">
+								<div className="flex-1 border-t border-border" />
+								<button
+									type="button"
+									onClick={() => switchGroupType(groupType === 'all' ? 'any' : 'all')}
+									className={cn(
+										'text-[10px] font-semibold uppercase tracking-widest transition-colors rounded px-2 py-0.5',
+										'hover:bg-muted/50 cursor-pointer',
+										groupType === 'all' ? 'text-lv-cyan' : 'text-lv-yellow',
+									)}
+									title={groupType === 'all' ? 'Click to switch to OR (any match)' : 'Click to switch to AND (all match)'}
+								>
+									{groupType === 'all' ? 'AND' : 'OR'}
+								</button>
+								<div className="flex-1 border-t border-border" />
+							</div>
+						)}
 						<ConditionNode
-							key={child._id}
 							condition={child}
 							onChange={(c) => updateChild(i, c)}
 							onRemove={() => removeChild(i)}
@@ -426,23 +436,22 @@ function ConditionNode({
 							depth={depth + 1}
 							activeActionPrefixes={activeActionPrefixes}
 						/>
-					);
-				})}
-			</div>
+					</div>
+				);
+			})}
+		</div>
 
-			{/* Add child */}
-			{groupType !== 'not' && (
-				<Button
-					type="button"
-					variant="ghost"
-					size="sm"
-					className="h-6 text-[11px] text-muted-foreground hover:text-foreground"
-					onClick={addChild}
-				>
-					<Plus className="h-3 w-3 mr-1" />
-					Add condition
-				</Button>
-			)}
+		{/* Add child */}
+		<Button
+			type="button"
+			variant="ghost"
+			size="sm"
+			className="h-6 text-[11px] text-muted-foreground hover:text-foreground"
+			onClick={addChild}
+		>
+			<Plus className="h-3 w-3 mr-1" />
+			Add condition
+		</Button>
 		</div>
 	);
 }
@@ -472,8 +481,7 @@ export function ConditionEditor({ conditions, onChange, fields, operators, defau
 	const addGroup = (type: GroupType) => {
 		const child: LeafCondition = { _id: crypto.randomUUID(), field: defaultField, operator: 'eq', value: '' };
 		if (type === 'any') onChange([...conditions, { _id: crypto.randomUUID(), any: [child] }]);
-		else if (type === 'all') onChange([...conditions, { _id: crypto.randomUUID(), all: [child] }]);
-		else onChange([...conditions, { _id: crypto.randomUUID(), not: child }]);
+		else onChange([...conditions, { _id: crypto.randomUUID(), all: [child] }]);
 		setShowGroupMenu(false);
 	};
 
@@ -625,24 +633,15 @@ export function ConditionEditor({ conditions, onChange, fields, operators, defau
 								<span className="font-medium text-lv-yellow">OR group</span>
 								<span className="text-muted-foreground">at least one</span>
 							</button>
-							<button
-								type="button"
-								data-testid="group-option-and"
-								className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted/50 flex items-center gap-2"
-								onClick={() => addGroup('all')}
-							>
-								<span className="font-medium text-lv-cyan">AND group</span>
-								<span className="text-muted-foreground">every one</span>
-							</button>
-							<button
-								type="button"
-								data-testid="group-option-not"
-								className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted/50 flex items-center gap-2"
-								onClick={() => addGroup('not')}
-							>
-								<span className="font-medium text-lv-red">NOT</span>
-								<span className="text-muted-foreground">invert</span>
-							</button>
+						<button
+							type="button"
+							data-testid="group-option-and"
+							className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted/50 flex items-center gap-2"
+							onClick={() => addGroup('all')}
+						>
+							<span className="font-medium text-lv-cyan">AND group</span>
+							<span className="text-muted-foreground">every one</span>
+						</button>
 						</div>
 					)}
 				</div>
