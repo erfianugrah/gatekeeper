@@ -69,7 +69,7 @@ test.describe('Condition Editor', () => {
 		await expect(page.locator('.tracking-widest:has-text("AND")')).toBeVisible();
 	});
 
-	test('add group dropdown shows OR, AND, NOT options', async ({ page }) => {
+	test('add group dropdown shows OR and AND options (no NOT)', async ({ page }) => {
 		await openPolicyBuilder(page);
 
 		await page.locator('button:has-text("Add group")').first().click();
@@ -78,7 +78,8 @@ test.describe('Condition Editor', () => {
 		await expect(menu).toBeVisible();
 		await expect(page.locator('[data-testid="group-option-or"]')).toBeVisible();
 		await expect(page.locator('[data-testid="group-option-and"]')).toBeVisible();
-		await expect(page.locator('[data-testid="group-option-not"]')).toBeVisible();
+		// NOT group is no longer offered — negation is per-operator (ne, not_contains, etc.)
+		await expect(page.locator('[data-testid="group-option-not"]')).not.toBeVisible();
 	});
 
 	// TODO: OR group click doesn't register in Playwright despite correct targeting.
@@ -104,14 +105,22 @@ test.describe('Condition Editor', () => {
 		await expect(page.locator('text=every condition must match')).toBeVisible({ timeout: 5000 });
 	});
 
-	test('NOT group can be added and shows label', async ({ page }) => {
+	test('AND group shows AND separator between children', async ({ page }) => {
 		await openPolicyBuilder(page);
 
 		await page.locator('button:has-text("Add group")').first().click();
 		await expect(page.locator('[data-testid="group-menu"]')).toBeVisible();
-		await page.locator('[data-testid="group-option-not"]').click();
+		await page.locator('[data-testid="group-option-and"]').click();
 
-		await expect(page.locator('text=inverts the result')).toBeVisible({ timeout: 5000 });
+		await expect(page.locator('text=every condition must match')).toBeVisible({ timeout: 5000 });
+
+		// Add a second condition inside the group — AND separator should appear
+		const addBtn = page.locator('button:has-text("Add condition")').last();
+		await addBtn.click();
+
+		// The nested AND separator should be visible
+		const andLabels = page.locator('.tracking-widest:has-text("AND")');
+		await expect(andLabels.first()).toBeVisible();
 	});
 
 	test('clicking outside group dropdown closes it', async ({ page }) => {
