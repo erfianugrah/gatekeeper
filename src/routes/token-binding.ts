@@ -14,12 +14,13 @@
 
 import type { Gatekeeper } from '../durable-object';
 import type { PolicyDocument } from '../policy-types';
-import type { UpstreamToken } from '../upstream-tokens';
+import type { UpstreamToken, UpstreamTokenScopeType } from '../upstream-tokens';
 
 // ─── Action prefix sets by token scope ──────────────────────────────────────
 
 const ZONE_ACTION_PREFIXES = ['purge:', 'dns:'];
 const ACCOUNT_ACTION_PREFIXES = ['d1:', 'kv:', 'workers:', 'queues:', 'vectorize:', 'hyperdrive:'];
+const SUPABASE_ACTION_PREFIXES = ['supabase:'];
 
 // ─── Public validation entry point ──────────────────────────────────────────
 
@@ -76,9 +77,28 @@ export async function validateTokenBinding(
 
 // ─── Action validation ──────────────────────────────────────────────────────
 
-function validateActions(actions: string[], scopeType: 'zone' | 'account', prefix: string, errors: string[]): void {
-	const allowedPrefixes = scopeType === 'zone' ? ZONE_ACTION_PREFIXES : ACCOUNT_ACTION_PREFIXES;
-	const scopeLabel = scopeType === 'zone' ? 'zone-scoped' : 'account-scoped';
+const SCOPE_LABELS: Record<UpstreamTokenScopeType, string> = {
+	zone: 'zone-scoped',
+	account: 'account-scoped',
+	supabase: 'supabase',
+	supabase_metrics: 'supabase-metrics',
+};
+
+function allowedActionPrefixes(scopeType: UpstreamTokenScopeType): string[] {
+	switch (scopeType) {
+		case 'zone':
+			return ZONE_ACTION_PREFIXES;
+		case 'account':
+			return ACCOUNT_ACTION_PREFIXES;
+		case 'supabase':
+		case 'supabase_metrics':
+			return SUPABASE_ACTION_PREFIXES;
+	}
+}
+
+function validateActions(actions: string[], scopeType: UpstreamTokenScopeType, prefix: string, errors: string[]): void {
+	const allowedPrefixes = allowedActionPrefixes(scopeType);
+	const scopeLabel = SCOPE_LABELS[scopeType];
 
 	for (const action of actions) {
 		const matchesScope = allowedPrefixes.some((p) => action.startsWith(p));
@@ -92,11 +112,61 @@ function validateActions(actions: string[], scopeType: 'zone' | 'account', prefi
 
 // ─── Resource validation ────────────────────────────────────────────────────
 
-function validateResources(resources: string[], scopeType: 'zone' | 'account', scopeIds: string[], prefix: string, errors: string[]): void {
-	if (scopeType === 'zone') {
-		validateZoneResources(resources, scopeIds, prefix, errors);
-	} else {
-		validateAccountResources(resources, scopeIds, prefix, errors);
+function validateResources(
+	resources: string[],
+	scopeType: UpstreamTokenScopeType,
+	scopeIds: string[],
+	prefix: string,
+	errors: string[],
+): void {
+	switch (scopeType) {
+		case 'zone':
+			validateZoneResources(resources, scopeIds, prefix, errors);
+			return;
+		case 'account':
+			validateAccountResources(resources, scopeIds, prefix, errors);
+			return;
+		case 'supabase':
+		case 'supabase_metrics':
+			validateSupabaseResources(resources, scopeIds, prefix, errors);
+			return;
+	}
+}
+
+/**
+ * Supabase-scoped token: resources must be project:<ref>, org:<slug>, branch:<id>, or supabase:account.
+ * For project:<ref> resources, the ref must be covered by the token's stored refs (zone_ids) unless
+ * the token is wildcard (zone_ids: ["*"]).
+ */
+function validateSupabaseResources(resources: string[], scopeIds: string[], prefix: string, errors: string[]): void {
+	const isWildcard = scopeIds.length === 1 && scopeIds[0] === '*';
+	const allowedPrefixes = ['project:', 'org:', 'branch:'];
+
+	for (const resource of resources) {
+		if (resource === '*') continue; // already reported above
+		if (resource === 'supabase:account') continue; // account-wide Management API endpoints
+
+		const matchedPrefix = allowedPrefixes.find((p) => resource.startsWith(p));
+		if (!matchedPrefix) {
+			errors.push(
+				`${prefix}.resources: '${resource}' must be 'project:<ref>', 'org:<slug>', 'branch:<id>', or 'supabase:account' for a Supabase token`,
+			);
+			continue;
+		}
+
+		// Only project:<ref> is constrained by the token's ref coverage.
+		if (matchedPrefix === 'project:') {
+			const ref = resource.slice('project:'.length);
+			if (ref === '*') {
+				if (!isWildcard) {
+					errors.push(`${prefix}.resources: 'project:*' is only allowed when the upstream token covers all projects (zone_ids: ["*"])`);
+				}
+				continue;
+			}
+			if (!isWildcard && !scopeIds.includes(ref)) {
+				errors.push(`${prefix}.resources: project '${ref}' is not covered by the upstream token (allowed: ${scopeIds.join(', ')})`);
+			}
+		}
 	}
 }
 
