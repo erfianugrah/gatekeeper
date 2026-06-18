@@ -10,6 +10,7 @@
 
 import { z } from 'zod';
 import { ZONE_ID_RE, ACCOUNT_ID_RE, DEFAULT_ANALYTICS_LIMIT, MAX_ANALYTICS_LIMIT } from '../constants';
+import { SUPABASE_REF_RE } from '../supabase/constants';
 import { POLICY_VERSION } from '../policy-types';
 import { CONFIG_DEFAULTS } from '../config-registry';
 
@@ -166,21 +167,38 @@ export type UpdateS3CredentialInput = z.infer<typeof updateS3CredentialSchema>;
 
 // ─── Create upstream token schema ───────────────────────────────────────────
 
-export const createUpstreamTokenSchema = z.object({
-	name: z.string().min(1, 'Required field: name (string)'),
-	token: z.string().min(1, 'Required field: token (string)'),
-	scope_type: z.enum(['zone', 'account']).optional().default('zone'),
-	zone_ids: z
-		.array(
-			z.string().refine((v) => v === '*' || ZONE_ID_RE.test(v) || ACCOUNT_ID_RE.test(v), {
-				message: 'Each ID must be a 32-char hex string or "*"',
-			}),
-		)
-		.min(1, 'Required field: zone_ids (non-empty array of zone/account IDs, or ["*"])'),
-	expires_in_days: positiveFiniteNumber.optional(),
-	created_by: z.string().optional(),
-	validate: z.boolean().optional(),
-});
+export const createUpstreamTokenSchema = z
+	.object({
+		name: z.string().min(1, 'Required field: name (string)'),
+		token: z.string().min(1, 'Required field: token (string)'),
+		scope_type: z.enum(['zone', 'account', 'supabase', 'supabase_metrics']).optional().default('zone'),
+		zone_ids: z
+			.array(
+				z.string().refine((v) => v === '*' || ZONE_ID_RE.test(v) || ACCOUNT_ID_RE.test(v) || SUPABASE_REF_RE.test(v), {
+					message: 'Each ID must be a 32-char hex string, a 20-char Supabase project ref, or "*"',
+				}),
+			)
+			.min(1, 'Required field: zone_ids (non-empty array of zone/account IDs / project refs, or ["*"])'),
+		auth_type: z.enum(['bearer', 'basic']).optional(),
+		username: z.string().optional(),
+		expires_in_days: positiveFiniteNumber.optional(),
+		created_by: z.string().optional(),
+		validate: z.boolean().optional(),
+	})
+	.superRefine((val, ctx) => {
+		// Supabase metrics credentials use HTTP Basic Auth — enforce auth_type=basic.
+		if (val.scope_type === 'supabase_metrics' && val.auth_type !== 'basic') {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['auth_type'], message: 'supabase_metrics credentials require auth_type=basic' });
+		}
+		// Supabase refs (both scopes) must be 20-char project refs or "*" — reject hex account IDs etc.
+		if (val.scope_type === 'supabase' || val.scope_type === 'supabase_metrics') {
+			for (const ref of val.zone_ids) {
+				if (ref !== '*' && !SUPABASE_REF_RE.test(ref)) {
+					ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['zone_ids'], message: `Invalid Supabase project ref: ${ref}` });
+				}
+			}
+		}
+	});
 
 export type CreateUpstreamTokenInput = z.infer<typeof createUpstreamTokenSchema>;
 
@@ -879,6 +897,31 @@ export const cfProxyAnalyticsSummaryQuerySchema = z.object({
 });
 
 export type CfProxyAnalyticsSummaryQuery = z.infer<typeof cfProxyAnalyticsSummaryQuerySchema>;
+
+/** Supabase proxy analytics: GET /admin/supabase/analytics */
+export const supabaseProxyAnalyticsEventsQuerySchema = z.object({
+	project_ref: z.string().optional(),
+	key_id: z.string().optional(),
+	category: z.string().optional(),
+	action: z.string().optional(),
+	since: z.coerce.number().optional(),
+	until: z.coerce.number().optional(),
+	limit: z.coerce.number().int().min(1).max(MAX_ANALYTICS_LIMIT).optional().default(DEFAULT_ANALYTICS_LIMIT),
+});
+
+export type SupabaseProxyAnalyticsEventsQuery = z.infer<typeof supabaseProxyAnalyticsEventsQuerySchema>;
+
+/** Supabase proxy analytics: GET /admin/supabase/analytics/summary */
+export const supabaseProxyAnalyticsSummaryQuerySchema = z.object({
+	project_ref: z.string().optional(),
+	key_id: z.string().optional(),
+	category: z.string().optional(),
+	action: z.string().optional(),
+	since: z.coerce.number().optional(),
+	until: z.coerce.number().optional(),
+});
+
+export type SupabaseProxyAnalyticsSummaryQuery = z.infer<typeof supabaseProxyAnalyticsSummaryQuerySchema>;
 
 /** DNS analytics: GET /admin/dns/analytics/events */
 export const dnsAnalyticsEventsQuerySchema = z.object({
