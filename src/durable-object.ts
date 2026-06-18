@@ -658,6 +658,16 @@ export class Gatekeeper extends DurableObject<Env> {
 		return this.upstreamTokens.resolveTokenById(tokenId);
 	}
 
+	/** Resolve a Supabase Management API PAT for a project ref / org slug. Returns null if no match. */
+	async resolveSupabaseToken(ref: string): Promise<string | null> {
+		return this.upstreamTokens.resolveSupabaseToken(ref);
+	}
+
+	/** Resolve a Supabase Metrics Basic credential for a project ref. Returns null if no match. */
+	async resolveSupabaseMetricsCredential(ref: string): Promise<{ username: string; secret: string } | null> {
+		return this.upstreamTokens.resolveSupabaseMetricsCredential(ref);
+	}
+
 	// ─── Upstream R2 RPC methods ────────────────────────────────────────
 
 	async createUpstreamR2(req: CreateUpstreamR2Request): Promise<{ endpoint: UpstreamR2 }> {

@@ -5,18 +5,31 @@ import type { BulkResult, BulkItemResult, BulkDryRunResult, BulkInspectItem } fr
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-/** Token scope: 'zone' for zone-scoped ops (purge, DNS), 'account' for account-scoped ops (D1, KV, Workers). */
-export type UpstreamTokenScopeType = 'zone' | 'account';
+/**
+ * Token scope:
+ *   'zone'             — zone-scoped Cloudflare ops (purge, DNS)
+ *   'account'          — account-scoped Cloudflare ops (D1, KV, Workers)
+ *   'supabase'         — Supabase Management API PAT (bearer), keyed by project ref / org slug
+ *   'supabase_metrics' — Supabase per-project Metrics API secret (HTTP Basic), keyed by project ref
+ */
+export type UpstreamTokenScopeType = 'zone' | 'account' | 'supabase' | 'supabase_metrics';
+
+/** How the upstream credential is presented upstream. 'bearer' (default) or 'basic' (username + secret). */
+export type UpstreamAuthType = 'bearer' | 'basic';
 
 export interface UpstreamToken {
 	id: string;
 	name: string;
-	/** 'zone' (default, legacy) or 'account'. */
+	/** 'zone' (default, legacy), 'account', 'supabase', or 'supabase_metrics'. */
 	scope_type: UpstreamTokenScopeType;
-	/** Comma-separated zone IDs or account IDs (depending on scope_type), or "*" for all. */
+	/** Comma-separated zone IDs / account IDs / project refs (depending on scope_type), or "*" for all. */
 	zone_ids: string;
 	/** First 4 + last 4 chars of the token for display. */
 	token_preview: string;
+	/** 'bearer' (default) or 'basic'. */
+	auth_type: UpstreamAuthType;
+	/** Basic-auth username when auth_type='basic'; null otherwise. */
+	username: string | null;
 	created_at: number;
 	/** Unix ms timestamp when this token expires, or null for no expiry. */
 	expires_at: number | null;
@@ -33,8 +46,12 @@ export interface CreateUpstreamTokenRequest {
 	token: string;
 	/** Scope type for this token. Defaults to 'zone' for backward compatibility. */
 	scope_type?: UpstreamTokenScopeType;
-	/** Zone IDs or account IDs this token covers (depending on scope_type), or ["*"] for all. */
+	/** Zone IDs / account IDs / project refs this token covers (depending on scope_type), or ["*"] for all. */
 	zone_ids: string[];
+	/** Credential presentation. Defaults to 'bearer'. */
+	auth_type?: UpstreamAuthType;
+	/** Basic-auth username (only meaningful when auth_type='basic'). */
+	username?: string | null;
 	/** Optional expiry in days from now. */
 	expires_in_days?: number;
 	created_by?: string;
@@ -48,8 +65,8 @@ const ID_PREFIX = 'upt_';
 
 export class UpstreamTokenManager {
 	private sql: SqlStorage;
-	/** zone_id -> token value cache. Invalidated on write. */
-	private resolveCache = new Map<string, { token: string; cachedAt: number }>();
+	/** resolution cache keyed by `${scope}:${id}` (or bare zone_id legacy). Invalidated on write. */
+	private resolveCache = new Map<string, { token?: string; row?: UpstreamTokenRow; cachedAt: number }>();
 	private cacheTtlMs: number;
 
 	constructor(sql: SqlStorage, cacheTtlMs: number = DEFAULT_CACHE_TTL_MS) {
@@ -90,6 +107,17 @@ export class UpstreamTokenManager {
 			console.log(JSON.stringify({ migration: 'upstream_tokens', action: 'add_column_expires_at', ts: new Date().toISOString() }));
 			this.sql.exec(`ALTER TABLE upstream_tokens ADD COLUMN expires_at INTEGER`);
 		}
+
+		// Migration: add auth_type + username columns for Supabase metrics (HTTP Basic) credentials.
+		const colsAuth = queryAll<{ name: string }>(this.sql, `PRAGMA table_info('upstream_tokens')`);
+		if (!colsAuth.some((c) => c.name === 'auth_type')) {
+			console.log(JSON.stringify({ migration: 'upstream_tokens', action: 'add_column_auth_type', ts: new Date().toISOString() }));
+			this.sql.exec(`ALTER TABLE upstream_tokens ADD COLUMN auth_type TEXT NOT NULL DEFAULT 'bearer'`);
+		}
+		if (!colsAuth.some((c) => c.name === 'username')) {
+			console.log(JSON.stringify({ migration: 'upstream_tokens', action: 'add_column_username', ts: new Date().toISOString() }));
+			this.sql.exec(`ALTER TABLE upstream_tokens ADD COLUMN username TEXT`);
+		}
 	}
 
 	// ─── CRUD ───────────────────────────────────────────────────────────
@@ -101,17 +129,21 @@ export class UpstreamTokenManager {
 		const zoneIdsStr = req.zone_ids.join(',');
 		const preview = makePreview(req.token);
 		const scopeType = req.scope_type ?? 'zone';
+		const authType = req.auth_type ?? 'bearer';
+		const username = req.username ?? null;
 		const expiresAt = req.expires_in_days ? now + req.expires_in_days * MS_PER_DAY : null;
 
 		this.sql.exec(
-			`INSERT INTO upstream_tokens (id, name, token, token_preview, zone_ids, scope_type, created_at, expires_at, created_by)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO upstream_tokens (id, name, token, token_preview, zone_ids, scope_type, auth_type, username, created_at, expires_at, created_by)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id,
 			req.name,
 			req.token,
 			preview,
 			zoneIdsStr,
 			scopeType,
+			authType,
+			username,
 			now,
 			expiresAt,
 			req.created_by ?? null,
@@ -126,6 +158,8 @@ export class UpstreamTokenManager {
 				scope_type: scopeType,
 				zone_ids: zoneIdsStr,
 				token_preview: preview,
+				auth_type: authType,
+				username,
 				created_at: now,
 				expires_at: expiresAt,
 				created_by: req.created_by ?? null,
@@ -137,7 +171,7 @@ export class UpstreamTokenManager {
 	listTokens(): UpstreamToken[] {
 		return queryAll<UpstreamToken>(
 			this.sql,
-			'SELECT id, name, scope_type, zone_ids, token_preview, created_at, expires_at, created_by FROM upstream_tokens ORDER BY created_at DESC',
+			'SELECT id, name, scope_type, zone_ids, token_preview, auth_type, username, created_at, expires_at, created_by FROM upstream_tokens ORDER BY created_at DESC',
 		);
 	}
 
@@ -145,7 +179,7 @@ export class UpstreamTokenManager {
 	getToken(id: string): { token: UpstreamToken } | null {
 		const rows = queryAll<UpstreamToken>(
 			this.sql,
-			'SELECT id, name, scope_type, zone_ids, token_preview, created_at, expires_at, created_by FROM upstream_tokens WHERE id = ?',
+			'SELECT id, name, scope_type, zone_ids, token_preview, auth_type, username, created_at, expires_at, created_by FROM upstream_tokens WHERE id = ?',
 			id,
 		);
 		if (rows.length === 0) return null;
@@ -251,7 +285,7 @@ export class UpstreamTokenManager {
 		const cached = this.resolveCache.get(zoneId);
 		if (cached && Date.now() - cached.cachedAt < this.cacheTtlMs) {
 			console.log(JSON.stringify({ breadcrumb: 'upstream-token-cache-hit', zoneId }));
-			return cached.token;
+			return cached.token ?? null;
 		}
 
 		// Look for a zone-scoped token that covers this zone — prefer exact match over wildcard.
@@ -297,7 +331,7 @@ export class UpstreamTokenManager {
 		const cached = this.resolveCache.get(cacheKey);
 		if (cached && Date.now() - cached.cachedAt < this.cacheTtlMs) {
 			console.log(JSON.stringify({ breadcrumb: 'upstream-account-token-cache-hit', accountId }));
-			return cached.token;
+			return cached.token ?? null;
 		}
 
 		const rows = queryAll<UpstreamTokenRow>(
@@ -333,6 +367,64 @@ export class UpstreamTokenManager {
 		return null;
 	}
 
+	// ─── Supabase resolution ────────────────────────────────────────────
+
+	/** Resolve a Supabase Management API PAT (bearer) for a project ref or org slug. */
+	resolveSupabaseToken(ref: string): string | null {
+		const row = this.resolveRowByScope('supabase', ref);
+		return row ? row.token : null;
+	}
+
+	/**
+	 * Resolve a Supabase Metrics Basic credential for a project ref.
+	 * The metrics endpoint authenticates on the PASSWORD (the sb_secret_ key) only — the username
+	 * is ignored by Supabase (verified against a live project 2026-06-18). We send 'service_role'
+	 * by convention; a stored username override is honoured but functionally moot.
+	 */
+	resolveSupabaseMetricsCredential(ref: string): { username: string; secret: string } | null {
+		const row = this.resolveRowByScope('supabase_metrics', ref);
+		if (!row) return null;
+		return { username: row.username ?? 'service_role', secret: row.token };
+	}
+
+	/**
+	 * Shared exact-then-wildcard resolution over the comma-separated zone_ids column, filtered by
+	 * scope_type. Mirrors resolveTokenForAccount but returns the full row (needed for auth_type / username)
+	 * and works for any scope. Skips expired rows; newest registration wins.
+	 */
+	private resolveRowByScope(scopeType: UpstreamTokenScopeType, id: string): UpstreamTokenRow | null {
+		const cacheKey = `${scopeType}:${id}`;
+		const cached = this.resolveCache.get(cacheKey);
+		if (cached && Date.now() - cached.cachedAt < this.cacheTtlMs) {
+			console.log(JSON.stringify({ breadcrumb: 'upstream-scope-cache-hit', scopeType, id }));
+			return cached.row ?? null;
+		}
+
+		const rows = queryAll<UpstreamTokenRow>(this.sql, `SELECT * FROM upstream_tokens WHERE scope_type = ? ORDER BY created_at DESC`, scopeType);
+		const now = Date.now();
+		let wildcard: UpstreamTokenRow | null = null;
+
+		for (const row of rows) {
+			if (row.expires_at !== null && row.expires_at <= now) continue;
+			const ids = row.zone_ids.split(',');
+			if (ids.includes(id)) {
+				this.resolveCache.set(cacheKey, { row, cachedAt: Date.now() });
+				console.log(JSON.stringify({ breadcrumb: 'upstream-scope-exact-match', scopeType, id, tokenId: row.id }));
+				return row;
+			}
+			if (ids.includes('*') && !wildcard) wildcard = row;
+		}
+
+		if (wildcard) {
+			this.resolveCache.set(cacheKey, { row: wildcard, cachedAt: Date.now() });
+			console.log(JSON.stringify({ breadcrumb: 'upstream-scope-wildcard-match', scopeType, id }));
+			return wildcard;
+		}
+
+		console.log(JSON.stringify({ breadcrumb: 'upstream-scope-not-found', scopeType, id, totalTokens: rows.length }));
+		return null;
+	}
+
 	/**
 	 * Resolve the upstream CF API token by its ID.
 	 * Used when a key is pinned to a specific upstream token via upstream_token_id.
@@ -343,7 +435,7 @@ export class UpstreamTokenManager {
 		const cached = this.resolveCache.get(cacheKey);
 		if (cached && Date.now() - cached.cachedAt < this.cacheTtlMs) {
 			console.log(JSON.stringify({ breadcrumb: 'upstream-token-by-id-cache-hit', tokenId }));
-			return cached.token;
+			return cached.token ?? null;
 		}
 
 		const rows = queryAll<UpstreamTokenRow>(this.sql, 'SELECT * FROM upstream_tokens WHERE id = ?', tokenId);
