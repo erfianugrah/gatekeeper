@@ -48,6 +48,22 @@ When running a single worker test file, you do NOT need `-c vitest.worker.config
 
 https://developers.cloudflare.com/workers/runtime-apis/nodejs/
 
+## Deployment & environments
+
+Two Workers, one codebase, via wrangler [environments](https://developers.cloudflare.com/workers/wrangler/environments/):
+
+| Env | Worker name | Route | D1 (`ANALYTICS_DB`) |
+| --- | --- | --- | --- |
+| **production** (top-level config) | `gatekeeper` | `gate.erfi.io` (custom domain) | `gatekeeper-analytics` |
+| **staging** (`env.staging`) | `gatekeeper-staging` | `gatekeeper-staging.anugrah.workers.dev` | `gatekeeper-analytics-staging` |
+
+- **Top-level config IS production.** Bare `wrangler deploy` (and `npm run deploy` / `ship`) deploys prod. The `@cloudflare/vitest-pool-workers` test pool also reads the top-level config (no `environment` set), so the top-level bindings must stay intact.
+- **`env.staging` repeats the bindings on purpose.** `durable_objects` and `d1_databases` are [non-inheritable](https://developers.cloudflare.com/workers/wrangler/configuration/#non-inheritable-keys) — once any one is overridden in an env, all bindings must be redeclared there. `routes` is inheritable, so staging overrides it to `[]` + `workers_dev: true` to avoid claiming `gate.erfi.io`. Staging gets its own isolated DO namespace automatically (separate Worker script).
+- `account_id` is pinned in `wrangler.jsonc` because the dev-box global API key spans multiple accounts; without it wrangler errors on account ambiguity.
+- Deploy staging manually with `npm run deploy:staging` (or `ship:staging` to gate on preflight first).
+- **CD lives in `ci.yml`** (`deploy` job, `needs: preflight` so a red suite never ships): push to `main` → staging, push tag `v*` → production, `workflow_dispatch` → chosen env. Auth is the scoped `CLOUDFLARE_API_TOKEN` repo secret (Workers Scripts + D1 on the account, Workers Routes + Zone Read on erfi.io) — **never** the global API key.
+- Secrets are per-environment (`wrangler secret put <NAME> --env staging`). Staging has its own `ADMIN_KEY`; the other secrets (CF_ACCESS_*, RBAC_*) are unset on staging until needed.
+
 ## Errors
 
 - **Error 1102** (CPU/Memory exceeded): Retrieve limits from `/workers/platform/limits/`

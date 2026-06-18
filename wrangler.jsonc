@@ -1,6 +1,9 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "gatekeeper",
+	// Pinned so wrangler resolves the right account (the global API key on the dev box spans
+	// multiple accounts) without needing CLOUDFLARE_ACCOUNT_ID exported. Account ID is not secret.
+	"account_id": "25f21f141824546aa72c74451a11b419",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-03-01",
 	"compatibility_flags": ["nodejs_compat"],
@@ -49,5 +52,33 @@
 	},
 	"triggers": {
 		"crons": ["0 3 * * *"],
+	},
+	// ─── Environments ──────────────────────────────────────────────────
+	// Top-level config is production (what `wrangler deploy` and the vitest worker pool read).
+	// `staging` is a separate Worker script on workers.dev with its own DO namespace + D1, for
+	// smoke-testing against a real edge before promoting to prod. Bindings (durable_objects,
+	// d1_databases) are non-inheritable, so they MUST be repeated here; `routes` is inheritable,
+	// so it is overridden to [] (+ workers_dev) to stop staging from claiming gate.erfi.io.
+	"env": {
+		"staging": {
+			"name": "gatekeeper-staging",
+			"workers_dev": true,
+			"routes": [],
+			"durable_objects": {
+				"bindings": [
+					{
+						"class_name": "Gatekeeper",
+						"name": "GATEKEEPER",
+					},
+				],
+			},
+			"d1_databases": [
+				{
+					"binding": "ANALYTICS_DB",
+					"database_name": "gatekeeper-analytics-staging",
+					"database_id": "265a03b7-a7ff-4a17-b14c-b46eab6743fe",
+				},
+			],
+		},
 	},
 }
