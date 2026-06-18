@@ -123,11 +123,17 @@ describe('supabase management proxy RBAC', () => {
 			headers: { Authorization: `Bearer ${key}` },
 		});
 
-		const analytics = await SELF.fetch(`https://gk/admin/supabase/analytics?project_ref=${REF}`, { headers: adminHeaders() });
+		const analytics = await SELF.fetch(`https://gk/admin/supabase/analytics/events?project_ref=${REF}`, { headers: adminHeaders() });
 		expect(analytics.status).toBe(200);
 		const data = await analytics.json<any>();
 		const rows = data.result ?? data.events ?? data;
 		const hit = (Array.isArray(rows) ? rows : []).some((r: any) => r.action === 'supabase:database:read' && r.status === 200);
 		expect(hit).toBe(true);
+
+		// Timeseries endpoint (parity with cf/dns/s3) returns bucketed counts.
+		const ts = await SELF.fetch(`https://gk/admin/supabase/analytics/timeseries?project_ref=${REF}`, { headers: adminHeaders() });
+		expect(ts.status).toBe(200);
+		const tsData = await ts.json<any>();
+		expect(Array.isArray(tsData.result)).toBe(true);
 	});
 });
