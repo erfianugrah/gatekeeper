@@ -7,6 +7,11 @@ export default defineWorkersConfig({
 		poolOptions: {
 			workers: {
 				wrangler: { configPath: "./wrangler.jsonc" },
+				// Hermetic test secrets. Tests authenticate with this exact key (see test/helpers.ts);
+				// defining it here means the suite never depends on a gitignored .dev.vars (which CI lacks).
+				miniflare: {
+					bindings: { ADMIN_KEY: "test-admin-secret-key-12345" },
+				},
 			},
 		},
 	},
