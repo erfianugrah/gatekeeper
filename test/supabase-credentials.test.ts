@@ -1,5 +1,6 @@
-import { env } from 'cloudflare:test';
+import { env, SELF } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
+import { adminHeaders } from './helpers';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -98,5 +99,25 @@ describe('supabase credential resolution', () => {
 			await stub.deleteUpstreamToken(pat.token.id);
 			await stub.deleteUpstreamToken(met.token.id);
 		}
+	});
+});
+
+describe('supabase credential creation validation', () => {
+	it('rejects a supabase_metrics credential without auth_type=basic', async () => {
+		const res = await SELF.fetch('https://gk/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({ name: 'bad', token: 'x', scope_type: 'supabase_metrics', zone_ids: [REF] }),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	it('rejects a supabase credential with a malformed project ref', async () => {
+		const res = await SELF.fetch('https://gk/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({ name: 'bad', token: 'sbp_x', scope_type: 'supabase', zone_ids: ['NOT-A-VALID-REF'] }),
+		});
+		expect(res.status).toBe(400);
 	});
 });

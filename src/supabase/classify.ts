@@ -79,6 +79,25 @@ function categoryForProjectTail(tail: string): SupabaseCategory {
 /** Classify a Management API request to a Gatekeeper action. Returns null for unmapped paths (deny-by-default). */
 export function classifySupabaseRequest(method: string, path: string): SupabaseClassification | null {
 	const segs = path.split('?')[0].split('/').filter(Boolean); // e.g. ['v1','projects','<ref>','database','query']
+
+	// Experimental v0 surface: only the per-project analytics metrics scrape endpoint is mapped
+	// (GET /v0/projects/{ref}/analytics/metrics). It is proxied with the caller's stored PAT (Bearer)
+	// as an alternative to the Basic-auth /supabase/metrics/:ref route. Anything else under /v0 is
+	// unmapped → deny-by-default. The path shape is treated as external/unstable: no other v0 routes
+	// are assumed, and only GET/HEAD scrapes are classified.
+	if (segs[0] === 'v0') {
+		const isScrape =
+			segs.length === 5 &&
+			segs[1] === 'projects' &&
+			segs[3] === 'analytics' &&
+			segs[4] === 'metrics' &&
+			(method === 'GET' || method === 'HEAD');
+		if (!isScrape) return null;
+		const ref = segs[2];
+		if (!SUPABASE_REF_RE.test(ref)) return null;
+		return { action: 'supabase:metrics:read', category: 'metrics', write: false, projectRef: ref, resource: `project:${ref}` };
+	}
+
 	if (segs[0] !== 'v1') return null;
 	const root = segs[1];
 

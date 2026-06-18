@@ -274,3 +274,56 @@ export function purgeEverythingPolicy(zoneId = ZONE_ID): PolicyDocument {
 		],
 	};
 }
+
+// ─── Supabase helpers ─────────────────────────────────────────────────────────
+
+/** Register a Supabase Management API PAT (bearer) covering the given refs (or ['*']). Returns the upstream token id. */
+export async function registerSupabaseToken(refs: string[] = ['*'], token = 'sbp_test_pat'): Promise<string> {
+	const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+		method: 'POST',
+		headers: adminHeaders(),
+		body: JSON.stringify({ name: 'sb-pat', token, scope_type: 'supabase', zone_ids: refs, validate: false }),
+	});
+	const data = await res.json<any>();
+	if (!data.success) throw new Error(`registerSupabaseToken failed: ${JSON.stringify(data.errors)}`);
+	createdUpstreamTokenIds.push(data.result.id);
+	return data.result.id;
+}
+
+/** Register a Supabase Metrics secret (HTTP Basic) covering the given refs. Returns the upstream token id. */
+export async function registerSupabaseMetricsCredential(
+	refs: string[],
+	token = 'sb_secret_test',
+	username = 'service_role',
+): Promise<string> {
+	const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+		method: 'POST',
+		headers: adminHeaders(),
+		body: JSON.stringify({
+			name: 'sb-metrics',
+			token,
+			scope_type: 'supabase_metrics',
+			auth_type: 'basic',
+			username,
+			zone_ids: refs,
+			validate: false,
+		}),
+	});
+	const data = await res.json<any>();
+	if (!data.success) throw new Error(`registerSupabaseMetricsCredential failed: ${JSON.stringify(data.errors)}`);
+	createdUpstreamTokenIds.push(data.result.id);
+	return data.result.id;
+}
+
+/** Create a Gatekeeper key bound to a Supabase upstream token, with the given policy. Returns the key id (= bearer token). */
+export async function createSupabaseKey(policy: PolicyDocument, upstreamTokenId: string, name = 'sb-key'): Promise<string> {
+	const res = await SELF.fetch('http://localhost/admin/keys', {
+		method: 'POST',
+		headers: adminHeaders(),
+		body: JSON.stringify({ name, policy, upstream_token_id: upstreamTokenId }),
+	});
+	const data = await res.json<any>();
+	if (!data.success) throw new Error(`createSupabaseKey failed: ${JSON.stringify(data.errors)}`);
+	createdKeyIds.push(data.result.key.id);
+	return data.result.key.id;
+}

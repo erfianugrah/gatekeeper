@@ -30,8 +30,10 @@ adminUpstreamTokensApp.post('/', async (c) => {
 
 	// Validate token activity + scope permissions (unless explicitly opted out)
 	const warnings: ValidationWarning[] = [];
-	if (parsed.validate !== false) {
-		const validationWarnings = await validateCfToken(parsed.token, parsed.scope_type, parsed.zone_ids);
+	const isSupabase = parsed.scope_type === 'supabase' || parsed.scope_type === 'supabase_metrics';
+	// CF token validation does not apply to Supabase credentials (different upstream + auth model).
+	if (parsed.validate !== false && !isSupabase) {
+		const validationWarnings = await validateCfToken(parsed.token, parsed.scope_type as 'zone' | 'account', parsed.zone_ids);
 		if (validationWarnings.length > 0) {
 			warnings.push(...validationWarnings);
 			log.validationFailed = true;
@@ -50,6 +52,8 @@ adminUpstreamTokensApp.post('/', async (c) => {
 		token: parsed.token,
 		scope_type: parsed.scope_type,
 		zone_ids: parsed.zone_ids,
+		auth_type: parsed.auth_type,
+		username: parsed.username,
 		expires_in_days: parsed.expires_in_days,
 		created_by: resolveCreatedBy(identity, parsed.created_by),
 	});
