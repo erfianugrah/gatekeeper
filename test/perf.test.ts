@@ -13,6 +13,11 @@ function getStub() {
 	return env.GATEKEEPER.get(id);
 }
 
+// Perf-threshold assertions are environment-sensitive — they measure wall-clock latency that
+// is only meaningful on a known machine. On shared CI runners (slower/noisier) they flake, so
+// the perf suites are skipped there. CI is forwarded as a test binding by vitest.worker.config.ts.
+const isCI = env.CI === 'true';
+
 // ─── Policy factories ──────────────────────────────────────────────────────
 
 function regexPolicy(pattern: string): PolicyDocument {
@@ -213,7 +218,7 @@ function formatBench(label: string, r: BenchResult): string {
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
-describe('Performance — policy engine (in-process)', () => {
+describe.skipIf(isCI)('Performance — policy engine (in-process)', () => {
 	it('simple eq condition', () => {
 		const policy = simpleEqPolicy();
 		const ctx = hostContext('example.com');
@@ -290,7 +295,7 @@ describe('Performance — policy engine (in-process)', () => {
 	});
 });
 
-describe('Performance — DO authorization (RPC)', () => {
+describe.skipIf(isCI)('Performance — DO authorization (RPC)', () => {
 	let keyIdSimple: string;
 	let keyIdRegex: string;
 	let keyIdCompound: string;
