@@ -5,12 +5,23 @@ every inbound request to a Gatekeeper action. Anything unclassified is **denied 
 fails safe, but it means an upstream can add or move an endpoint and the proxy silently stops
 covering it with no error. This framework makes that drift loud.
 
+## Registered providers
+
+| Provider | Surface source | Coverage predicate | Live ops |
+|---|---|---|---|
+| `supabase` | live OpenAPI (`api.supabase.com/api/v1-json`) | `classifySupabaseRequest` ≠ null | 165 (158 covered, 7 allowlisted) |
+| `s3` | runtime enum `S3_OPERATIONS` (`src/s3/operations.ts`) | real `detectOperation` routes the probe back | 66 (all covered) |
+| `cloudflare` | live CF OpenAPI (filtered to proxied resources) | a real Hono route in the service sub-app matches | 128 (115 covered, 13 allowlisted) |
+
+Three different *surface sources*, one uniform interface. Each upstream is policed by the model
+that fits its shape — see "Coverage models" below.
+
 ## Two layers, two concerns
 
 | Layer | File | Network? | Runs in | Catches |
 |---|---|---|---|---|
-| Hermetic invariant | `test/api-coverage.test.ts` | no | `npm test` (Workers pool) | classifier regressions, stale `covered` flags, allowlist rot — against the **committed** baseline |
-| Live drift check | `scripts/api-coverage/refresh.ts` | yes | `npm run check:api-coverage` (tsx) | upstream **schema changes** — new/moved/removed endpoints vs the live OpenAPI spec |
+| Hermetic invariant | `test/api-coverage.test.ts` | no | `npm test` (Workers pool) | classifier/routing regressions, stale `covered` flags, allowlist rot — against the **committed** baseline |
+| Live drift check | `scripts/api-coverage/refresh.ts` | yes | `npm run check:api-coverage` (tsx) | upstream **schema changes** — new/moved/removed endpoints vs the live spec (supabase, cloudflare) and enum/detection drift (s3) |
 
 The test never touches the network, so it runs offline and on every preflight. The refresh job is
 the one that reaches out to the upstream spec — run it on a schedule or before a release.
@@ -55,23 +66,29 @@ Providers **must not** import `cloudflare:workers` — `refresh.ts` runs in plai
 classifiers it depends on (`classifySupabaseRequest`, S3 `detectOperation`, the CF per-service
 `operations.ts`) are all pure and import only types/constants, so this holds.
 
-## Why only Supabase today
+## Coverage models
 
-Only an upstream with a live, machine-readable spec **and** a real risk of silent endpoint drift
-earns a provider:
+The `CoverageProvider` interface is uniform; the *source* of the authoritative surface and the
+coverage predicate differ per upstream because the upstreams differ:
 
-- **Supabase Management API** — has `https://api.supabase.com/api/v1-json` (164+ ops) and ships
-  changes frequently. The classifier (`src/supabase/classify.ts`) is a table-driven longest-prefix
-  matcher, exactly the thing that lags when an endpoint moves. Real payoff. (This framework already
-  caught `GET /v1/oauth/authorize/project-claim` having changed method, and surfaced `/v1/snippets`
-  as an account-level gap a date-stamped manual review had missed.)
-- **S3 / R2** — the surface is a closed enum, `Record<S3OperationName, string>` in
-  `src/s3/operations.ts`. TypeScript already enforces totality at compile time; there is no live
-  spec to drift against. A provider here would be a tautological self-check.
-- **Cloudflare** — the proxy covers a deliberate per-service subset (KV, D1, DNS, Workers, Queues,
-  Vectorize, Hyperdrive); the rest of the enormous CF API is intentionally out of scope, so a
-  provider would be ~99% allowlist. No drift-detection value.
+- **Supabase Management API** (`providers/supabase.ts`) — has `https://api.supabase.com/api/v1-json`
+  (165 ops) and ships changes frequently. The classifier (`src/supabase/classify.ts`) is a
+  table-driven longest-prefix matcher, exactly the thing that lags when an endpoint moves. Coverage
+  = `classifySupabaseRequest` returns non-null. (Already paid off: caught
+  `GET /v1/oauth/authorize/project-claim` having changed method, and surfaced `/v1/snippets` as an
+  account-level gap a date-stamped manual review had missed.)
+- **S3 / R2** (`providers/s3.ts`) — no live AWS spec; the surface is a closed enum exported at
+  runtime as `S3_OPERATIONS`. Coverage is exercised through the *real* `detectOperation` routing:
+  each op carries a representative request (query/header discriminators) and `isCovered` asserts
+  detection routes it back to the same op with a non-empty IAM action. A completeness guard throws
+  if the enum gains an op with no probe — so the enum can't grow silently. All 66 ops detect.
+- **Cloudflare API proxy** (`providers/cloudflare.ts`) — fetches CF's published OpenAPI, filters it
+  to the sub-resource prefixes we actually proxy (KV, D1, Workers, Queues, Vectorize v2, Hyperdrive,
+  DNS records), and checks coverage by matching each op against the **real Hono routes** registered
+  by each service sub-app (`app.routes`, read without executing handlers). Catches CF adding/moving
+  an endpoint under a resource we already proxy. 13 in-surface endpoints we deliberately skip
+  (streaming live-tail, legacy/bulk shapes, zone-scan) live in the allowlist with reasons.
 
-Forcing those in would be the "snowflake add-on" this framework exists to avoid. The extension
-point is real and uniform — when the next spec-backed upstream arrives, it is a conforming module,
-not a bolt-on.
+The whole rest of the CF API is *out of surface* — never filtered in — so the allowlist stays small
+and meaningful instead of swallowing thousands of unproxied endpoints. That filtering is the
+difference between drift detection and a tautological 99%-allowlist self-check.

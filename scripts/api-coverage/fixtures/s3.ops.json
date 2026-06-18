@@ -1,0 +1,398 @@
+[
+	{
+		"method": "DELETE",
+		"path": "AbortMultipartUpload",
+		"summary": "DELETE /bucket/key?uploadId=123",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "DeleteBucket",
+		"summary": "DELETE /bucket",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "DeleteBucketCors",
+		"summary": "DELETE /bucket?cors=",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "DeleteBucketPolicy",
+		"summary": "DELETE /bucket?policy=",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "DeleteBucketReplication",
+		"summary": "DELETE /bucket?replication=",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "DeleteBucketTagging",
+		"summary": "DELETE /bucket?tagging=",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "DeleteBucketWebsite",
+		"summary": "DELETE /bucket?website=",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "DeleteObject",
+		"summary": "DELETE /bucket/key.txt",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "DeleteObjectTagging",
+		"summary": "DELETE /bucket/key.txt?tagging=",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "DeletePublicAccessBlock",
+		"summary": "DELETE /bucket?publicAccessBlock=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketAccelerateConfiguration",
+		"summary": "GET /bucket?accelerate=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketAcl",
+		"summary": "GET /bucket?acl=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketCors",
+		"summary": "GET /bucket?cors=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketEncryption",
+		"summary": "GET /bucket?encryption=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketLifecycle",
+		"summary": "GET /bucket?lifecycle=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketLocation",
+		"summary": "GET /bucket?location=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketLogging",
+		"summary": "GET /bucket?logging=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketNotification",
+		"summary": "GET /bucket?notification=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketPolicy",
+		"summary": "GET /bucket?policy=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketReplication",
+		"summary": "GET /bucket?replication=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketRequestPayment",
+		"summary": "GET /bucket?requestPayment=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketTagging",
+		"summary": "GET /bucket?tagging=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketVersioning",
+		"summary": "GET /bucket?versioning=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetBucketWebsite",
+		"summary": "GET /bucket?website=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetObject",
+		"summary": "GET /bucket/key.txt",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetObjectAcl",
+		"summary": "GET /bucket/key.txt?acl=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetObjectLegalHold",
+		"summary": "GET /bucket/key.txt?legal-hold=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetObjectLockConfiguration",
+		"summary": "GET /bucket?object-lock=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetObjectRetention",
+		"summary": "GET /bucket/key.txt?retention=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetObjectTagging",
+		"summary": "GET /bucket/key.txt?tagging=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "GetPublicAccessBlock",
+		"summary": "GET /bucket?publicAccessBlock=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "ListBuckets",
+		"summary": "GET /",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "ListMultipartUploads",
+		"summary": "GET /bucket?uploads=",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "ListObjects",
+		"summary": "GET /bucket",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "ListObjectsV2",
+		"summary": "GET /bucket?list-type=2",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "ListParts",
+		"summary": "GET /bucket/key?uploadId=123",
+		"covered": true
+	},
+	{
+		"method": "HEAD",
+		"path": "HeadBucket",
+		"summary": "HEAD /bucket",
+		"covered": true
+	},
+	{
+		"method": "HEAD",
+		"path": "HeadObject",
+		"summary": "HEAD /bucket/key.txt",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "CompleteMultipartUpload",
+		"summary": "POST /bucket/key?uploadId=123",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "CreateMultipartUpload",
+		"summary": "POST /bucket/key?uploads=",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "DeleteObjects",
+		"summary": "POST /bucket?delete=",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "RestoreObject",
+		"summary": "POST /bucket/key.txt?restore=",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "SelectObjectContent",
+		"summary": "POST /bucket/key.txt?select=&select-type=2",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "CopyObject",
+		"summary": "PUT /bucket/key.txt",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "CreateBucket",
+		"summary": "PUT /bucket",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutBucketAccelerateConfiguration",
+		"summary": "PUT /bucket?accelerate=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutBucketAcl",
+		"summary": "PUT /bucket?acl=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutBucketCors",
+		"summary": "PUT /bucket?cors=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutBucketLifecycle",
+		"summary": "PUT /bucket?lifecycle=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutBucketLogging",
+		"summary": "PUT /bucket?logging=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutBucketNotification",
+		"summary": "PUT /bucket?notification=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutBucketPolicy",
+		"summary": "PUT /bucket?policy=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutBucketReplication",
+		"summary": "PUT /bucket?replication=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutBucketRequestPayment",
+		"summary": "PUT /bucket?requestPayment=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutBucketTagging",
+		"summary": "PUT /bucket?tagging=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutBucketVersioning",
+		"summary": "PUT /bucket?versioning=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutBucketWebsite",
+		"summary": "PUT /bucket?website=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutObject",
+		"summary": "PUT /bucket/key.txt",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutObjectAcl",
+		"summary": "PUT /bucket/key.txt?acl=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutObjectLegalHold",
+		"summary": "PUT /bucket/key.txt?legal-hold=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutObjectLockConfiguration",
+		"summary": "PUT /bucket?object-lock=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutObjectRetention",
+		"summary": "PUT /bucket/key.txt?retention=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutObjectTagging",
+		"summary": "PUT /bucket/key.txt?tagging=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "PutPublicAccessBlock",
+		"summary": "PUT /bucket?publicAccessBlock=",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "UploadPart",
+		"summary": "PUT /bucket/key?uploadId=123",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "UploadPartCopy",
+		"summary": "PUT /bucket/key?uploadId=123",
+		"covered": true
+	}
+]

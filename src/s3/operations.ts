@@ -77,6 +77,9 @@ const ACTION_MAP: Record<S3OperationName, string> = {
 	SelectObjectContent: 's3:SelectObjectContent',
 };
 
+/** Every S3 operation the proxy assigns an IAM action to. Drives the api-coverage completeness guard. */
+export const S3_OPERATIONS = Object.keys(ACTION_MAP) as S3OperationName[];
+
 /** Operations that R2 actually supports — only these get forwarded upstream. */
 const R2_SUPPORTED: ReadonlySet<S3OperationName> = new Set<R2SupportedOperation>([
 	'ListBuckets',
