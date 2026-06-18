@@ -1,0 +1,770 @@
+[
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/d1/database/{database_id}",
+		"summary": "Delete D1 Database",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/hyperdrive/configs/{hyperdrive_id}",
+		"summary": "Delete Hyperdrive",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/queues/{queue_id}",
+		"summary": "Delete Queue",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/queues/{queue_id}/consumers/{consumer_id}",
+		"summary": "Delete Queue Consumer",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}",
+		"summary": "Remove a Namespace",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/bulk",
+		"summary": "Delete multiple key-value pairs",
+		"covered": false
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/values/{key_name}",
+		"summary": "Delete key-value pair",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes/{index_name}",
+		"summary": "Delete Vectorize Index",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/workers/domains/{domain_id}",
+		"summary": "Detach Domain",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}",
+		"summary": "Delete Worker",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/deployments/{deployment_id}",
+		"summary": "Delete Deployment",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/secrets/{secret_name}",
+		"summary": "Delete script secret",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/subdomain",
+		"summary": "Delete Worker subdomain",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/tails/{id}",
+		"summary": "Delete Tail",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/accounts/{account_id}/workers/subdomain",
+		"summary": "Delete Subdomain",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
+		"path": "/zones/{zone_id}/dns_records/{dns_record_id}",
+		"summary": "Delete DNS Record",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/d1/database",
+		"summary": "List D1 Databases",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/d1/database/{database_id}",
+		"summary": "Get D1 Database",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/d1/database/{database_id}/time_travel/bookmark",
+		"summary": "Get D1 database bookmark",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/hyperdrive/configs",
+		"summary": "List Hyperdrives",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/hyperdrive/configs/{hyperdrive_id}",
+		"summary": "Get Hyperdrive",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/queues",
+		"summary": "List Queues",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/queues/{queue_id}",
+		"summary": "Get Queue",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/queues/{queue_id}/consumers",
+		"summary": "List Queue Consumers",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/queues/{queue_id}/consumers/{consumer_id}",
+		"summary": "Get Queue Consumer",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/queues/{queue_id}/metrics",
+		"summary": "Get Queue Metrics",
+		"covered": false
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/queues/{queue_id}/purge",
+		"summary": "Get Queue Purge Status",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/storage/kv/namespaces",
+		"summary": "List Namespaces",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}",
+		"summary": "Get a Namespace",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/keys",
+		"summary": "List a Namespace's Keys",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/metadata/{key_name}",
+		"summary": "Read the metadata for a key",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/values/{key_name}",
+		"summary": "Read key-value pair",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes",
+		"summary": "List Vectorize Indexes",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes/{index_name}",
+		"summary": "Get Vectorize Index",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes/{index_name}/info",
+		"summary": "Get Vectorize Index Info",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes/{index_name}/list",
+		"summary": "List Vectors",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes/{index_name}/metadata_index/list",
+		"summary": "List Metadata Indexes",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/account-settings",
+		"summary": "Fetch Worker Account Settings",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/domains",
+		"summary": "List Domains",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/domains/{domain_id}",
+		"summary": "Get Domain",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts",
+		"summary": "List Workers",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts-search",
+		"summary": "Search Workers",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}",
+		"summary": "Download Worker",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/content/v2",
+		"summary": "Get script content",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/deployments",
+		"summary": "List Deployments",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/deployments/{deployment_id}",
+		"summary": "Get Deployment",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/schedules",
+		"summary": "Get Cron Triggers",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/script-settings",
+		"summary": "Get Script Settings",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/secrets",
+		"summary": "List script secrets",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/secrets/{secret_name}",
+		"summary": "Get secret binding",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/settings",
+		"summary": "Get Settings",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/subdomain",
+		"summary": "Get Worker subdomain",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/tails",
+		"summary": "List Tails",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/usage-model",
+		"summary": "Fetch Usage Model",
+		"covered": false
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/versions",
+		"summary": "List Versions",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/versions/{version_id}",
+		"summary": "Get Version Detail",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/accounts/{account_id}/workers/subdomain",
+		"summary": "Get Subdomain",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/zones/{zone_id}/dns_records",
+		"summary": "List DNS Records",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/zones/{zone_id}/dns_records/{dns_record_id}",
+		"summary": "DNS Record Details",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/zones/{zone_id}/dns_records/export",
+		"summary": "Export DNS Records",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/zones/{zone_id}/dns_records/scan/review",
+		"summary": "List Scanned DNS Records",
+		"covered": false
+	},
+	{
+		"method": "GET",
+		"path": "/zones/{zone_id}/dns_records/usage",
+		"summary": "Get DNS Record Usage",
+		"covered": true
+	},
+	{
+		"method": "PATCH",
+		"path": "/accounts/{account_id}/d1/database/{database_id}",
+		"summary": "Update D1 Database partially",
+		"covered": true
+	},
+	{
+		"method": "PATCH",
+		"path": "/accounts/{account_id}/hyperdrive/configs/{hyperdrive_id}",
+		"summary": "Patch Hyperdrive",
+		"covered": true
+	},
+	{
+		"method": "PATCH",
+		"path": "/accounts/{account_id}/queues/{queue_id}",
+		"summary": "Update Queue",
+		"covered": true
+	},
+	{
+		"method": "PATCH",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/script-settings",
+		"summary": "Patch Script Settings",
+		"covered": true
+	},
+	{
+		"method": "PATCH",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/secrets-bulk",
+		"summary": "Patch multiple script secrets",
+		"covered": false
+	},
+	{
+		"method": "PATCH",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/settings",
+		"summary": "Patch Settings",
+		"covered": true
+	},
+	{
+		"method": "PATCH",
+		"path": "/zones/{zone_id}/dns_records/{dns_record_id}",
+		"summary": "Update DNS Record",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/d1/database",
+		"summary": "Create D1 Database",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/d1/database/{database_id}/export",
+		"summary": "Export D1 Database as SQL",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/d1/database/{database_id}/import",
+		"summary": "Import SQL into your D1 Database",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/d1/database/{database_id}/query",
+		"summary": "Query D1 Database",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/d1/database/{database_id}/raw",
+		"summary": "Raw D1 Database query",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/d1/database/{database_id}/time_travel/restore",
+		"summary": "Restore D1 Database to a bookmark or point in time",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/hyperdrive/configs",
+		"summary": "Create Hyperdrive",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/queues",
+		"summary": "Create Queue",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/queues/{queue_id}/consumers",
+		"summary": "Create a Queue Consumer",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/queues/{queue_id}/messages",
+		"summary": "Push Message",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/queues/{queue_id}/messages/ack",
+		"summary": "Acknowledge + Retry Queue Messages",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/queues/{queue_id}/messages/batch",
+		"summary": "Push Message Batch",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/queues/{queue_id}/messages/preview",
+		"summary": "Preview Queue Messages",
+		"covered": false
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/queues/{queue_id}/messages/preview/ack",
+		"summary": "Delete Previewed Queue Messages",
+		"covered": false
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/queues/{queue_id}/messages/pull",
+		"summary": "Pull Queue Messages",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/queues/{queue_id}/purge",
+		"summary": "Purge Queue",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/storage/kv/namespaces",
+		"summary": "Create a Namespace",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/bulk/delete",
+		"summary": "Delete multiple key-value pairs",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/bulk/get",
+		"summary": "Get multiple key-value pairs",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes",
+		"summary": "Create Vectorize Index",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes/{index_name}/delete_by_ids",
+		"summary": "Delete Vectors By Identifier",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes/{index_name}/get_by_ids",
+		"summary": "Get Vectors By Identifier",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes/{index_name}/insert",
+		"summary": "Insert Vectors",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes/{index_name}/metadata_index/create",
+		"summary": "Create Metadata Index",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes/{index_name}/metadata_index/delete",
+		"summary": "Delete Metadata Index",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes/{index_name}/query",
+		"summary": "Query Vectors",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/vectorize/v2/indexes/{index_name}/upsert",
+		"summary": "Upsert Vectors",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/workers/observability/telemetry/keys",
+		"summary": "List keys",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/workers/observability/telemetry/live-tail",
+		"summary": "Prepare live tail",
+		"covered": false
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/workers/observability/telemetry/live-tail/heartbeat",
+		"summary": "Live tail heartbeat",
+		"covered": false
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/workers/observability/telemetry/query",
+		"summary": "Run a query",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/workers/observability/telemetry/values",
+		"summary": "List values",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/assets-upload-session",
+		"summary": "Create Assets Upload Session",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/deployments",
+		"summary": "Create Deployment",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/subdomain",
+		"summary": "Post Worker subdomain",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/tails",
+		"summary": "Start Tail",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/versions",
+		"summary": "Upload Version",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/zones/{zone_id}/dns_records",
+		"summary": "Create DNS Record",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/zones/{zone_id}/dns_records/batch",
+		"summary": "Batch DNS Records",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/zones/{zone_id}/dns_records/import",
+		"summary": "Import DNS Records",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/zones/{zone_id}/dns_records/scan",
+		"summary": "Scan DNS Records",
+		"covered": false
+	},
+	{
+		"method": "POST",
+		"path": "/zones/{zone_id}/dns_records/scan/review",
+		"summary": "Review Scanned DNS Records",
+		"covered": false
+	},
+	{
+		"method": "POST",
+		"path": "/zones/{zone_id}/dns_records/scan/trigger",
+		"summary": "Trigger DNS Record Scan",
+		"covered": false
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/d1/database/{database_id}",
+		"summary": "Update D1 Database",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/hyperdrive/configs/{hyperdrive_id}",
+		"summary": "Update Hyperdrive",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/queues/{queue_id}",
+		"summary": "Update Queue",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/queues/{queue_id}/consumers/{consumer_id}",
+		"summary": "Update Queue Consumer",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}",
+		"summary": "Rename a Namespace",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/bulk",
+		"summary": "Write multiple key-value pairs",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/values/{key_name}",
+		"summary": "Write key-value pair with optional metadata",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/workers/account-settings",
+		"summary": "Create Worker Account Settings",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/workers/domains",
+		"summary": "Attach Domain",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}",
+		"summary": "Upload Worker Module",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/content",
+		"summary": "Put script content",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/schedules",
+		"summary": "Update Cron Triggers",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/secrets",
+		"summary": "Add script secret",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/workers/scripts/{script_name}/usage-model",
+		"summary": "Update Usage Model",
+		"covered": false
+	},
+	{
+		"method": "PUT",
+		"path": "/accounts/{account_id}/workers/subdomain",
+		"summary": "Create Subdomain",
+		"covered": true
+	},
+	{
+		"method": "PUT",
+		"path": "/zones/{zone_id}/dns_records/{dns_record_id}",
+		"summary": "Overwrite DNS Record",
+		"covered": true
+	}
+]
