@@ -1,4 +1,4 @@
-import { Cloud, Database, Globe, HardDrive, Server, Layers, Cpu, Zap } from 'lucide-react';
+import { Cloud, Database, Globe, HardDrive, Server, Layers, Cpu, Zap, Boxes } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -21,6 +21,7 @@ const SOURCE_TOOLTIPS: Record<string, string> = {
 	purge: 'Cloudflare cache purge request',
 	s3: 'S3/R2 object storage request',
 	dns: 'Cloudflare DNS record operation',
+	supabase: 'Supabase Management API / Metrics proxy request',
 	d1: 'Cloudflare D1 database operation',
 	kv: 'Cloudflare Workers KV operation',
 	workers: 'Cloudflare Workers script operation',
@@ -34,6 +35,7 @@ const SOURCE_LABELS: Record<string, string> = {
 	purge: 'Purge',
 	s3: 'S3',
 	dns: 'DNS',
+	supabase: 'Supabase',
 	d1: 'D1',
 	kv: 'KV',
 	workers: 'Workers',
@@ -47,6 +49,7 @@ const SOURCE_BADGE_CLASSES: Record<string, string> = {
 	purge: 'bg-lv-purple/20 text-lv-purple border-lv-purple/30',
 	s3: 'bg-lv-cyan/20 text-lv-cyan border-lv-cyan/30',
 	dns: 'bg-lv-green/20 text-lv-green border-lv-green/30',
+	supabase: 'bg-lv-green/20 text-lv-green border-lv-green/30',
 	d1: 'bg-lv-purple/20 text-lv-purple border-lv-purple/30',
 	kv: 'bg-lv-cyan/20 text-lv-cyan border-lv-cyan/30',
 	workers: 'bg-lv-green/20 text-lv-green border-lv-green/30',
@@ -60,6 +63,7 @@ const SOURCE_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
 	purge: Cloud,
 	s3: HardDrive,
 	dns: Globe,
+	supabase: Boxes,
 	d1: Database,
 	kv: Layers,
 	workers: Cpu,

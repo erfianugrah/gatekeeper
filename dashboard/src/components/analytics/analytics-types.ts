@@ -1,9 +1,9 @@
-import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent } from '@/lib/api';
+import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent } from '@/lib/api';
 
 // ─── Unified event type ─────────────────────────────────────────────
 
 /** Known sources for display. CF proxy events use their service name directly (d1, kv, workers, etc.). */
-export type KnownSource = 'purge' | 's3' | 'dns' | 'd1' | 'kv' | 'workers' | 'queues' | 'vectorize' | 'hyperdrive';
+export type KnownSource = 'purge' | 's3' | 'dns' | 'supabase' | 'd1' | 'kv' | 'workers' | 'queues' | 'vectorize' | 'hyperdrive';
 
 export type UnifiedEvent = {
 	id: number;
@@ -11,7 +11,7 @@ export type UnifiedEvent = {
 	status: number;
 	duration_ms: number;
 	created_at: number;
-	raw: PurgeEvent | S3Event | DnsEvent | CfProxyEvent;
+	raw: PurgeEvent | S3Event | DnsEvent | CfProxyEvent | SupabaseProxyEvent;
 	key_id?: string;
 	zone_id?: string;
 	purge_type?: string;
@@ -31,6 +31,9 @@ export type UnifiedEvent = {
 	cf_action?: string;
 	cf_account_id?: string;
 	cf_resource_id?: string | null;
+	sb_category?: string;
+	sb_action?: string;
+	sb_project_ref?: string | null;
 };
 
 /** A flight group: one leader event with zero or more collapsed followers. */
@@ -61,6 +64,9 @@ export const DNS_EVENT_ID_OFFSET = 2_000_000_000;
 
 /** Offset to avoid ID collisions for CF proxy events in the unified view. */
 export const CF_EVENT_ID_OFFSET = 3_000_000_000;
+
+/** Offset to avoid ID collisions for Supabase proxy events in the unified view. */
+export const SUPABASE_EVENT_ID_OFFSET = 4_000_000_000;
 
 export const LIMIT_OPTIONS = [50, 100, 500] as const;
 
@@ -138,6 +144,22 @@ export function fromCfProxy(ev: CfProxyEvent): UnifiedEvent {
 		cf_action: ev.action,
 		cf_account_id: ev.account_id,
 		cf_resource_id: ev.resource_id,
+	};
+}
+
+export function fromSupabase(ev: SupabaseProxyEvent): UnifiedEvent {
+	return {
+		id: ev.id + SUPABASE_EVENT_ID_OFFSET,
+		source: 'supabase',
+		status: ev.status,
+		duration_ms: ev.duration_ms,
+		created_at: ev.created_at,
+		raw: ev,
+		key_id: ev.key_id,
+		upstream_status: ev.upstream_status,
+		sb_category: ev.category,
+		sb_action: ev.action,
+		sb_project_ref: ev.project_ref,
 	};
 }
 

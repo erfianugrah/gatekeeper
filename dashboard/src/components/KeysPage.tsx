@@ -14,7 +14,7 @@ import { JsonHighlight } from '@/components/JsonHighlight';
 import { usePagination } from '@/hooks/use-pagination';
 import { TablePagination } from '@/components/TablePagination';
 import { listKeys, createKey, revokeKey, deleteKey, bulkRevokeKeys, bulkDeleteKeys, listUpstreamTokens, POLICY_VERSION } from '@/lib/api';
-import type { ApiKey, PolicyDocument, UpstreamToken } from '@/lib/api';
+import type { ApiKey, PolicyDocument, UpstreamToken, UpstreamTokenScopeType } from '@/lib/api';
 import { cn, copyToClipboard } from '@/lib/utils';
 import { T } from '@/lib/typography';
 
@@ -43,8 +43,15 @@ interface CreateKeyDialogProps {
 	onCreated: (secret: string) => void;
 }
 
-function makeDefaultPolicy(scopeType?: 'zone' | 'account'): PolicyDocument {
-	const defaultAction = scopeType === 'account' ? 'd1:*' : 'purge:*';
+function makeDefaultPolicy(scopeType?: UpstreamTokenScopeType): PolicyDocument {
+	const defaultAction =
+		scopeType === 'account'
+			? 'd1:*'
+			: scopeType === 'supabase'
+				? 'supabase:*'
+				: scopeType === 'supabase_metrics'
+					? 'supabase:metrics:read'
+					: 'purge:*';
 	return {
 		version: POLICY_VERSION,
 		statements: [
@@ -66,6 +73,12 @@ function buildResourceHint(token: UpstreamToken): string {
 		if (ids.length === 1) return `zone:${ids[0]}`;
 		return ids.map((id) => `zone:${id}`).join(', ');
 	}
+	if (token.scope_type === 'supabase' || token.scope_type === 'supabase_metrics') {
+		const ids = token.zone_ids.split(',').map((s) => s.trim());
+		if (ids.length === 1 && ids[0] === '*') return 'project:* (all projects)';
+		if (ids.length === 1) return `project:${ids[0]}`;
+		return ids.map((id) => `project:${id}`).join(', ');
+	}
 	// Account-scoped
 	return `account:${token.zone_ids}`;
 }
@@ -77,7 +90,35 @@ function buildDefaultResources(token: UpstreamToken): string[] {
 		if (ids.length === 1 && ids[0] === '*') return ['zone:*'];
 		return ids.map((id) => `zone:${id}`);
 	}
+	if (token.scope_type === 'supabase' || token.scope_type === 'supabase_metrics') {
+		const ids = token.zone_ids.split(',').map((s) => s.trim());
+		if (ids.length === 1 && ids[0] === '*') return ['project:*'];
+		return ids.map((id) => `project:${id}`);
+	}
 	return [`account:${token.zone_ids}`];
+}
+
+/** Badge color for a token scope type. */
+function scopeBadgeClass(scope?: UpstreamTokenScopeType): string {
+	if (scope === 'zone') return 'bg-lv-blue/20 text-lv-blue border-lv-blue/30';
+	if (scope === 'account') return 'bg-lv-peach/20 text-lv-peach border-lv-peach/30';
+	return 'bg-lv-green/20 text-lv-green border-lv-green/30'; // supabase / supabase_metrics
+}
+
+/** Human description of the actions a scope unlocks. */
+function scopeActionsLabel(scope?: UpstreamTokenScopeType): string {
+	switch (scope) {
+		case 'zone':
+			return 'Purge and DNS actions';
+		case 'account':
+			return 'D1, KV, Workers, Queues, Vectorize, Hyperdrive actions';
+		case 'supabase':
+			return 'Supabase Management API actions';
+		case 'supabase_metrics':
+			return 'Supabase metrics read';
+		default:
+			return '';
+	}
 }
 
 function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
@@ -98,6 +139,8 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 	// Group tokens by scope_type for the dropdown
 	const zoneTokens = useMemo(() => tokens.filter((t) => t.scope_type === 'zone'), [tokens]);
 	const accountTokens = useMemo(() => tokens.filter((t) => t.scope_type === 'account'), [tokens]);
+	const supabaseTokens = useMemo(() => tokens.filter((t) => t.scope_type === 'supabase'), [tokens]);
+	const supabaseMetricsTokens = useMemo(() => tokens.filter((t) => t.scope_type === 'supabase_metrics'), [tokens]);
 
 	// Fetch tokens when dialog opens
 	useEffect(() => {
@@ -181,7 +224,12 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 
 	/** Format token label for the dropdown. */
 	const tokenLabel = (t: UpstreamToken) => {
-		const scopeInfo = t.scope_type === 'zone' ? `zones: ${t.zone_ids}` : `account: ${t.zone_ids}`;
+		const scopeInfo =
+			t.scope_type === 'zone'
+				? `zones: ${t.zone_ids}`
+				: t.scope_type === 'account'
+					? `account: ${t.zone_ids}`
+					: `projects: ${t.zone_ids}`;
 		return `${t.name} (${scopeInfo})`;
 	};
 
@@ -242,21 +290,32 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 												))}
 											</SelectGroup>
 										)}
+										{supabaseTokens.length > 0 && (
+											<SelectGroup>
+												<SelectLabel className="text-[10px] text-muted-foreground/60">Supabase (Management API)</SelectLabel>
+												{supabaseTokens.map((t) => (
+													<SelectItem key={t.id} value={t.id} className="text-xs font-data">
+														{tokenLabel(t)}
+													</SelectItem>
+												))}
+											</SelectGroup>
+										)}
+										{supabaseMetricsTokens.length > 0 && (
+											<SelectGroup>
+												<SelectLabel className="text-[10px] text-muted-foreground/60">Supabase Metrics</SelectLabel>
+												{supabaseMetricsTokens.map((t) => (
+													<SelectItem key={t.id} value={t.id} className="text-xs font-data">
+														{tokenLabel(t)}
+													</SelectItem>
+												))}
+											</SelectGroup>
+										)}
 									</SelectContent>
 								</Select>
 								{selectedToken && (
 									<p className="text-[11px] font-data text-muted-foreground">
-										<Badge
-											className={cn(
-												'text-[9px] px-1 py-0 mr-1.5',
-												scopeType === 'zone'
-													? 'bg-lv-blue/20 text-lv-blue border-lv-blue/30'
-													: 'bg-lv-peach/20 text-lv-peach border-lv-peach/30',
-											)}
-										>
-											{scopeType}
-										</Badge>
-										{scopeType === 'zone' ? 'Purge and DNS actions' : 'D1, KV, Workers, Queues, Vectorize, Hyperdrive actions'}
+										<Badge className={cn('text-[9px] px-1 py-0 mr-1.5', scopeBadgeClass(scopeType))}>{scopeType}</Badge>
+										{scopeActionsLabel(scopeType)}
 										{' — '}
 										<code className="text-lv-cyan">{selectedToken.token_preview}</code>
 									</p>
