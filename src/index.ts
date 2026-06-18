@@ -6,8 +6,10 @@ import { deleteOldEvents } from './analytics';
 import { deleteOldS3Events } from './s3/analytics';
 import { deleteOldDnsEvents } from './cf/dns/analytics';
 import { deleteOldCfProxyEvents } from './cf/analytics';
+import { deleteOldSupabaseProxyEvents } from './supabase/analytics';
 import { deleteOldAuditEvents } from './audit-log';
 import { cfApp } from './cf/router';
+import { supabaseApp } from './supabase/router';
 import { authApp } from './routes/auth';
 import { oauthApp } from './auth-oauth';
 import { getStub } from './do-stub';
@@ -94,6 +96,7 @@ app.route('/', purgeRoute);
 app.route('/admin', adminApp);
 app.route('/s3', s3App);
 app.route('/cf', cfApp);
+app.route('/supabase', supabaseApp);
 
 // Backward compatibility: /v1/zones/:zoneId/dns_records/* -> /cf/zones/:zoneId/dns_records/*
 // Old DNS clients hit /v1/zones/:zoneId/dns_records/...; the new canonical path is /cf/zones/:zoneId/dns_records/...
@@ -127,11 +130,12 @@ export default {
 			const retentionDays = gwConfig.retention_days;
 
 			// Phase 1: Delete old analytics/audit events from D1
-			const [purgeDeleted, s3Deleted, dnsDeleted, cfProxyDeleted, auditDeleted] = await Promise.all([
+			const [purgeDeleted, s3Deleted, dnsDeleted, cfProxyDeleted, supabaseProxyDeleted, auditDeleted] = await Promise.all([
 				deleteOldEvents(env.ANALYTICS_DB, retentionDays),
 				deleteOldS3Events(env.ANALYTICS_DB, retentionDays),
 				deleteOldDnsEvents(env.ANALYTICS_DB, retentionDays),
 				deleteOldCfProxyEvents(env.ANALYTICS_DB, retentionDays),
+				deleteOldSupabaseProxyEvents(env.ANALYTICS_DB, retentionDays),
 				deleteOldAuditEvents(env.ANALYTICS_DB, retentionDays),
 			]);
 
@@ -147,6 +151,7 @@ export default {
 					s3Deleted,
 					dnsDeleted,
 					cfProxyDeleted,
+					supabaseProxyDeleted,
 					auditDeleted,
 					...cleanup,
 					ts: new Date(controller.scheduledTime).toISOString(),

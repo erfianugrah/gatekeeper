@@ -133,6 +133,41 @@ CREATE INDEX IF NOT EXISTS idx_cf_proxy_service_created
 ON cf_proxy_events (service, created_at DESC);
 `;
 
+// ─── Supabase proxy events ──────────────────────────────────────────
+
+export const SUPABASE_PROXY_EVENTS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS supabase_proxy_events (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	key_id TEXT NOT NULL,
+	project_ref TEXT,
+	category TEXT NOT NULL,
+	action TEXT NOT NULL,
+	status INTEGER NOT NULL,
+	upstream_status INTEGER,
+	duration_ms INTEGER NOT NULL,
+	upstream_latency_ms INTEGER,
+	response_size INTEGER,
+	response_detail TEXT,
+	created_by TEXT,
+	created_at INTEGER NOT NULL
+);
+`;
+
+export const SUPABASE_PROXY_EVENTS_INDEX_KEY_SQL = `
+CREATE INDEX IF NOT EXISTS idx_sb_proxy_key_created
+ON supabase_proxy_events (key_id, created_at DESC);
+`;
+
+export const SUPABASE_PROXY_EVENTS_INDEX_REF_SQL = `
+CREATE INDEX IF NOT EXISTS idx_sb_proxy_ref_created
+ON supabase_proxy_events (project_ref, created_at DESC);
+`;
+
+export const SUPABASE_PROXY_EVENTS_INDEX_ACTION_SQL = `
+CREATE INDEX IF NOT EXISTS idx_sb_proxy_action_created
+ON supabase_proxy_events (action, created_at DESC);
+`;
+
 // ─── Audit events ───────────────────────────────────────────────────────────
 
 export const AUDIT_EVENTS_TABLE_SQL = `
