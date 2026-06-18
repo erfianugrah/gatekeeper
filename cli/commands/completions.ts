@@ -16,6 +16,7 @@ const COMMANDS: Record<string, string[]> = {
 		's3-analytics',
 		'dns-analytics',
 		'cf-analytics',
+		'supabase-analytics',
 		'upstream-tokens',
 		'upstream-r2',
 		'config',
@@ -32,6 +33,7 @@ const COMMANDS: Record<string, string[]> = {
 	's3-analytics': ['events', 'summary'],
 	'dns-analytics': ['events', 'summary'],
 	'cf-analytics': ['events', 'summary'],
+	'supabase-analytics': ['events', 'summary'],
 	config: ['get', 'set', 'reset'],
 	audit: ['events'],
 };
