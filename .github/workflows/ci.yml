@@ -36,5 +36,11 @@ jobs:
           npm ci
           npm ci --prefix dashboard
 
+      # The worker test pool (@cloudflare/vitest-pool-workers) loads wrangler.jsonc, whose
+      # assets.directory points at dashboard/dist — it must exist before `npm test` runs, and
+      # preflight builds it only at the end. Build it up front in clean CI checkouts.
+      - name: Build dashboard (required by worker test pool)
+        run: npm run build:dashboard
+
       - name: Preflight (typecheck + lint + test + openapi + build)
         run: npm run preflight
