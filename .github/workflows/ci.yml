@@ -90,14 +90,22 @@ jobs:
         id: target
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "env=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+            TARGET="${{ inputs.environment }}"
           elif [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
-            echo "env=production" >> "$GITHUB_OUTPUT"
+            TARGET="production"
           else
-            echo "env=staging" >> "$GITHUB_OUTPUT"
+            TARGET="staging"
+          fi
+          echo "env=$TARGET" >> "$GITHUB_OUTPUT"
+          # Production is the top-level config (bare deploy, matching `npm run deploy`);
+          # only named environments take --env. So prod gets no flag, staging gets --env staging.
+          if [ "$TARGET" = "production" ]; then
+            echo "args=" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=--env $TARGET" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Deploy (${{ steps.target.outputs.env }})
-        run: npx wrangler deploy --env ${{ steps.target.outputs.env }}
+        run: npx wrangler deploy ${{ steps.target.outputs.args }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
