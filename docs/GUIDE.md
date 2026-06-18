@@ -497,6 +497,71 @@ curl -X POST "$GATEKEEPER_URL/admin/upstream-tokens" \
 
 ---
 
+### 2.4 Supabase Management API + metrics (RBAC overlay)
+
+Gatekeeper can front a stored Supabase credential with its IAM + policy engine, so a single coarse, account-level Supabase credential is never handed out directly -- callers get narrowly-scoped Gatekeeper keys instead, and every call is classified to a `supabase:<category>:<read|write>` action (e.g. `supabase:database:write`, `supabase:auth:read`, `supabase:metrics:read`). Unclassified paths deny by default.
+
+There are two credential types, both stored in the same upstream-token store:
+
+| `scope_type` | Auth | Used for |
+|---|---|---|
+| `supabase` | Bearer (Personal Access Token) | the Management API (`/supabase/v1/*`, `/supabase/v0/*`) |
+| `supabase_metrics` | HTTP Basic (project secret key) | per-project Prometheus metrics (`/supabase/metrics/:ref`) |
+
+> **Registered via the REST API, not the CLI.** `gk upstream-tokens create` only accepts `--scope-type zone|account`; the Supabase scope types (and the `auth_type` / `username` fields metrics needs) are API-only. `zone_ids` holds the 20-char Supabase **project ref(s)** this credential covers, or `["*"]` for all.
+
+#### Register a Management API PAT (`scope_type: supabase`)
+
+```bash
+curl -X POST "$GATEKEEPER_URL/admin/upstream-tokens" \
+  -H "X-Admin-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "supabase-pat",
+    "token": "'"$SUPABASE_PAT"'",
+    "scope_type": "supabase",
+    "zone_ids": ["'"$SUPABASE_PROJECT_REF"'"]
+  }'
+```
+
+#### Register a metrics secret (`scope_type: supabase_metrics`)
+
+```bash
+curl -X POST "$GATEKEEPER_URL/admin/upstream-tokens" \
+  -H "X-Admin-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "supabase-metrics",
+    "token": "'"$SUPABASE_SECRET_KEY"'",
+    "scope_type": "supabase_metrics",
+    "auth_type": "basic",
+    "username": "service_role",
+    "zone_ids": ["'"$SUPABASE_PROJECT_REF"'"]
+  }'
+```
+
+> `supabase_metrics` requires `auth_type: "basic"`. `username` defaults to `service_role` and is cosmetic -- Supabase's metrics endpoint authenticates on the password (secret) only.
+
+#### Using the proxy
+
+Once a credential is on file, point your Supabase client / scraper at Gatekeeper with a scoped Gatekeeper key (not the PAT) as the Bearer token:
+
+```bash
+# Management API (PAT swapped in server-side)
+curl "$GATEKEEPER_URL/supabase/v1/projects/$REF/database/query" \
+  -H "Authorization: Bearer $GATEKEEPER_KEY" -X POST -d '{"query":"select 1"}'
+
+# Per-project metrics over HTTP Basic (secret swapped in, Prometheus text streamed through)
+curl "$GATEKEEPER_URL/supabase/metrics/$REF" -H "Authorization: Bearer $GATEKEEPER_KEY"
+```
+
+**Metrics without handing out a god-mode key.** Scraping Supabase metrics traditionally means giving the scraper the project's `service_role` secret. The overlay removes that: store the secret (or a PAT) once, and hand scrapers a Gatekeeper key scoped to `supabase:metrics:read` only. Two backends satisfy that action -- pick whichever credential you have on file:
+
+- `GET /supabase/metrics/:ref` -- the Basic-auth path above (swaps in the `supabase_metrics` secret).
+- `GET /supabase/v0/projects/:ref/analytics/metrics` -- an **experimental** path that uses the stored `supabase` PAT instead. The `/v0` surface is treated as external/unstable: only this metrics endpoint is classified, everything else under `/v0` denies by default.
+
+---
+
 ## 3. Creating API Keys
 
 Every key requires `name` and `policy`. The policy version must be `"2025-01-01"`. Optional fields: `zone_id` (scope to one zone), `expires_in_days`, `rate_limit` (per-key overrides), `created_by` (audit trail -- SSO email is used automatically when authenticated via Cloudflare Access; non-SSO values are prefixed `unverified:`; defaults to `"via admin key"` if omitted). The same key type serves both purge and DNS operations -- actions in the policy determine what the key can do.
