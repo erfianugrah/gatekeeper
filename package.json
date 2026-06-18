@@ -16,6 +16,7 @@
 		"test": "vitest run",
 		"test:worker": "vitest run -c vitest.worker.config.ts",
 		"test:cli": "vitest run -c vitest.cli.config.ts",
+		"test:e2e": "playwright test",
 		"preflight": "npm run typecheck && npm run lint && npm test && npm run check:openapi && npm run build",
 		"check:openapi": "bash scripts/check-openapi.sh",
 		"check:api-coverage": "tsx scripts/api-coverage/refresh.ts",

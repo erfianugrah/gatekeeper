@@ -29,8 +29,9 @@ For all limits and quotas, retrieve from the product's `/platform/limits/` page.
 | `npm run build:cli`                                      | Build the CLI only                                 |
 | `npm run preflight`                                      | typecheck + lint + test + build (run before PR)    |
 | `npm run cli -- <command>`                               | Run the CLI locally (uses tsx + .env)              |
-| `npx playwright test`                                    | Run Playwright E2E tests (needs wrangler dev)      |
-| `npx playwright test e2e/purge-profiles.spec.ts`         | Run a single E2E test file                         |
+| `npm run test:e2e`                                       | Run Playwright E2E tests (auto-starts wrangler dev) |
+| `npx playwright test e2e/supabase-ui.spec.ts`            | Run a single E2E test file                         |
+| `GATEKEEPER_URL=http://localhost:8787 npm run smoke`     | Run the live-API smoke suite against a deployment  |
 
 Run `wrangler types` after changing bindings in wrangler.jsonc.
 
@@ -40,9 +41,13 @@ There are three test layers:
 
 - **worker** (`vitest.worker.config.ts`): Uses `@cloudflare/vitest-pool-workers` to run `test/**/*.test.ts` in the Workers runtime. Tests use `SELF.fetch()` and Durable Object stubs.
 - **cli** (`vitest.cli.config.ts`): Runs `cli/**/*.test.ts` in plain Node.js.
-- **e2e** (`playwright.config.ts`): Playwright browser tests in `e2e/**/*.spec.ts`. Runs against `http://localhost:8787` (start `npx wrangler dev` first). Tests dashboard UI interactions: purge profiles, pill inputs, condition editor, form validation.
+- **e2e** (`playwright.config.ts`): Playwright browser tests in `e2e/**/*.spec.ts`, run against `http://localhost:8787`. The Playwright `webServer` config auto-starts `wrangler dev` (injecting `ADMIN_KEY=test-admin-secret-key-12345` via `--var`, since `.dev.vars` is gitignored); locally it reuses a server you already have running, in CI it boots a fresh one. The dashboard must be built first (`assets.directory` → `dashboard/dist`). Specs: purge profiles, pill inputs, condition editor, form validation, and **Supabase UI** (`supabase-ui.spec.ts` — upstream-token scope types + project-ref validation, PolicyBuilder scope-gated action groups). E2e is a **deploy gate in CI** (`deploy` needs `[preflight, e2e]`) because it catches the `run_worker_first` asset-layer class of bug that the worker test pool is blind to (vitest calls `app.fetch` directly).
 
 When running a single worker test file, you do NOT need `-c vitest.worker.config.ts` because the default config includes both projects. For CLI tests, you DO need `-c vitest.cli.config.ts` or run via `npm run test:cli`.
+
+### Live-API smoke suite
+
+`npm run smoke` (entry `cli/smoke-test.ts`) exercises a deployment end-to-end over HTTP. `BASE = GATEKEEPER_URL ?? http://localhost:8787`; `IS_REMOTE` when `https://`. Each surface is a module under `cli/smoke/` (admin, purge, s3, dns, cf-proxy, **supabase**, …). The **supabase** module has two tiers: a synthetic tier (always runs, no real credential — asset-layer wiring, auth ordering, classifier + deny-by-default, token binding) and an opt-in live tier gated on `SUPABASE_SMOKE_PAT` that drives the **official `supabase` CLI** through the proxy (`SUPABASE_API_URL=<gateway>/supabase`, `SUPABASE_ACCESS_TOKEN=<gatekeeper key>`). Smoke is NOT in CI preflight (it needs real upstream credentials and creates real resources) — run it manually / on a schedule.
 
 ## Node.js Compatibility
 
