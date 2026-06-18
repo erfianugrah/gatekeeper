@@ -1092,6 +1092,17 @@ git add -A && git commit -m "chore(supabase): preflight fixups"
 
 ---
 
+## Two metrics backends (both implemented)
+
+Metrics scraping is authorized by the same action (`supabase:metrics:read`) over two independent upstream paths, so an operator can pick whichever credential they already hold:
+
+1. **Basic-auth path** — `GET /supabase/metrics/:ref` resolves a stored `supabase_metrics` (HTTP Basic) credential and proxies to `https://<ref>.supabase.co/customer/v1/privileged/metrics`. Stable, no dependency on any newer API.
+2. **PAT path** — `GET /supabase/v0/projects/{ref}/analytics/metrics` is classified as `supabase:metrics:read` and routed through the Management-API catch-all using the stored `supabase` PAT (Bearer). This lets a project be scraped with only a PAT on file, no per-project Basic secret.
+
+The `/v0/` path is treated as **external and unstable**: only this one scrape endpoint is mapped, only `GET`/`HEAD` is classified, and every other `/v0/` path denies by default. We make no assumptions about how the upstream services that request internally — Gatekeeper only forwards the caller's credential to the documented endpoint and streams the response back. If the upstream path or its required scope changes, the change is isolated to the single classifier branch + the `run_worker_first` entry.
+
+---
+
 ## Follow-on work (explicitly out of scope here)
 
 - **Dashboard surfaces** — a `SupabaseCredentialsPage.tsx` + `SupabaseProxyAnalyticsPage.tsx` (clone `UpstreamTokensPage.tsx` / `S3CredentialsPage.tsx`). Not needed for the RBAC value prop; curl + admin API suffice.

@@ -4260,7 +4260,9 @@
                     "type": "string",
                     "enum": [
                       "zone",
-                      "account"
+                      "account",
+                      "supabase",
+                      "supabase_metrics"
                     ]
                   },
                   "zone_ids": {
@@ -4269,6 +4271,16 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "auth_type": {
+                    "type": "string",
+                    "enum": [
+                      "bearer",
+                      "basic"
+                    ]
+                  },
+                  "username": {
+                    "type": "string"
                   },
                   "expires_in_days": {
                     "type": "number",

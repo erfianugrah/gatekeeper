@@ -104,4 +104,22 @@ describe('classifySupabaseRequest', () => {
 		expect(classifySupabaseRequest('GET', '/v1/some/unmapped/route')).toBeNull();
 		expect(classifySupabaseRequest('GET', '/health')).toBeNull();
 	});
+
+	it('classifies the experimental v0 analytics metrics scrape as metrics:read', () => {
+		const r = classifySupabaseRequest('GET', `/v0/projects/${REF}/analytics/metrics`);
+		expect(r).toEqual({
+			action: 'supabase:metrics:read',
+			category: 'metrics',
+			write: false,
+			projectRef: REF,
+			resource: `project:${REF}`,
+		});
+	});
+
+	it('denies non-GET methods and any other v0 path (treats v0 as unstable)', () => {
+		expect(classifySupabaseRequest('POST', `/v0/projects/${REF}/analytics/metrics`)).toBeNull();
+		expect(classifySupabaseRequest('GET', `/v0/projects/${REF}/database/query`)).toBeNull();
+		expect(classifySupabaseRequest('GET', '/v0/organizations/my-org')).toBeNull();
+		expect(classifySupabaseRequest('GET', '/v0/projects/NOT_A_REF/analytics/metrics')).toBeNull();
+	});
 });
