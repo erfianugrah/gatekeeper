@@ -39,6 +39,7 @@ import { run as runDns } from './smoke/dns.js';
 import { run as runRoutes } from './smoke/routes.js';
 import { run as runConfig } from './smoke/config.js';
 import { run as runCfProxy } from './smoke/cf-proxy.js';
+import { run as runSupabase } from './smoke/supabase.js';
 import { run as runAudit } from './smoke/audit.js';
 import { run as runRotation } from './smoke/rotation.js';
 
@@ -130,6 +131,7 @@ async function main(): Promise<void> {
 		await runBulk(ctx);
 		await runDns(ctx);
 		await runCfProxy(ctx);
+		await runSupabase(ctx);
 		await runConfig(ctx);
 		await runAudit(ctx);
 		await runRotation(ctx);

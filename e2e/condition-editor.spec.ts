@@ -82,17 +82,21 @@ test.describe('Condition Editor', () => {
 		await expect(page.locator('[data-testid="group-option-not"]')).not.toBeVisible();
 	});
 
-	// NOTE: This test requires a live wrangler dev server with Assets binding.
-	// The mousedown/click event race on the custom dropdown menu is only
-	// reproducible in Playwright when the Astro static assets are served.
-	test('OR group can be added and shows label', async ({ page }) => {
+	// A top-level single OR group is intentionally flattened into the inline
+	// OR-join view (see isSingleOrGroup in ConditionEditor) rather than a nested
+	// group with a descriptive label, so the OR separator only appears once a
+	// second condition exists. This mirrors the AND-separator test below.
+	test('OR group can be added and shows the OR join separator', async ({ page }) => {
 		await openPolicyBuilder(page);
 
 		await page.locator('button:has-text("Add group")').first().click();
 		await expect(page.locator('[data-testid="group-menu"]')).toBeVisible();
 		await page.locator('[data-testid="group-option-or"]').click();
 
-		await expect(page.locator('text=at least one must match')).toBeVisible({ timeout: 5000 });
+		// Add a second condition inside the flattened OR group so the separator renders.
+		await page.locator('button:has-text("Add condition")').last().click();
+
+		await expect(page.locator('.tracking-widest:has-text("OR")').first()).toBeVisible({ timeout: 5000 });
 	});
 
 	test('AND group can be added and shows label', async ({ page }) => {
