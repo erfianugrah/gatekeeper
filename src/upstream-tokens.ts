@@ -400,7 +400,11 @@ export class UpstreamTokenManager {
 			return cached.row ?? null;
 		}
 
-		const rows = queryAll<UpstreamTokenRow>(this.sql, `SELECT * FROM upstream_tokens WHERE scope_type = ? ORDER BY created_at DESC`, scopeType);
+		const rows = queryAll<UpstreamTokenRow>(
+			this.sql,
+			`SELECT * FROM upstream_tokens WHERE scope_type = ? ORDER BY created_at DESC`,
+			scopeType,
+		);
 		const now = Date.now();
 		let wildcard: UpstreamTokenRow | null = null;
 

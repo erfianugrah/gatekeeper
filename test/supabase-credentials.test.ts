@@ -83,7 +83,12 @@ describe('supabase credential resolution', () => {
 		const stub = getStub();
 		const pat = await stub.createUpstreamToken({ name: 'iso-pat', token: 'sbp_iso', scope_type: 'supabase', zone_ids: [REF] });
 		const met = await stub.createUpstreamToken({
-			name: 'iso-met', token: 'sb_secret_iso', scope_type: 'supabase_metrics', auth_type: 'basic', username: 'service_role', zone_ids: [REF],
+			name: 'iso-met',
+			token: 'sb_secret_iso',
+			scope_type: 'supabase_metrics',
+			auth_type: 'basic',
+			username: 'service_role',
+			zone_ids: [REF],
 		});
 		try {
 			// PAT resolver must not return the metrics secret and vice-versa.
