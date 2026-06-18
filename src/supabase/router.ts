@@ -62,8 +62,8 @@ supabaseApp.get('/metrics/:ref', async (c) => {
 	const auth = await stub.authorize(keyId, ref, [ctx]);
 	if (!auth.authorized) {
 		const status = authErrorStatus(auth.error);
+		log.breadcrumb = 'supabase-metrics-authz-denied';
 		log.status = status;
-		log.error = 'auth_failed';
 		log.authError = auth.error;
 		console.log(JSON.stringify(log));
 		return sbJsonError(status, auth.error ?? 'Forbidden');
@@ -71,8 +71,8 @@ supabaseApp.get('/metrics/:ref', async (c) => {
 
 	const cred = await stub.resolveSupabaseMetricsCredential(ref);
 	if (!cred) {
+		log.breadcrumb = 'supabase-metrics-credential-not-found';
 		log.status = 502;
-		log.error = 'no_metrics_credential';
 		console.log(JSON.stringify(log));
 		return sbJsonError(502, `No metrics credential registered for project ${ref}`);
 	}
@@ -80,6 +80,7 @@ supabaseApp.get('/metrics/:ref', async (c) => {
 	const upstreamStart = Date.now();
 	const upstream = await proxyToMetrics(ref, cred.username, cred.secret);
 	const upstreamLatency = Date.now() - upstreamStart;
+	log.breadcrumb = 'supabase-metrics-ok';
 	log.status = upstream.status;
 	log.upstreamLatencyMs = upstreamLatency;
 	log.durationMs = Date.now() - start;
@@ -122,8 +123,8 @@ const managementApiHandler = async (c: Context<SupabaseEnv>) => {
 
 	const cls = classifySupabaseRequest(method, path);
 	if (!cls) {
+		log.breadcrumb = 'supabase-mgmt-unmapped';
 		log.status = 404;
-		log.error = 'unmapped_endpoint';
 		console.log(JSON.stringify(log));
 		return sbJsonError(404, `Endpoint not mapped in Gatekeeper policy surface: ${method} ${path}`);
 	}
@@ -147,8 +148,8 @@ const managementApiHandler = async (c: Context<SupabaseEnv>) => {
 	const auth = await stub.authorize(keyId, cls.projectRef ?? '', [ctx]);
 	if (!auth.authorized) {
 		const status = authErrorStatus(auth.error);
+		log.breadcrumb = 'supabase-mgmt-authz-denied';
 		log.status = status;
-		log.error = 'auth_failed';
 		log.authError = auth.error;
 		console.log(JSON.stringify(log));
 		return sbJsonError(status, auth.error ?? 'Forbidden');
@@ -157,8 +158,8 @@ const managementApiHandler = async (c: Context<SupabaseEnv>) => {
 	// Resolve the PAT by project ref (or '*' wildcard for account-wide endpoints).
 	const pat = await stub.resolveSupabaseToken(cls.projectRef ?? '*');
 	if (!pat) {
+		log.breadcrumb = 'supabase-mgmt-pat-not-found';
 		log.status = 502;
-		log.error = 'no_upstream_pat';
 		console.log(JSON.stringify(log));
 		return sbJsonError(502, 'No Supabase Personal Access Token registered for this project');
 	}
@@ -169,6 +170,7 @@ const managementApiHandler = async (c: Context<SupabaseEnv>) => {
 	const upstreamLatency = Date.now() - upstreamStart;
 	const text = await upstream.text();
 
+	log.breadcrumb = 'supabase-mgmt-ok';
 	log.status = upstream.status;
 	log.upstreamLatencyMs = upstreamLatency;
 	log.durationMs = Date.now() - start;

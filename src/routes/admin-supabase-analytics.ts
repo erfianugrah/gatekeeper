@@ -7,11 +7,13 @@
 
 import { Hono } from 'hono';
 import { querySupabaseProxyEvents, querySupabaseProxySummary } from '../supabase/analytics';
+import { queryTimeseries } from '../analytics-timeseries';
 import {
 	jsonError,
 	parseQueryParams,
 	supabaseProxyAnalyticsEventsQuerySchema,
 	supabaseProxyAnalyticsSummaryQuerySchema,
+	supabaseProxyTimeseriesQuerySchema,
 } from './admin-schemas';
 import type { SupabaseProxyAnalyticsQuery } from '../supabase/analytics';
 import type { HonoEnv } from '../types';
@@ -22,7 +24,7 @@ export const adminSupabaseAnalyticsApp = new Hono<HonoEnv>();
 
 // ─── Events ─────────────────────────────────────────────────────────────────
 
-adminSupabaseAnalyticsApp.get('/', async (c) => {
+adminSupabaseAnalyticsApp.get('/events', async (c) => {
 	if (!c.env.ANALYTICS_DB) {
 		console.log(JSON.stringify({ breadcrumb: 'analytics-not-configured', route: 'supabase-proxy-events' }));
 		return jsonError(c, 503, 'Analytics not configured');
@@ -87,4 +89,44 @@ adminSupabaseAnalyticsApp.get('/summary', async (c) => {
 	);
 
 	return c.json({ success: true, result: summary });
+});
+
+// ─── Timeseries ───────────────────────────────────────────────────────────────
+
+adminSupabaseAnalyticsApp.get('/timeseries', async (c) => {
+	if (!c.env.ANALYTICS_DB) {
+		return jsonError(c, 503, 'Analytics not configured');
+	}
+
+	const query = parseQueryParams(c, supabaseProxyTimeseriesQuerySchema);
+	if (query instanceof Response) return query;
+
+	const conditions: string[] = [];
+	const params: (string | number)[] = [];
+
+	if (query.project_ref) {
+		conditions.push('project_ref = ?');
+		params.push(query.project_ref);
+	}
+	if (query.key_id) {
+		conditions.push('key_id = ?');
+		params.push(query.key_id);
+	}
+	if (query.category) {
+		conditions.push('category = ?');
+		params.push(query.category);
+	}
+	if (query.action) {
+		conditions.push('action = ?');
+		params.push(query.action);
+	}
+
+	const buckets = await queryTimeseries(
+		c.env.ANALYTICS_DB,
+		'supabase_proxy_events',
+		{ conditions, params },
+		{ since: query.since, until: query.until },
+	);
+
+	return c.json({ success: true, result: buckets });
 });

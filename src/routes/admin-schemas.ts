@@ -923,6 +923,18 @@ export const supabaseProxyAnalyticsSummaryQuerySchema = z.object({
 
 export type SupabaseProxyAnalyticsSummaryQuery = z.infer<typeof supabaseProxyAnalyticsSummaryQuerySchema>;
 
+/** Supabase proxy analytics: GET /admin/supabase/analytics/timeseries */
+export const supabaseProxyTimeseriesQuerySchema = z.object({
+	since: optionalNumericQuery,
+	until: optionalNumericQuery,
+	project_ref: z.string().optional(),
+	key_id: z.string().optional(),
+	category: z.string().optional(),
+	action: z.string().optional(),
+});
+
+export type SupabaseProxyTimeseriesQuery = z.infer<typeof supabaseProxyTimeseriesQuerySchema>;
+
 /** DNS analytics: GET /admin/dns/analytics/events */
 export const dnsAnalyticsEventsQuerySchema = z.object({
 	zone_id: z.string().optional(),

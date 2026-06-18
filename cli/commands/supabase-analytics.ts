@@ -71,7 +71,7 @@ const events = defineCommand({
 		if (args.limit) params.set('limit', args.limit);
 
 		const qs = params.toString();
-		const path = qs ? `/admin/supabase/analytics?${qs}` : '/admin/supabase/analytics';
+		const path = qs ? `/admin/supabase/analytics/events?${qs}` : '/admin/supabase/analytics/events';
 		const { status, data, durationMs } = await request(config, 'GET', path, {
 			auth: 'admin',
 			label: 'Fetching Supabase proxy events...',

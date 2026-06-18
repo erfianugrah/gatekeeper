@@ -11,7 +11,7 @@ import { MS_PER_DAY } from './constants';
 const MS_PER_HOUR = 3_600_000;
 
 /** Allowed table names for timeseries queries — prevents SQL injection via table parameter. */
-const ALLOWED_TABLES = new Set(['purge_events', 's3_events', 'dns_events', 'cf_proxy_events']);
+const ALLOWED_TABLES = new Set(['purge_events', 's3_events', 'dns_events', 'cf_proxy_events', 'supabase_proxy_events']);
 
 export interface TimeseriesBucket {
 	/** Start of the hour (unix ms, floored). */
