@@ -450,13 +450,22 @@ export async function getS3Summary(query: Omit<S3EventsQuery, 'limit'> = {}): Pr
 
 // ─── Upstream Tokens ─────────────────────────────────────────────────
 
+/** Upstream credential scope. zone/account = Cloudflare; supabase = Management API PAT; supabase_metrics = per-project metrics secret. */
+export type UpstreamTokenScopeType = 'zone' | 'account' | 'supabase' | 'supabase_metrics';
+
+/** How the credential is presented upstream: 'bearer' (default) or 'basic' (username + secret). */
+export type UpstreamAuthType = 'bearer' | 'basic';
+
 export interface UpstreamToken {
 	id: string;
 	name: string;
-	scope_type: 'zone' | 'account';
-	/** Comma-separated zone IDs or account ID (depending on scope_type), or "*" for all. */
+	scope_type: UpstreamTokenScopeType;
+	/** Comma-separated zone IDs / account IDs / Supabase project refs (depending on scope_type), or "*" for all. */
 	zone_ids: string;
 	token_preview: string;
+	auth_type?: UpstreamAuthType;
+	/** Basic-auth username when auth_type='basic' (Supabase metrics); null otherwise. */
+	username?: string | null;
 	created_at: number;
 	expires_at: number | null;
 	created_by: string | null;
@@ -465,8 +474,10 @@ export interface UpstreamToken {
 export interface CreateUpstreamTokenRequest {
 	name: string;
 	token: string;
-	scope_type?: 'zone' | 'account';
+	scope_type?: UpstreamTokenScopeType;
 	zone_ids: string[];
+	auth_type?: UpstreamAuthType;
+	username?: string | null;
 	expires_in_days?: number;
 	created_by?: string;
 	validate?: boolean;
@@ -675,6 +686,78 @@ export async function getCfProxySummary(query: Omit<CfProxyEventsQuery, 'limit'>
 	if (query.until) params.set('until', String(query.until));
 	const qs = params.toString();
 	return apiFetch<CfProxyAnalyticsSummary>(`/admin/cf/analytics/summary${qs ? `?${qs}` : ''}`);
+}
+
+// ─── Supabase Proxy Analytics ─────────────────────────────────────────
+
+/** Supabase Management API / Metrics proxy event (one row per proxied request). */
+export interface SupabaseProxyEvent {
+	id: number;
+	key_id: string;
+	project_ref: string | null;
+	category: string;
+	/** Full action string, e.g. 'supabase:database:write'. */
+	action: string;
+	status: number;
+	upstream_status: number | null;
+	duration_ms: number;
+	upstream_latency_ms: number | null;
+	response_size: number | null;
+	response_detail: string | null;
+	created_by: string | null;
+	created_at: number;
+}
+
+export interface SupabaseProxyAnalyticsSummary {
+	total_requests: number;
+	by_status: Record<string, number>;
+	by_category: Record<string, number>;
+	by_action: Record<string, number>;
+	avg_duration_ms: number;
+}
+
+export interface SupabaseProxyEventsQuery {
+	project_ref?: string;
+	key_id?: string;
+	category?: string;
+	action?: string;
+	since?: number;
+	until?: number;
+	limit?: number;
+}
+
+export async function getSupabaseProxyEvents(query: SupabaseProxyEventsQuery = {}): Promise<SupabaseProxyEvent[]> {
+	const params = new URLSearchParams();
+	if (query.project_ref) params.set('project_ref', query.project_ref);
+	if (query.key_id) params.set('key_id', query.key_id);
+	if (query.category) params.set('category', query.category);
+	if (query.action) params.set('action', query.action);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	if (query.limit) params.set('limit', String(query.limit));
+	const qs = params.toString();
+	return apiFetch<SupabaseProxyEvent[]>(`/admin/supabase/analytics/events${qs ? `?${qs}` : ''}`);
+}
+
+export async function getSupabaseProxySummary(query: Omit<SupabaseProxyEventsQuery, 'limit'> = {}): Promise<SupabaseProxyAnalyticsSummary> {
+	const params = new URLSearchParams();
+	if (query.project_ref) params.set('project_ref', query.project_ref);
+	if (query.key_id) params.set('key_id', query.key_id);
+	if (query.category) params.set('category', query.category);
+	if (query.action) params.set('action', query.action);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	const qs = params.toString();
+	return apiFetch<SupabaseProxyAnalyticsSummary>(`/admin/supabase/analytics/summary${qs ? `?${qs}` : ''}`);
+}
+
+export async function getSupabaseProxyTimeseries(query: { project_ref?: string; since?: number; until?: number } = {}): Promise<TimeseriesBucket[]> {
+	const params = new URLSearchParams();
+	if (query.project_ref) params.set('project_ref', query.project_ref);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	const qs = params.toString();
+	return apiFetch<TimeseriesBucket[]>(`/admin/supabase/analytics/timeseries${qs ? `?${qs}` : ''}`);
 }
 
 // ─── Timeseries Analytics ─────────────────────────────────────────────

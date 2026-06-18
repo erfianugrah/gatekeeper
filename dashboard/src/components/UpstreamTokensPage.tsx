@@ -18,6 +18,13 @@ import { T } from '@/lib/typography';
 // ─── Constants ──────────────────────────────────────────────────────
 
 const ZONE_ID_RE = /^[a-f0-9]{32}$/;
+const SUPABASE_REF_RE = /^[a-z0-9]{20}$/;
+
+type ScopeType = 'zone' | 'account' | 'supabase' | 'supabase_metrics';
+
+function isSupabaseScope(s: ScopeType): boolean {
+	return s === 'supabase' || s === 'supabase_metrics';
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -45,14 +52,23 @@ function isExpired(expiresAt: number | null): boolean {
 }
 
 function formatZoneIds(zoneIds: string): string {
-	if (zoneIds === '*') return 'All zones';
+	if (zoneIds === '*') return 'All';
 	const ids = zoneIds.split(',');
 	if (ids.length === 1) return ids[0];
-	return `${ids.length} zones`;
+	return `${ids.length} scopes`;
 }
 
-function formatScopeType(scope: 'zone' | 'account'): string {
-	return scope === 'account' ? 'Account' : 'Zone';
+function formatScopeType(scope: ScopeType): string {
+	switch (scope) {
+		case 'account':
+			return 'Account';
+		case 'supabase':
+			return 'Supabase';
+		case 'supabase_metrics':
+			return 'Supabase Metrics';
+		default:
+			return 'Zone';
+	}
 }
 
 // ─── Warnings Banner ────────────────────────────────────────────────
@@ -96,16 +112,24 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 	const [open, setOpen] = useState(false);
 	const [name, setName] = useState('');
 	const [token, setToken] = useState('');
-	const [scopeType, setScopeType] = useState<'zone' | 'account'>('zone');
+	const [scopeType, setScopeType] = useState<ScopeType>('zone');
 	const [zoneIdsInput, setZoneIdsInput] = useState('*');
+	const [username, setUsername] = useState('service_role');
 	const [expiresInDays, setExpiresInDays] = useState('');
 	const [skipValidation, setSkipValidation] = useState(false);
 	const [creating, setCreating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
-	const scopeLabel = scopeType === 'account' ? 'Account IDs' : 'Zone IDs';
-	const scopePlaceholder =
-		scopeType === 'account' ? '* for all accounts, or comma-separated account IDs' : '* for all zones, or comma-separated zone IDs';
+	const isSupabase = isSupabaseScope(scopeType);
+	const isMetrics = scopeType === 'supabase_metrics';
+
+	const scopeLabel = isSupabase ? 'Project Refs' : scopeType === 'account' ? 'Account IDs' : 'Zone IDs';
+	const scopePlaceholder = isSupabase
+		? '* for all projects, or comma-separated 20-char project refs'
+		: scopeType === 'account'
+			? '* for all accounts, or comma-separated account IDs'
+			: '* for all zones, or comma-separated zone IDs';
+	const credentialLabel = isMetrics ? 'Metrics Secret' : isSupabase ? 'Personal Access Token (PAT)' : 'Cloudflare API Token';
 
 	const handleCreate = async () => {
 		setError(null);
@@ -131,9 +155,11 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 			return;
 		}
 
-		const invalidIds = ids.filter((z) => z !== '*' && !ZONE_ID_RE.test(z));
+		const idRe = isSupabase ? SUPABASE_REF_RE : ZONE_ID_RE;
+		const idShape = isSupabase ? '20-char project ref' : '32-char hex';
+		const invalidIds = ids.filter((z) => z !== '*' && !idRe.test(z));
 		if (invalidIds.length > 0) {
-			setError(`Invalid ${scopeType} ID(s): ${invalidIds.join(', ')} — must be 32-char hex or *`);
+			setError(`Invalid ${isSupabase ? 'project ref' : scopeType + ' ID'}(s): ${invalidIds.join(', ')} — must be ${idShape} or *`);
 			return;
 		}
 
@@ -150,6 +176,7 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 				token: token.trim(),
 				scope_type: scopeType,
 				zone_ids: ids,
+				...(isMetrics && { auth_type: 'basic', username: username.trim() || 'service_role' }),
 				...(expDays && { expires_in_days: expDays }),
 				...(skipValidation && { validate: false }),
 			});
@@ -159,6 +186,7 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 			setToken('');
 			setScopeType('zone');
 			setZoneIdsInput('*');
+			setUsername('service_role');
 			setExpiresInDays('');
 			setSkipValidation(false);
 		} catch (e: any) {
@@ -196,24 +224,36 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 					</div>
 
 					<div className="space-y-2">
-						<Label className={T.formLabel}>Cloudflare API Token</Label>
-						<Input type="password" placeholder="Your Cloudflare API token" value={token} onChange={(e) => setToken(e.target.value)} />
-						<p className={T.muted}>The token will not be shown again after creation.</p>
+						<Label className={T.formLabel}>{credentialLabel}</Label>
+						<Input type="password" placeholder={`Your ${credentialLabel}`} value={token} onChange={(e) => setToken(e.target.value)} />
+						<p className={T.muted}>The credential will not be shown again after creation.</p>
 					</div>
 
 					<div className="space-y-2">
 						<Label className={T.formLabel}>Scope Type</Label>
-						<Select value={scopeType} onValueChange={(v) => setScopeType(v as 'zone' | 'account')}>
+						<Select value={scopeType} onValueChange={(v) => setScopeType(v as ScopeType)}>
 							<SelectTrigger>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="zone">Zone</SelectItem>
-								<SelectItem value="account">Account</SelectItem>
+								<SelectItem value="zone">Zone (Cloudflare)</SelectItem>
+								<SelectItem value="account">Account (Cloudflare)</SelectItem>
+								<SelectItem value="supabase">Supabase (Management API PAT)</SelectItem>
+								<SelectItem value="supabase_metrics">Supabase Metrics (secret)</SelectItem>
 							</SelectContent>
 						</Select>
-						<p className={T.muted}>Zone-scoped tokens are used for cache purge / DNS. Account-scoped for CF API proxy.</p>
+						<p className={T.muted}>
+							Zone: cache purge / DNS. Account: CF API proxy. Supabase: Management API (Bearer PAT). Supabase Metrics: per-project metrics (HTTP Basic).
+						</p>
 					</div>
+
+					{isMetrics && (
+						<div className="space-y-2">
+							<Label className={T.formLabel}>Metrics Username</Label>
+							<Input placeholder="service_role" value={username} onChange={(e) => setUsername(e.target.value)} />
+							<p className={T.muted}>HTTP Basic username for the Supabase metrics endpoint. Defaults to service_role.</p>
+						</div>
+					)}
 
 					<div className="space-y-2">
 						<Label className={T.formLabel}>{scopeLabel}</Label>

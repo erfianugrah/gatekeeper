@@ -66,6 +66,9 @@ export function eventSearchText(ev: UnifiedEvent): string {
 		ev.cf_action ?? '',
 		ev.cf_account_id ?? '',
 		ev.cf_resource_id ?? '',
+		ev.sb_category ?? '',
+		ev.sb_action ?? '',
+		ev.sb_project_ref ?? '',
 		(ev.raw as any).created_by ?? '',
 		(ev.raw as any).response_detail ?? '',
 	];

@@ -8,10 +8,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { usePagination } from '@/hooks/use-pagination';
 import { TablePagination } from '@/components/TablePagination';
-import { getEvents, getS3Events, getDnsEvents, getCfProxyEvents } from '@/lib/api';
+import { getEvents, getS3Events, getDnsEvents, getCfProxyEvents, getSupabaseProxyEvents } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { T } from '@/lib/typography';
-import { fromPurge, fromS3, fromDns, fromCfProxy, isCfProxySource, groupByFlight, LIMIT_OPTIONS } from './analytics/analytics-types';
+import { fromPurge, fromS3, fromDns, fromCfProxy, fromSupabase, isCfProxySource, groupByFlight, LIMIT_OPTIONS } from './analytics/analytics-types';
 import { formatTime, truncateId, eventSearchText, exportToJson, copyToClipboard } from './analytics/analytics-helpers';
 import {
 	WithTooltip,
@@ -24,7 +24,7 @@ import {
 } from './analytics/analytics-badges';
 import { EventDetailRow } from './analytics/EventDetailRow';
 import { EventsTableSkeleton } from './analytics/EventsTableSkeleton';
-import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent } from '@/lib/api';
+import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent } from '@/lib/api';
 import type { UnifiedEvent, FlightGroup, SortField, SortDir, TabFilter, StatusFilter } from './analytics/analytics-types';
 
 // ─── Analytics Page ─────────────────────────────────────────────────
@@ -34,6 +34,7 @@ export function AnalyticsPage() {
 	const [s3Events, setS3Events] = useState<S3Event[]>([]);
 	const [dnsEvents, setDnsEvents] = useState<DnsEvent[]>([]);
 	const [cfEvents, setCfEvents] = useState<CfProxyEvent[]>([]);
+	const [supabaseEvents, setSupabaseEvents] = useState<SupabaseProxyEvent[]>([]);
 	const [limit, setLimit] = useState<number>(100);
 	const [tab, setTab] = useState<TabFilter>('all');
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -59,7 +60,7 @@ export function AnalyticsPage() {
 		setError(null);
 		const errors: string[] = [];
 		try {
-			const [purge, s3, dns, cf] = await Promise.all([
+			const [purge, s3, dns, cf, supabase] = await Promise.all([
 				getEvents({ limit: fetchLimit }).catch((e) => {
 					errors.push(`Purge: ${e.message}`);
 					return [] as PurgeEvent[];
@@ -76,12 +77,17 @@ export function AnalyticsPage() {
 					errors.push(`CF: ${e.message}`);
 					return [] as CfProxyEvent[];
 				}),
+				getSupabaseProxyEvents({ limit: fetchLimit }).catch((e) => {
+					errors.push(`Supabase: ${e.message}`);
+					return [] as SupabaseProxyEvent[];
+				}),
 			]);
 			setPurgeEvents(purge);
 			setS3Events(s3);
 			setDnsEvents(dns);
 			setCfEvents(cf);
-			if (errors.length > 0 && purge.length === 0 && s3.length === 0 && dns.length === 0 && cf.length === 0) {
+			setSupabaseEvents(supabase);
+			if (errors.length > 0 && purge.length === 0 && s3.length === 0 && dns.length === 0 && cf.length === 0 && supabase.length === 0) {
 				setError(errors.join('; '));
 			}
 		} catch (e: any) {
@@ -90,6 +96,7 @@ export function AnalyticsPage() {
 			setS3Events([]);
 			setDnsEvents([]);
 			setCfEvents([]);
+			setSupabaseEvents([]);
 		} finally {
 			setLoading(false);
 		}
@@ -131,8 +138,14 @@ export function AnalyticsPage() {
 	// ── Unified + filtered + sorted events ──────────────────────
 
 	const allEvents: UnifiedEvent[] = useMemo(
-		() => [...purgeEvents.map(fromPurge), ...s3Events.map(fromS3), ...dnsEvents.map(fromDns), ...cfEvents.map(fromCfProxy)],
-		[purgeEvents, s3Events, dnsEvents, cfEvents],
+		() => [
+			...purgeEvents.map(fromPurge),
+			...s3Events.map(fromS3),
+			...dnsEvents.map(fromDns),
+			...cfEvents.map(fromCfProxy),
+			...supabaseEvents.map(fromSupabase),
+		],
+		[purgeEvents, s3Events, dnsEvents, cfEvents, supabaseEvents],
 	);
 
 	const filteredEvents = useMemo(() => {
@@ -207,8 +220,8 @@ export function AnalyticsPage() {
 		for (const ev of allEvents) {
 			counts.set(ev.source, (counts.get(ev.source) ?? 0) + 1);
 		}
-		// Stable ordering: purge, s3, dns first, then CF services alphabetically
-		const fixed = ['purge', 's3', 'dns'];
+		// Stable ordering: purge, s3, dns, supabase first, then CF services alphabetically
+		const fixed = ['purge', 's3', 'dns', 'supabase'];
 		const ordered: { source: string; count: number }[] = [];
 		for (const s of fixed) {
 			if (counts.has(s)) ordered.push({ source: s, count: counts.get(s)! });
@@ -501,6 +514,20 @@ export function AnalyticsPage() {
 																		</code>
 																	</WithTooltip>
 																)}
+															</div>
+														) : ev.source === 'supabase' ? (
+															<div className="flex items-center gap-2 min-w-0">
+																<WithTooltip tip={`Supabase action: ${ev.sb_action}`}>
+																	<Badge className="bg-lv-green/20 text-lv-green border-lv-green/30 shrink-0">{ev.sb_category}</Badge>
+																</WithTooltip>
+																{ev.sb_project_ref && (
+																	<WithTooltip tip={`Project: ${ev.sb_project_ref}`}>
+																		<code className={cn(T.tableCellMono, 'shrink-0 text-lv-cyan/80')}>{ev.sb_project_ref}</code>
+																	</WithTooltip>
+																)}
+																<span className={cn(T.tableCellMono, 'text-muted-foreground/70 truncate max-w-[160px]')}>
+																	{ev.sb_action?.split(':').slice(1).join(':')}
+																</span>
 															</div>
 														) : ev.source === 'dns' ? (
 															<div className="flex items-center gap-2 min-w-0">

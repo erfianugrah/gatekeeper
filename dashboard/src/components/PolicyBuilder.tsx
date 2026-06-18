@@ -26,7 +26,7 @@ interface ActionGroup {
 	readonly prefix: string;
 	readonly label: string;
 	readonly description: string;
-	readonly scope: 'zone' | 'account';
+	readonly scope: 'zone' | 'account' | 'supabase' | 'supabase_metrics';
 	readonly resource: string;
 	readonly actions: readonly ActionDef[];
 }
@@ -321,10 +321,49 @@ const ACTION_GROUPS: readonly ActionGroup[] = [
 			{ value: 'hyperdrive:delete', label: 'Delete', description: 'Delete config' },
 		],
 	},
+	{
+		prefix: 'supabase',
+		label: 'Supabase',
+		description: 'Supabase Management API — projects, database, auth, storage, functions, secrets',
+		scope: 'supabase',
+		resource: 'project:<ref>',
+		actions: [
+			{ value: 'supabase:*', label: 'All Supabase', description: 'All Supabase Management API operations' },
+			{ value: 'supabase:projects:read', label: 'Projects Read', description: 'Read project info & config', category: 'Projects' },
+			{ value: 'supabase:projects:write', label: 'Projects Write', description: 'Create / modify projects & config', category: 'Projects' },
+			{ value: 'supabase:database:read', label: 'Database Read', description: 'Read DB config, read-only queries', category: 'Database' },
+			{ value: 'supabase:database:write', label: 'Database Write', description: 'Queries, migrations, backups, branches', category: 'Database' },
+			{ value: 'supabase:auth:read', label: 'Auth Read', description: 'Read auth config & users', category: 'Auth' },
+			{ value: 'supabase:auth:write', label: 'Auth Write', description: 'Modify auth config, SSO, users', category: 'Auth' },
+			{ value: 'supabase:storage:read', label: 'Storage Read', description: 'Read storage buckets', category: 'Storage' },
+			{ value: 'supabase:storage:write', label: 'Storage Write', description: 'Modify storage buckets', category: 'Storage' },
+			{ value: 'supabase:edge_functions:read', label: 'Functions Read', description: 'Read Edge Functions', category: 'Edge Functions' },
+			{ value: 'supabase:edge_functions:write', label: 'Functions Write', description: 'Deploy / modify Edge Functions', category: 'Edge Functions' },
+			{ value: 'supabase:secrets:read', label: 'Secrets Read', description: 'Read project secrets / env', category: 'Secrets' },
+			{ value: 'supabase:secrets:write', label: 'Secrets Write', description: 'Modify project secrets / env', category: 'Secrets' },
+			{ value: 'supabase:domains:read', label: 'Domains Read', description: 'Read custom domains', category: 'Domains' },
+			{ value: 'supabase:domains:write', label: 'Domains Write', description: 'Modify custom domains', category: 'Domains' },
+			{ value: 'supabase:environment:read', label: 'Environment Read', description: 'Read branches / environment', category: 'Environment' },
+			{ value: 'supabase:environment:write', label: 'Environment Write', description: 'Modify branches / environment', category: 'Environment' },
+			{ value: 'supabase:organizations:read', label: 'Orgs Read', description: 'Read organizations', category: 'Organizations' },
+			{ value: 'supabase:organizations:write', label: 'Orgs Write', description: 'Modify organizations', category: 'Organizations' },
+			{ value: 'supabase:rest:read', label: 'REST Read', description: 'Read via PostgREST data API', category: 'REST' },
+			{ value: 'supabase:rest:write', label: 'REST Write', description: 'Write via PostgREST data API', category: 'REST' },
+			{ value: 'supabase:metrics:read', label: 'Metrics Read', description: 'Read project metrics (Management /v0)', category: 'Metrics' },
+		],
+	},
+	{
+		prefix: 'supabase',
+		label: 'Supabase Metrics',
+		description: 'Per-project Prometheus metrics endpoint (read-only)',
+		scope: 'supabase_metrics',
+		resource: 'project:<ref>',
+		actions: [{ value: 'supabase:metrics:read', label: 'Metrics Read', description: 'Scrape per-project metrics' }],
+	},
 ] as const;
 
 /** All known service prefixes for wildcard detection. */
-const ALL_PREFIXES = ACTION_GROUPS.map((g) => g.prefix);
+const ALL_PREFIXES = [...new Set(ACTION_GROUPS.map((g) => g.prefix))];
 
 /** Detect which service prefixes are active in a set of actions. */
 function getActivePrefixes(actions: string[]): string[] {
@@ -424,7 +463,7 @@ interface PolicyBuilderProps {
 	value: PolicyDocument;
 	onChange: (policy: PolicyDocument) => void;
 	/** When set, only show action groups matching this scope. */
-	tokenScopeType?: 'zone' | 'account';
+	tokenScopeType?: 'zone' | 'account' | 'supabase' | 'supabase_metrics';
 	/** Resource hint derived from token scope — shown as placeholder. */
 	resourceHint?: string;
 }

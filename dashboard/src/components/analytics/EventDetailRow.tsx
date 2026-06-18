@@ -2,7 +2,7 @@ import { TableRow, TableCell } from '@/components/ui/table';
 import { formatTimeISO } from './analytics-helpers';
 import { isCfProxySource } from './analytics-types';
 import type { UnifiedEvent } from './analytics-types';
-import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent } from '@/lib/api';
+import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent } from '@/lib/api';
 
 // ─── Detail row (expanded) ──────────────────────────────────────────
 
@@ -86,6 +86,23 @@ export function EventDetailRow({ event }: { event: UnifiedEvent }) {
 			{ key: 'duration_ms', value: event.duration_ms, type: 'duration' },
 			{ key: 'created_by', value: (raw as DnsEvent).created_by, type: 'id' },
 			{ key: 'response_detail', value: (raw as DnsEvent).response_detail, type: 'string' },
+			{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
+		];
+	} else if (event.source === 'supabase') {
+		const sbRaw = raw as SupabaseProxyEvent;
+		fields = [
+			{ key: 'id', value: sbRaw.id, type: 'number' },
+			{ key: 'key_id', value: event.key_id, type: 'id' },
+			{ key: 'project_ref', value: event.sb_project_ref, type: 'id' },
+			{ key: 'category', value: event.sb_category, type: 'operation' },
+			{ key: 'action', value: event.sb_action, type: 'operation' },
+			{ key: 'status', value: event.status, type: 'status' },
+			{ key: 'upstream_status', value: event.upstream_status, type: 'status' },
+			{ key: 'duration_ms', value: event.duration_ms, type: 'duration' },
+			{ key: 'upstream_latency_ms', value: sbRaw.upstream_latency_ms, type: 'duration' },
+			{ key: 'response_size', value: sbRaw.response_size, type: 'bytes' },
+			{ key: 'created_by', value: sbRaw.created_by, type: 'id' },
+			{ key: 'response_detail', value: sbRaw.response_detail, type: 'string' },
 			{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
 		];
 	} else if (isCfProxySource(event.source)) {
