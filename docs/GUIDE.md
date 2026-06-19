@@ -187,21 +187,21 @@ curl -X POST "$GATEKEEPER_URL/admin/upstream-tokens" \
   }'
 ```
 
-#### With validation
+#### Validation on registration
 
-Pass `"validate": true` in the API body to have the gateway verify the token against the Cloudflare API before storing it. If the token is invalid, the request fails and nothing is stored.
+The gateway verifies the token against the Cloudflare API **by default** -- pass `"validate": false` to skip the probe (useful for hermetic scripts/tests, or registering a token before its permissions are provisioned). Validation is **advisory, not a gate**: if the token is rejected or a declared zone is inaccessible, the credential is **still stored** and the `200` response carries a `warnings` array describing each problem.
 
-**API:**
+**API (skip validation):**
 
 ```bash
 curl -X POST "$GATEKEEPER_URL/admin/upstream-tokens" \
   -H "X-Admin-Key: $ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "prod-purge-validated",
+    "name": "prod-purge-unverified",
     "token": "<your-cloudflare-api-token>",
     "zone_ids": ["a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"],
-    "validate": true
+    "validate": false
   }'
 ```
 
@@ -366,23 +366,23 @@ curl -X POST "$GATEKEEPER_URL/admin/upstream-r2" \
   }'
 ```
 
-#### With validation
+#### Validation on registration
 
-Pass `"validate": true` in the API body to verify the R2 credentials before storing them.
+Like upstream tokens, R2 credentials are verified against the endpoint **by default** -- pass `"validate": false` to skip. Validation is advisory: a rejected credential or inaccessible bucket is **still stored** and the `200` response returns a `warnings` array.
 
-**API:**
+**API (skip validation):**
 
 ```bash
 curl -X POST "$GATEKEEPER_URL/admin/upstream-r2" \
   -H "X-Admin-Key: $ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "prod-r2-validated",
+    "name": "prod-r2-unverified",
     "access_key_id": "<r2-access-key-id>",
     "secret_access_key": "<r2-secret-access-key>",
     "endpoint": "https://<account-id>.r2.cloudflarestorage.com",
     "bucket_names": ["*"],
-    "validate": true
+    "validate": false
   }'
 ```
 
@@ -541,6 +541,13 @@ curl -X POST "$GATEKEEPER_URL/admin/upstream-tokens" \
 ```
 
 > `supabase_metrics` requires `auth_type: "basic"`. `username` defaults to `service_role` and is cosmetic -- Supabase's metrics endpoint authenticates on the password (secret) only.
+
+#### Validation on registration
+
+Supabase credentials are probed against their real upstream **by default** (same as CF/R2 -- pass `"validate": false` to skip, and same advisory semantics: the credential is stored regardless, with any problems returned as a `warnings` array on the `200`):
+
+- **`supabase` (PAT)** -- `GET https://api.supabase.com/v1/projects` with the Bearer PAT. A `401`/`403` warns that the Management API rejected the token. For concrete project refs, each declared ref must appear in the PAT's accessible-projects list (otherwise a per-ref warning); for `["*"]` it warns if the PAT can see zero projects.
+- **`supabase_metrics` (secret)** -- `GET` the per-project metrics endpoint over HTTP Basic for each concrete ref; a `401`/`403` warns the secret was rejected for that ref. **Wildcard (`["*"]`) metrics secrets are not probed** -- the metrics endpoint is per-project, so there is no ref to test against.
 
 #### Using the proxy
 
@@ -2122,6 +2129,39 @@ Returns: `total_requests`, `by_status`, `by_service`, `by_action`, `avg_duration
 
 ---
 
+### 7.4 Supabase Analytics
+
+Every request through the Supabase proxy (§2.4) is logged to the D1 `supabase_proxy_events` table and aged out by the retention cron. Unlike CF proxy analytics, the Supabase surface ships a **CLI command** as well as the admin endpoints.
+
+**CLI:**
+
+```bash
+# Recent events (newest first), optionally filtered
+gk supabase-analytics events --limit 50
+gk supabase-analytics events --project-ref abcdefghij0123456789 --category database
+gk supabase-analytics events --action supabase:metrics:read
+
+# Aggregated summary
+gk supabase-analytics summary
+gk supabase-analytics summary --project-ref abcdefghij0123456789
+```
+
+Both subcommands accept `--project-ref`, `--key-id`, `--category`, `--action`, `--since`, `--until` (ISO 8601 or unix ms); `events` also takes `--limit` (default 100, max 1000).
+
+**API:**
+
+```bash
+curl -H "X-Admin-Key: $ADMIN_KEY" \
+  "$GATEKEEPER_URL/admin/supabase/analytics/events?category=database&limit=50"
+
+curl -H "X-Admin-Key: $ADMIN_KEY" \
+  "$GATEKEEPER_URL/admin/supabase/analytics/summary?project_ref=abcdefghij0123456789"
+```
+
+Summary returns: `total_requests`, `by_status`, `by_category`, `by_action`, `avg_duration_ms`, `avg_upstream_latency_ms`, `avg_response_size`. A `timeseries` endpoint (hourly buckets) is also available at `/admin/supabase/analytics/timeseries`.
+
+---
+
 ## 8. Configuration
 
 All gateway settings live in the config registry -- a SQLite table inside the Durable Object. Resolution order: registry override (highest priority), then env var fallback (e.g. `BULK_RATE`, `SINGLE_RATE`), then hardcoded default. Registry changes take effect immediately without redeployment.
@@ -2583,6 +2623,14 @@ The current and only supported policy version is `"2025-01-01"`.
 
 `hyperdrive:create`, `hyperdrive:list`, `hyperdrive:get`, `hyperdrive:update`, `hyperdrive:edit`, `hyperdrive:delete`, `hyperdrive:*`
 
+### Supabase actions
+
+Management API actions follow `supabase:<category>:<read|write>` across the eleven categories. Read/write is derived from the HTTP method (with an explicit read-override set for the POST-but-read endpoints):
+
+`supabase:auth:read`, `supabase:auth:write`, `supabase:database:read`, `supabase:database:write`, `supabase:domains:read`, `supabase:domains:write`, `supabase:edge_functions:read`, `supabase:edge_functions:write`, `supabase:environment:read`, `supabase:environment:write`, `supabase:organizations:read`, `supabase:organizations:write`, `supabase:projects:read`, `supabase:projects:write`, `supabase:rest:read`, `supabase:rest:write`, `supabase:secrets:read`, `supabase:secrets:write`, `supabase:storage:read`, `supabase:storage:write`, `supabase:metrics:read`, `supabase:*`
+
+Resources are `project:<ref>` (20-char project ref) or `project:*`.
+
 ### Resource patterns
 
 | Pattern                    | Matches                                         |
@@ -2596,6 +2644,8 @@ The current and only supported policy version is `"2025-01-01"`.
 | `object:<bucket>/public/*` | Objects under a key prefix                      |
 | `account:<id>`             | Specific account (CF proxy: D1, KV, Workers...) |
 | `account:*`                | All accounts (S3 ListBuckets, CF proxy)         |
+| `project:<ref>`            | Specific Supabase project (20-char ref)         |
+| `project:*`                | All Supabase projects                           |
 | `*`                        | Everything                                      |
 
 ### Condition operators
@@ -2665,6 +2715,10 @@ The current and only supported policy version is `"2025-01-01"`.
 
 `hyperdrive.config_id`
 
+### Condition fields -- Supabase
+
+`supabase.project_ref`, `supabase.category`, `supabase.method`, `supabase.write`
+
 ### Condition fields -- request-level (all services)
 
 `client_ip`, `client_country`, `client_asn`, `time.hour`, `time.day_of_week`, `time.iso`
@@ -2686,5 +2740,5 @@ Always run with `dry_run: true` first (CLI: omit `--confirm`; API: set `"dry_run
 | ------- | --------------------- |
 | `gw_`   | API key               |
 | `GK`    | S3 credential         |
-| `upt_`  | Upstream CF API token |
+| `upt_`  | Upstream token (CF API, Supabase PAT, or Supabase metrics secret) |
 | `upr2_` | Upstream R2 endpoint  |

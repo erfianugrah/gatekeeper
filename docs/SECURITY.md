@@ -287,6 +287,19 @@ The Vectorize service covers 14 actions: index CRUD (`vectorize:create_index`, `
 | `hyperdrive:edit`   | Edit (patch) a config |
 | `hyperdrive:delete` | Delete a config       |
 
+#### Supabase service (RBAC overlay)
+
+The Supabase Management API proxy classifies each request to `supabase:<category>:<read|write>` across eleven categories (`auth`, `database`, `domains`, `edge_functions`, `environment`, `organizations`, `projects`, `rest`, `secrets`, `storage`, `metrics`). Read vs write is derived from the HTTP method (with an explicit read-override set for the POST-but-read endpoints). Per-project metrics use the standalone `supabase:metrics:read` action. **Unclassified paths deny by default** (404) — the classifier is the RBAC surface, and an upstream that moves an endpoint fails safe (drift is surfaced by the api-coverage framework, not silently allowed).
+
+| Action                         | Description                                              |
+| ------------------------------ | -------------------------------------------------------- |
+| `supabase:<category>:read`     | Read within a category (e.g. `supabase:database:read`)   |
+| `supabase:<category>:write`    | Write within a category (e.g. `supabase:auth:write`)     |
+| `supabase:metrics:read`        | Read per-project Prometheus metrics                      |
+| `supabase:*`                   | Wildcard — all Supabase Management actions               |
+
+Resources are `project:<ref>` (20-char project ref) or `project:*`.
+
 ### Resources
 
 Typed identifiers with optional wildcards.
@@ -302,6 +315,8 @@ Typed identifiers with optional wildcards.
 | `object:<bucket>/public/*` | Objects under a key prefix                                                  |
 | `account:*`                | Account-level (S3 ListBuckets, CF proxy)                                    |
 | `account:<id>`             | Specific account (CF proxy: D1, KV, Workers, Queues, Vectorize, Hyperdrive) |
+| `project:<ref>`            | Specific Supabase project (20-char ref)                                     |
+| `project:*`                | All Supabase projects                                                       |
 | `*`                        | Everything (dangerous -- use sparingly)                                     |
 
 **Matching rules:**
@@ -439,6 +454,15 @@ DNS records also have access to the [request-level fields](#request-level-fields
 | Field                  | Source   | Description                 |
 | ---------------------- | -------- | --------------------------- |
 | `hyperdrive.config_id` | URL path | Hyperdrive configuration ID |
+
+#### Supabase service fields (4 fields)
+
+| Field                   | Source        | Description                                  |
+| ----------------------- | ------------- | -------------------------------------------- |
+| `supabase.project_ref`  | URL path      | Supabase project ref (20-char)               |
+| `supabase.category`     | classifier    | One of the eleven categories                 |
+| `supabase.method`       | HTTP method   | `GET`, `POST`, `PATCH`, `DELETE`, ...        |
+| `supabase.write`        | classifier    | Boolean — whether the action is a write      |
 
 ### Compound Conditions
 

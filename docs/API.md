@@ -25,6 +25,8 @@ The machine-readable OpenAPI 3.1 specification is available at [`openapi.json`](
 - [9. S3 Proxy](#9-s3-proxy)
 - [10. CF API Proxy](#10-cf-api-proxy)
 - [11. CF Proxy Analytics](#11-cf-proxy-analytics)
+- [11.2 Supabase Proxy](#112-supabase-proxy)
+- [11.3 Supabase Analytics](#113-supabase-analytics)
 - [12. Upstream Tokens](#12-upstream-tokens)
 - [13. Upstream R2](#13-upstream-r2)
 - [14. Config](#14-config)
@@ -1531,6 +1533,124 @@ CF proxy request volume over time in hourly buckets. Same shape as purge timeser
 
 ---
 
+## 11.2 Supabase Proxy
+
+Fronts a stored Supabase credential (Personal Access Token or per-project metrics secret) with Gatekeeper's IAM + policy engine. Every inbound request is **classified** to a `supabase:<category>:<read|write>` action and authorized **before** the stored upstream credential is resolved. Unclassified paths **deny by default** (404). The eleven categories are `auth`, `database`, `domains`, `edge_functions`, `environment`, `organizations`, `projects`, `rest`, `secrets`, `storage`, `metrics`.
+
+These are consumer-facing proxy routes authenticated with a **Gatekeeper API key** (`Authorization: Bearer gw_...`), not the admin key. The gateway swaps in the stored Supabase credential upstream.
+
+### `ALL /supabase/v1/*`
+
+Supabase Management API proxy. Resolves the best-matching `supabase` (Bearer PAT) upstream token for the request's project ref and forwards to `https://api.supabase.com/v1/*` with the PAT swapped in.
+
+**Auth:** ApiKeyAuth (key policy must allow the classified `supabase:<category>:<read|write>` action; resource `project:<ref>`)
+
+**Behaviour:** Request body/headers forwarded unchanged except the swapped `Authorization`. Supabase returns plain JSON (not the Cloudflare envelope), passed through verbatim.
+
+### `ALL /supabase/v0/*`
+
+The **experimental/unstable** `/v0` surface. Only `GET /supabase/v0/projects/:ref/analytics/metrics` is classified (action `supabase:metrics:read`, served via the stored `supabase` PAT); everything else under `/v0` denies by default.
+
+### `GET /supabase/metrics/:ref`
+
+Per-project Prometheus metrics over HTTP Basic. Resolves the `supabase_metrics` secret for `:ref`, swaps in the Basic credential, and streams the Prometheus text through unchanged.
+
+**Auth:** ApiKeyAuth (policy must allow `supabase:metrics:read`)
+
+**Behaviour:** Two backends satisfy `supabase:metrics:read` — this Basic-auth path and the experimental PAT path above. Pick whichever credential is on file.
+
+**Error codes:** 401 (no/invalid Gatekeeper key), 403 (policy denies the classified action), 404 (path not classified — deny by default), 502 (no matching upstream credential for the ref)
+
+---
+
+## 11.3 Supabase Analytics
+
+Proxy events are logged to the D1 `supabase_proxy_events` table (fire-and-forget) and aged out by the retention cron, mirroring purge / S3 / CF analytics.
+
+### `GET /admin/supabase/analytics/events`
+
+Query recent Supabase proxy events.
+
+**Auth:** Admin
+
+**Query parameters:**
+
+| Param         | Type   | Description                                                        |
+| ------------- | ------ | ------------------------------------------------------------------ |
+| project_ref   | string | Filter by Supabase project ref                                     |
+| key_id        | string | Filter by Gatekeeper API key ID                                    |
+| category      | string | Filter by category (database, auth, secrets, edge_functions, metrics, ...) |
+| action        | string | Filter by action (e.g. `supabase:database:write`)                  |
+| since         | number | Start time (epoch ms)                                              |
+| until         | number | End time (epoch ms)                                                |
+| limit         | number | Max results (default 100, max 1000)                                |
+
+**Example response:**
+
+```json
+{
+	"success": true,
+	"result": [
+		{
+			"id": 7,
+			"key_id": "gw_abc123...",
+			"project_ref": "abcdefghij0123456789",
+			"category": "database",
+			"action": "supabase:database:write",
+			"status": 200,
+			"upstream_status": 200,
+			"duration_ms": 51,
+			"upstream_latency_ms": 44,
+			"response_size": 256,
+			"response_detail": null,
+			"created_by": "user@example.com",
+			"created_at": 1704067200000
+		}
+	]
+}
+```
+
+---
+
+### `GET /admin/supabase/analytics/summary`
+
+Aggregated Supabase proxy analytics.
+
+**Auth:** Admin
+
+**Query parameters:** Same as events (except `limit`).
+
+**Example response:**
+
+```json
+{
+	"success": true,
+	"result": {
+		"total_requests": 1200,
+		"by_status": { "200": 1150, "403": 30, "404": 15, "502": 5 },
+		"by_category": { "database": 700, "auth": 300, "metrics": 200 },
+		"by_action": { "supabase:database:read": 500, "supabase:metrics:read": 200 },
+		"avg_duration_ms": 48,
+		"avg_upstream_latency_ms": 41,
+		"avg_response_size": 1536
+	}
+}
+```
+
+---
+
+### `GET /admin/supabase/analytics/timeseries`
+
+Supabase proxy request volume over time in hourly buckets. Same shape as purge timeseries.
+
+**Query parameters:** `project_ref`, `key_id`, `category`, `action` (all optional filters), `since`, `until` (unix ms, optional).
+
+**Response `200`:** `{ "success": true, "result": [{ "bucket": ..., "count": ..., "errors": ... }] }`
+
+**Error codes:** 401 (unauthorized), 503 (analytics not configured)
+
+---
+
 ## 11.5 Audit Log
 
 ### `GET /admin/audit/events`
@@ -1586,11 +1706,13 @@ Register an upstream Cloudflare API token.
 | ----------------- | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`            | string   | yes      | Human-readable name (min 1 char)                                                                                                                                    |
 | `token`           | string   | yes      | Cloudflare API token (min 1 char)                                                                                                                                   |
-| `zone_ids`        | string[] | yes      | Non-empty array. Use `["*"]` for wildcard (all zones), or specific 32-hex zone/account IDs.                                                                         |
-| `scope_type`      | string   | no       | `"zone"` (default) or `"account"`. Determines whether zone_ids are zone IDs or account IDs.                                                                         |
+| `zone_ids`        | string[] | yes      | Non-empty array. Use `["*"]` for wildcard, or specific IDs. For `zone`/`account` scopes these are 32-hex zone/account IDs; for `supabase`/`supabase_metrics` they are 20-char Supabase project refs.                          |
+| `scope_type`      | string   | no       | `"zone"` (default), `"account"`, `"supabase"` (Management API PAT, Bearer), or `"supabase_metrics"` (per-project metrics secret, HTTP Basic).                       |
+| `auth_type`       | string   | no       | Required `"basic"` for `supabase_metrics`. Selects HTTP Basic auth when the credential is swapped in upstream.                                                      |
+| `username`        | string   | no       | `supabase_metrics` only. HTTP Basic username; defaults to `service_role` (cosmetic -- Supabase authenticates on the secret/password only).                          |
 | `expires_in_days` | number   | no       | Auto-set `expires_at` to N days from now. Omit for no expiry.                                                                                                       |
 | `created_by`      | string   | no       | Audit trail. SSO email takes precedence; non-SSO values prefixed `unverified:`. Defaults to `"via admin key"`.                                                      |
-| `validate`        | boolean  | no       | **Enabled by default.** Set to `false` to skip capability verification. Probes the CF API to verify the token is active and can access the declared zones/accounts. |
+| `validate`        | boolean  | no       | **Enabled by default.** Set to `false` to skip capability verification. Probes the matching upstream (CF API for zone/account; `GET /v1/projects` for `supabase`; the per-project metrics endpoint for `supabase_metrics`) to verify the credential is active and can access the declared scope. |
 
 **Example request:**
 
@@ -1621,7 +1743,7 @@ Register an upstream Cloudflare API token.
 }
 ```
 
-The actual token value is never returned after creation -- only `token_preview` (first 4 + last 4 chars). The `warnings` array is present when validation runs and issues are detected (e.g. token inactive, zone/account not accessible). Validation runs by default; pass `validate: false` to skip it.
+The actual token value is never returned after creation -- only `token_preview` (first 4 + last 4 chars). The `warnings` array is present when validation runs and issues are detected (e.g. token inactive, zone/account/project not accessible, Supabase PAT rejected). Validation is **advisory** -- the credential is stored even when warnings are returned. Validation runs by default; pass `validate: false` to skip it. For `supabase`/`supabase_metrics`, see [Guide §2.4](GUIDE.md#24-supabase-management-api--metrics-rbac-overlay) for the full probe semantics (wildcard metrics secrets are not probed).
 
 When a purge or DNS request arrives, the gateway looks up the best matching upstream token: exact zone match first, then wildcard. If no upstream token matches, the request fails with 502.
 
@@ -2177,3 +2299,9 @@ Returns the newly resolved config after the override is removed.
 | 64  | GET    | `/admin/config`                        | Config         | Admin       |
 | 65  | PUT    | `/admin/config`                        | Config         | Admin       |
 | 66  | DELETE | `/admin/config/:key`                   | Config         | Admin       |
+| 67  | \*     | `/supabase/v1/*`                       | SupabaseProxy  | ApiKeyAuth  |
+| 68  | \*     | `/supabase/v0/*`                       | SupabaseProxy  | ApiKeyAuth  |
+| 69  | GET    | `/supabase/metrics/:ref`               | SupabaseProxy  | ApiKeyAuth  |
+| 70  | GET    | `/admin/supabase/analytics/events`     | SupabaseAnalytics | Admin    |
+| 71  | GET    | `/admin/supabase/analytics/summary`    | SupabaseAnalytics | Admin    |
+| 72  | GET    | `/admin/supabase/analytics/timeseries` | SupabaseAnalytics | Admin    |

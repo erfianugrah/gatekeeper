@@ -97,6 +97,20 @@ A daily cron job runs at 03:00 UTC for maintenance tasks (e.g. expiring keys).
 "observability": { "enabled": true }
 ```
 
+### Environments
+
+Two Workers are deployed from one codebase via wrangler [environments](https://developers.cloudflare.com/workers/wrangler/environments/):
+
+| Env | Worker name | Route | D1 (`ANALYTICS_DB`) |
+| --- | --- | --- | --- |
+| **production** (top-level config) | `gatekeeper` | custom domain | `gatekeeper-analytics` |
+| **staging** (`env.staging`) | `gatekeeper-staging` | `*.workers.dev` | `gatekeeper-analytics-staging` |
+
+- **The top-level config IS production.** A bare `wrangler deploy` (and `npm run deploy` / `ship`) deploys prod. The `@cloudflare/vitest-pool-workers` test pool also reads the top-level config, so those bindings must stay intact.
+- **`env.staging` re-declares the bindings on purpose.** `durable_objects` and `d1_databases` are [non-inheritable](https://developers.cloudflare.com/workers/wrangler/configuration/#non-inheritable-keys) — once any one is overridden in an env, all must be redeclared there. `routes` is inheritable, so staging overrides it to `[]` + `workers_dev: true` to avoid claiming the production domain. Staging gets its own isolated DO namespace automatically (separate Worker script).
+- `account_id` is pinned in `wrangler.jsonc` so wrangler doesn't error on account ambiguity.
+- Deploy staging manually with `npm run deploy:staging` (or `ship:staging` to gate on preflight first).
+
 ---
 
 ## D1 Database Creation
@@ -232,6 +246,18 @@ On first deploy, Wrangler automatically:
 
 No manual migration steps are required.
 
+### Continuous Deployment
+
+CD lives in `.github/workflows/ci.yml` (the `deploy` job, `needs: [preflight, e2e]` so a red suite or a failed Playwright e2e run never ships):
+
+- **push to `main`** → deploy **staging**
+- **push tag `v*`** → deploy **production**
+- **`workflow_dispatch`** → deploy the chosen env
+
+Auth is the scoped `CLOUDFLARE_API_TOKEN` repo secret (Workers Scripts + D1 on the account, Workers Routes + Zone Read on the zone) — **never** the global API key. The e2e job is a deploy gate because it catches the `run_worker_first` asset-layer class of bug that the worker test pool is blind to (vitest calls `app.fetch` directly).
+
+Secrets are per-environment: `wrangler secret put <NAME> --env staging`. Staging has its own `ADMIN_KEY`; the other secrets (`CF_ACCESS_*`, `RBAC_*`) are unset on staging until needed.
+
 ---
 
 ## Custom Domain Setup
@@ -277,7 +303,12 @@ entirely from `wrangler.jsonc`.
 | `npm run preflight`        | typecheck + lint + test + build                      |
 | `npx wrangler types`       | Regenerate types after changing `wrangler.jsonc`     |
 | `npm run cli -- <command>` | Run the CLI locally (uses tsx + `.env`)              |
+| `npm run deploy:staging`   | Build dashboard, then `wrangler deploy --env staging`|
+| `npm run ship:staging`     | Preflight + deploy staging                           |
+| `npm run test:e2e`         | Playwright E2E tests (auto-starts `wrangler dev`)    |
 | `npm run smoke`            | E2E smoke tests against a live instance              |
+| `npm run check:api-coverage` | Live upstream-drift check (not in preflight)       |
+| `npm run api-coverage:write` | Refresh + write api-coverage snapshots             |
 | `npm run openapi`          | Generate OpenAPI specification                       |
 
 ---

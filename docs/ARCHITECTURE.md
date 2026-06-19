@@ -218,6 +218,24 @@ Generic proxy for the broader Cloudflare API. Mounted at `/cf/*`, it covers D1 (
 
 Logs CF proxy events to D1 (`cf_proxy_events` table). Each event records the service, operation, status, duration, and key ID. Provides query endpoints for event listing (with filters) and summary aggregation. Shares the same retention cron as purge, DNS, and S3 analytics.
 
+### 13. Supabase Proxy (RBAC overlay)
+
+**Files:** `src/supabase/classify.ts`, `src/supabase/router.ts`, `src/supabase/proxy-helpers.ts`, `src/supabase/constants.ts`
+
+Fronts a stored Supabase credential (Management API PAT or per-project metrics secret) with the IAM + policy engine, so a coarse account-level Supabase credential is handed out only as narrowly-scoped Gatekeeper keys. Two surfaces, both authorizing **before** resolving the upstream credential (so unauthenticated callers can't probe which refs have a credential via 502-vs-401): `ALL /supabase/v1/*` + `ALL /supabase/v0/*` (Management API, Bearer PAT swap) and `GET /supabase/metrics/:ref` (per-project Prometheus over HTTP Basic). The table-driven classifier (`classifySupabaseRequest`) maps each `(method, path)` to a `supabase:<category>:<read|write>` action across eleven categories via longest-prefix matching; unmapped paths **deny by default** (404). Condition fields: `supabase.project_ref`, `supabase.category`, `supabase.method`, `supabase.write`. Credentials are stored in the existing upstream-token store with `scope_type` `supabase` / `supabase_metrics`.
+
+### 14. Supabase Analytics
+
+**Files:** `src/supabase/analytics.ts`, `src/routes/admin-supabase-analytics.ts`
+
+Logs Supabase proxy events to D1 (`supabase_proxy_events` table) recording project ref, category, action, status, and latency. Query endpoints: `events`, `summary`, `timeseries` (the table is in the `ALLOWED_TABLES` safelist in `src/analytics-timeseries.ts`). A CLI command (`gk supabase-analytics`) wraps events + summary. Shares the retention cron with the other analytics surfaces.
+
+### 15. API Coverage & Drift Detection
+
+**Files:** `scripts/api-coverage/` (`registry.ts`, `types.ts`, `providers/`, `refresh.ts`, `fixtures/`), `test/api-coverage.test.ts`
+
+The proxies deny unclassified requests by default, which fails safe but goes silent when an upstream moves an endpoint. A provider registry (one conforming `CoverageProvider` module per fronted upstream: `supabase`, `s3`, `cloudflare`) makes that drift loud. Two layers: a **hermetic** test (`test/api-coverage.test.ts`, runs in `npm test` / preflight) that re-runs each provider's committed snapshot through the real classifier, and a **live** drift check (`npm run check:api-coverage`, hits the network, deliberately excluded from preflight) that diffs the upstream OpenAPI doc against the snapshot. Snapshot fixtures are statically imported (no `node:fs` in the Workers pool) and deterministically sorted. See `scripts/api-coverage/README.md`.
+
 ---
 
 ## Durable Object Design
@@ -242,7 +260,7 @@ Each manager owns one SQLite table inside the DO:
 | ---------------------- | ----------------- | ------------------------------------------------------------------------------ |
 | `IamManager`           | `api_keys`        | `id`, `name`, `zone_id`, `policy`, `revoked`, `created_by`                     |
 | `S3CredentialManager`  | `s3_credentials`  | `access_key_id`, `secret_access_key`, `policy`, `revoked`                      |
-| `UpstreamTokenManager` | `upstream_tokens` | `id`, `name`, `token`, `zone_ids`                                              |
+| `UpstreamTokenManager` | `upstream_tokens` | `id`, `name`, `token`, `zone_ids`, `scope_type` (`zone`/`account`/`supabase`/`supabase_metrics`), `auth_type`, `username` |
 | `UpstreamR2Manager`    | `upstream_r2`     | `id`, `name`, `access_key_id`, `secret_access_key`, `endpoint`, `bucket_names` |
 | `ConfigManager`        | `config`          | `key`, `value`, `updated_by`, `updated_at`                                     |
 
@@ -474,7 +492,7 @@ Pure crypto modules (`sig-v4-verify.ts`, `sig-v4-sign.ts`) do not emit breadcrum
 
 ### D1 Analytics
 
-Purge, DNS, S3, and CF proxy events are persisted to a D1 database (`gatekeeper-analytics`) for queryable history. CF proxy events are stored in the `cf_proxy_events` table. The admin API exposes event listing (with filters for status, type, zone, time range) and summary aggregation (counts, status breakdowns, average latency).
+Purge, DNS, S3, CF proxy, and Supabase proxy events are persisted to a D1 database (`gatekeeper-analytics`) for queryable history. CF proxy events use the `cf_proxy_events` table; Supabase proxy events use the `supabase_proxy_events` table. The admin API exposes event listing (with filters for status, type, zone/project, time range) and summary aggregation (counts, status breakdowns, average latency).
 
 A daily cron trigger at 03:00 UTC deletes events older than the configured `retention_days` (default 30).
 
@@ -493,17 +511,18 @@ src/
   index.ts                           Entrypoint: Hono app, security headers middleware, cron
   durable-object.ts                  Gatekeeper DO: all managers, RPC methods, bucket rebuild
   config-registry.ts                 ConfigManager: SQLite table, 3-tier resolution, GatewayConfig
-  upstream-tokens.ts                 UpstreamTokenManager: CF API token registry + zone resolution
+  upstream-tokens.ts                 UpstreamTokenManager: CF API token / Supabase credential registry + zone/ref resolution
   routes/
     purge.ts                         POST /v1/zones/:zoneId/purge_cache
     admin.ts                         Admin sub-app (mounts all admin route modules)
     admin-keys.ts                    Key CRUD (validates rate limits against GatewayConfig)
     admin-config.ts                  GET/PUT /admin/config, DELETE /admin/config/:key
-    admin-upstream-tokens.ts         Upstream CF API token CRUD
+    admin-upstream-tokens.ts         Upstream token CRUD (CF / Supabase) + on-register validation
     admin-upstream-r2.ts             Upstream R2 endpoint CRUD
     admin-analytics.ts               Purge analytics queries
     admin-dns-analytics.ts           DNS analytics queries
     admin-s3.ts                      S3 credential CRUD + S3 analytics queries
+    admin-supabase-analytics.ts      Supabase proxy analytics queries (events, summary, timeseries)
   types.ts                           Shared types (HonoEnv, RateLimitConfig, ApiKey, etc.)
   policy-types.ts                    PolicyDocument, Statement, Condition, RequestContext
   request-fields.ts                  extractRequestFields() -- client_ip, country, ASN, time
@@ -543,10 +562,23 @@ src/
     vectorize/routes.ts            Vectorize routes (14 endpoints)
     hyperdrive/routes.ts           Hyperdrive routes (6 endpoints)
     dns/routes.ts                  DNS routes (zone-scoped, 9 endpoints)
+  supabase/                       Supabase Management API + metrics RBAC overlay
+    classify.ts                    Table-driven (method, path) -> supabase:<category>:<read|write>
+    router.ts                      /supabase/v1, /v0, /metrics/:ref surfaces (authorize-then-resolve)
+    proxy-helpers.ts               Ref validation, Bearer/Basic upstream proxy, response helpers
+    analytics.ts                   D1 analytics for Supabase (supabase_proxy_events table)
+    constants.ts                   API base, project host, metrics path, SUPABASE_REF_RE, categories
+scripts/
+  generate-openapi.ts                Regenerate openapi.json from route definitions
+  api-coverage/                      Upstream drift detection (provider registry)
+    registry.ts                      CoverageProvider registrations (supabase, s3, cloudflare)
+    refresh.ts                       Live drift check (npm run check:api-coverage)
+    providers/                       Per-upstream coverage modules
+    fixtures/                        Committed *.ops.json snapshots (statically imported)
 cli/
   index.ts                           Entry point (citty, 10 subcommands)
   smoke-test.ts                      E2E smoke test orchestrator
-  smoke/                             Modularized smoke test modules (10 files, incl. dns.ts)
+  smoke/                             Modularized smoke test modules (15 files, incl. supabase.ts)
   client.ts                          HTTP client
   ui.ts                              Colors, spinners, tables
   commands/
@@ -557,10 +589,11 @@ cli/
     s3-credentials.ts                gk s3-credentials {create,list,get,revoke,bulk-revoke,bulk-delete}
     s3-analytics.ts                  gk s3-analytics {events,summary}
     dns-analytics.ts                 gk dns-analytics {events,summary}
+    supabase-analytics.ts            gk supabase-analytics {events,summary}
     upstream-tokens.ts               gk upstream-tokens {create,list,get,delete,bulk-delete}
     upstream-r2.ts                   gk upstream-r2 {create,list,get,delete,bulk-delete}
     config.ts                        gk config {get,set,reset}
-test/                                44 test files (1,038 tests, with 1 CLI test in cli/)
+test/                                48 test files (~1,094 tests; +1 CLI test in cli/). Plus Playwright e2e in e2e/ and the hermetic test/api-coverage.test.ts
   helpers.ts                         Test factories, upstream token registration, mock helpers
   s3-helpers.ts                      R2 upstream registration, test constants
   policy-helpers.ts                  Shared policy test helpers
@@ -577,7 +610,7 @@ dashboard/
       OverviewDashboard.tsx          Stats, charts, recent events
       KeysPage.tsx                   API key CRUD + expandable detail rows + policy builder
       S3CredentialsPage.tsx          S3 credential CRUD + S3 policy builder
-      UpstreamTokensPage.tsx         Upstream CF API token management
+      UpstreamTokensPage.tsx         Upstream token management (CF + Supabase PAT/metrics scope types)
       UpstreamR2Page.tsx             Upstream R2 endpoint management
       SettingsPage.tsx               Config registry editor
       AnalyticsPage.tsx              Event log + summary

@@ -96,6 +96,12 @@ gatekeeper/
       vectorize/routes.ts Vectorize routes
       hyperdrive/routes.ts Hyperdrive routes
       dns/routes.ts      DNS routes (zone-scoped, canonical /cf/zones/ path)
+    supabase/          Supabase Management API + metrics RBAC overlay
+      classify.ts        Table-driven request classifier (the RBAC surface)
+      router.ts          /supabase/v1, /v0, /metrics/:ref surfaces
+      proxy-helpers.ts   Ref validation, Bearer/Basic upstream proxy
+      analytics.ts       Supabase proxy D1 analytics (supabase_proxy_events)
+      constants.ts       API base, project host, metrics path, SUPABASE_REF_RE
     schema.ts          D1 table DDL (CREATE TABLE IF NOT EXISTS)
     types.ts           Shared TypeScript types
     policy-engine.ts   IAM policy evaluation engine
@@ -111,13 +117,21 @@ gatekeeper/
     cli.test.ts        CLI tests (runs in Node.js)
     smoke/             E2E smoke test modules (run against a live instance)
       cf-proxy.ts        CF proxy smoke tests (D1, KV, Workers, etc.)
+      supabase.ts        Supabase proxy smoke (synthetic tier + opt-in live tier)
   test/              Worker tests (runs in Cloudflare Workers runtime)
     helpers.ts         Shared test utilities
     *.test.ts          Test files
+    api-coverage.test.ts Hermetic upstream-coverage invariant (reads committed snapshots)
     env.d.ts           Wires Env into cloudflare:test's ProvidedEnv
+  e2e/               Playwright browser tests (CD deploy gate)
   dashboard/         Web dashboard (built separately)
   scripts/           Build/generation scripts
     generate-openapi.ts  Generates openapi.json from Zod schemas
+    api-coverage/        Upstream drift detection (provider registry)
+      registry.ts          CoverageProvider registrations (supabase, s3, cloudflare)
+      refresh.ts           Live drift check (npm run check:api-coverage)
+      providers/           Per-upstream coverage modules
+      fixtures/            Committed *.ops.json snapshots (statically imported)
   docs/              Documentation
   wrangler.jsonc     Wrangler configuration (bindings, DO, D1, R2, crons)
   schema.sql         D1 schema source of truth
@@ -240,14 +254,19 @@ Additional conventions:
 
 ## Test Architecture
 
-The project has two Vitest projects configured in a workspace (`vitest.config.ts`):
+The project has two Vitest projects plus a Playwright e2e layer:
 
-| Project  | Config file               | Runtime                                                    | Files               |
-| -------- | ------------------------- | ---------------------------------------------------------- | ------------------- |
-| `worker` | `vitest.worker.config.ts` | Cloudflare Workers (via `@cloudflare/vitest-pool-workers`) | `test/**/*.test.ts` |
-| `cli`    | `vitest.cli.config.ts`    | Node.js                                                    | `cli/**/*.test.ts`  |
+| Layer    | Config file               | Runtime                                                    | Files                 |
+| -------- | ------------------------- | ---------------------------------------------------------- | --------------------- |
+| `worker` | `vitest.worker.config.ts` | Cloudflare Workers (via `@cloudflare/vitest-pool-workers`) | `test/**/*.test.ts`   |
+| `cli`    | `vitest.cli.config.ts`    | Node.js                                                    | `cli/**/*.test.ts`    |
+| `e2e`    | `playwright.config.ts`    | Playwright browser, against `wrangler dev` (auto-started)  | `e2e/**/*.spec.ts`    |
 
 Worker tests run inside the actual Cloudflare Workers runtime using `@cloudflare/vitest-pool-workers`. They can access bindings (D1, R2, Durable Objects) and use `SELF.fetch()` for integration tests.
+
+**e2e is a deploy gate in CI** (`deploy` needs `[preflight, e2e]`) because it catches the `run_worker_first` asset-layer class of bug the worker pool is blind to (vitest calls `app.fetch` directly, bypassing the static-asset layer).
+
+**API coverage** has two layers. `test/api-coverage.test.ts` is the **hermetic** invariant (no network, runs in `npm test` / preflight): it reads each provider's committed snapshot and re-runs every op through the proxy's own classifier, asserting no silent gap. `npm run check:api-coverage` is the **live** drift check (hits the upstream OpenAPI doc, deliberately **excluded** from preflight to keep preflight offline-safe) — run it on a schedule / before a release; on drift, run `npm run api-coverage:write` and commit the snapshot diff.
 
 ### Running Tests
 
@@ -276,7 +295,7 @@ npm run smoke
 
 Note: when running a single worker test file you do NOT need `-c vitest.worker.config.ts` because the default workspace config includes the worker project. For CLI tests you DO need `-c vitest.cli.config.ts`.
 
-Smoke tests (`npm run smoke`) run against a live Gatekeeper instance and cover purge, S3 proxy, DNS proxy, CF proxy (`cf-proxy.ts`), analytics, bulk operations, config, and dashboard endpoints. Tests include granular policy enforcement: per-tag/host/prefix/URL-path scoping with wildcard/regex/set operators, cache-key header conditions, `url.query` param matching, cross-field AND conditions (host + path + header), Worker script-scoped keys, D1 `sql_command` conditions, KV `key_name` prefix conditions, S3 object-level/key-extension/key-prefix/filename conditions, multi-directory deny overlaps, and cross-service policies. All resources created during smoke tests (keys, S3 credentials, upstream tokens, upstream R2, DNS records, D1 databases, KV namespaces, config overrides, etc.) are tracked in `state` arrays and cleaned up in the orchestrator's `finally` block, even on crash.
+Smoke tests (`npm run smoke`) run against a live Gatekeeper instance and cover purge, S3 proxy, DNS proxy, CF proxy (`cf-proxy.ts`), the Supabase proxy (`supabase.ts` — a synthetic tier that always runs plus an opt-in live tier gated on `SUPABASE_SMOKE_PAT` that drives the official `supabase` CLI through the proxy), analytics, bulk operations, config, and dashboard endpoints. Tests include granular policy enforcement: per-tag/host/prefix/URL-path scoping with wildcard/regex/set operators, cache-key header conditions, `url.query` param matching, cross-field AND conditions (host + path + header), Worker script-scoped keys, D1 `sql_command` conditions, KV `key_name` prefix conditions, S3 object-level/key-extension/key-prefix/filename conditions, multi-directory deny overlaps, and cross-service policies. All resources created during smoke tests (keys, S3 credentials, upstream tokens, upstream R2, DNS records, D1 databases, KV namespaces, config overrides, etc.) are tracked in `state` arrays and cleaned up in the orchestrator's `finally` block, even on crash.
 
 ### Test Conventions
 
@@ -340,7 +359,11 @@ vi.spyOn(process, 'exit').mockImplementation(() => {
 | `npm run build`        | Build dashboard + CLI                                |
 | `npm run build:cli`    | Build the CLI only                                   |
 | `npm run preflight`    | typecheck + lint + test + build (run before PR)      |
-| `npm run ship`         | preflight + deploy (full release)                    |
+| `npm run test:e2e`     | Playwright e2e (auto-starts `wrangler dev`)          |
+| `npm run ship`         | preflight + deploy production (full release)         |
+| `npm run ship:staging` | preflight + deploy staging                           |
+| `npm run check:api-coverage` | Live upstream-drift check (not in preflight)   |
+| `npm run api-coverage:write` | Refresh + write api-coverage snapshots         |
 | `npm run openapi`      | Regenerate `openapi.json` from Zod schemas           |
 | `npm run smoke`        | E2E smoke tests against a live instance              |
 | `npm run cli -- <cmd>` | Run the CLI locally (uses tsx + .env)                |
