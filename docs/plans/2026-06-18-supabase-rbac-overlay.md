@@ -1,5 +1,7 @@
 # Supabase RBAC Overlay Implementation Plan
 
+> **✅ IMPLEMENTED (2026-06-19).** This plan has been fully executed and shipped — the Supabase Management API + metrics RBAC overlay, D1 analytics, CLI commands, dashboard UI, credential validation, and api-coverage drift detection are all live. This file is retained as a historical design record; the unchecked `- [ ]` boxes below reflect the original plan state, **not** outstanding work. For current behaviour see [Guide §2.4](../GUIDE.md#24-supabase-management-api--metrics-rbac-overlay), [API §11.2/11.3](../API.md#112-supabase-proxy), and [Security → Supabase service](../SECURITY.md).
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Put a fine-grained authorization overlay in front of the Supabase Management API and the per-project Metrics API, so a Gatekeeper-issued key gets per-endpoint / per-project / conditional access that Supabase Personal Access Tokens (all-or-nothing) and OAuth scopes (9 coarse read/write categories) cannot express — including a metrics-only credential that does NOT also grant read/write to all project data.

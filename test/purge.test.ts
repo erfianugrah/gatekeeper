@@ -609,7 +609,7 @@ describe('Purge — policy authorization', () => {
 	});
 
 	it('allow purge:* with host condition — tag purge allowed (inapplicable field skipped)', async () => {
-		// Scenario 1 from PLAN.md: the primary motivating use case.
+		// Scenario 1 (inapplicable-condition handling, see docs/SECURITY.md): the primary motivating use case.
 		// A host-conditioned allow on purge:* should let tag purges through
 		// because the host field is inapplicable to tag purges.
 		const keyId = await createKeyWithPolicy({
@@ -661,7 +661,7 @@ describe('Purge — policy authorization', () => {
 	});
 
 	it('deny purge:* with host condition — tag purge not blocked (deny does not fire on missing field)', async () => {
-		// Scenario 2 from PLAN.md: deny with inapplicable field should not fire.
+		// Scenario 2 (inapplicable-condition handling, see docs/SECURITY.md): deny with inapplicable field should not fire.
 		const keyId = await createKeyWithPolicy({
 			version: '2025-01-01',
 			statements: [
