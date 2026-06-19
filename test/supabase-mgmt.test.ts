@@ -480,3 +480,33 @@ describe('supabase management proxy — per-category scope coverage', () => {
 		});
 	}
 });
+
+// Runtime scope isolation: a key cannot reach a resource its policy doesn't grant.
+// All denials are 403 returned BEFORE any upstream call (no fetchMock interceptor needed),
+// so the stored PAT is never swapped in for a request outside the key's scope.
+describe('supabase management proxy — scope isolation', () => {
+	function allOn(resources: string[]): PolicyDocument {
+		return { version: V, statements: [{ effect: 'allow', actions: ['supabase:*'], resources }] };
+	}
+
+	it('a project:REF_A key is denied another project (project:REF_B) → 403', async () => {
+		const tid = await registerSupabaseToken(['*']);
+		const key = await createSupabaseKey(allOn([`project:${REF}`]), tid);
+		const res = await SELF.fetch(`https://gk/supabase/v1/projects/${REF_B}/config/auth`, { headers: { Authorization: `Bearer ${key}` } });
+		expect(res.status).toBe(403);
+	});
+
+	it('a project-scoped key is denied account-level endpoints → 403', async () => {
+		const tid = await registerSupabaseToken(['*']);
+		const key = await createSupabaseKey(allOn([`project:${REF}`]), tid);
+		const res = await SELF.fetch('https://gk/supabase/v1/projects', { headers: { Authorization: `Bearer ${key}` } });
+		expect(res.status).toBe(403);
+	});
+
+	it('a supabase:account key is denied project-scoped endpoints → 403', async () => {
+		const tid = await registerSupabaseToken(['*']);
+		const key = await createSupabaseKey(allOn(['supabase:account']), tid);
+		const res = await SELF.fetch(`https://gk/supabase/v1/projects/${REF}/config/auth`, { headers: { Authorization: `Bearer ${key}` } });
+		expect(res.status).toBe(403);
+	});
+});

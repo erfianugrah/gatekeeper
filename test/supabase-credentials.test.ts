@@ -164,3 +164,74 @@ describe('supabase CLI-compatible key shape', () => {
 		expect(data.result.new_key.id).toMatch(/^sbp_(oauth_)?[a-f0-9]{40}$/);
 	});
 });
+
+// Creation-time binding validation: a key bound to a Supabase token may only carry
+// `supabase:` actions and project/org/branch/supabase:account resources, and a
+// non-wildcard token cannot mint keys for project refs it doesn't cover. These all
+// reject at /admin/keys creation (400), before any key exists — the first isolation gate.
+describe('supabase token binding validation (key policy ↔ token scope)', () => {
+	afterEach(() => cleanupCreatedResources());
+
+	const V = '2025-01-01' as const;
+
+	/** Raw key-creation POST so we can assert the 400 rejections (createSupabaseKey throws on failure). */
+	async function createKeyRaw(upstreamTokenId: string, actions: string[], resources: string[]) {
+		const res = await SELF.fetch('https://gk/admin/keys', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'bind-test',
+				upstream_token_id: upstreamTokenId,
+				policy: { version: V, statements: [{ effect: 'allow', actions, resources }] },
+			}),
+		});
+		const data = await res.json<any>();
+		return { status: res.status, data };
+	}
+
+	it('rejects a non-supabase action (purge:*) bound to a supabase token → 400', async () => {
+		const tid = await registerSupabaseToken(['*']);
+		const { status, data } = await createKeyRaw(tid, ['purge:*'], ['supabase:account']);
+		expect(status).toBe(400);
+		expect(JSON.stringify(data.errors)).toMatch(/supabase/i);
+	});
+
+	it('rejects a zone resource bound to a supabase token → 400', async () => {
+		const tid = await registerSupabaseToken(['*']);
+		const { status } = await createKeyRaw(tid, ['supabase:database:read'], ['zone:abc123']);
+		expect(status).toBe(400);
+	});
+
+	it('rejects a bare wildcard resource → 400', async () => {
+		const tid = await registerSupabaseToken(['*']);
+		const { status } = await createKeyRaw(tid, ['supabase:database:read'], ['*']);
+		expect(status).toBe(400);
+	});
+
+	it('rejects project:<ref> not covered by a non-wildcard token → 400', async () => {
+		const tid = await registerSupabaseToken([REF]); // covers REF only
+		const { status, data } = await createKeyRaw(tid, ['supabase:database:read'], [`project:${REF_OTHER}`]);
+		expect(status).toBe(400);
+		expect(JSON.stringify(data.errors)).toMatch(/not covered/i);
+	});
+
+	it('rejects project:* on a non-wildcard token → 400', async () => {
+		const tid = await registerSupabaseToken([REF]);
+		const { status } = await createKeyRaw(tid, ['supabase:database:read'], ['project:*']);
+		expect(status).toBe(400);
+	});
+
+	it('allows a covered project:<ref> on a non-wildcard token → 200', async () => {
+		const tid = await registerSupabaseToken([REF]);
+		const { status } = await createKeyRaw(tid, ['supabase:database:read'], [`project:${REF}`]);
+		expect(status).toBe(200);
+	});
+
+	it('allows project:* and any ref on a wildcard token → 200', async () => {
+		const tid = await registerSupabaseToken(['*']);
+		const a = await createKeyRaw(tid, ['supabase:database:read'], ['project:*']);
+		const b = await createKeyRaw(tid, ['supabase:database:read'], [`project:${REF_OTHER}`]);
+		expect(a.status).toBe(200);
+		expect(b.status).toBe(200);
+	});
+});
