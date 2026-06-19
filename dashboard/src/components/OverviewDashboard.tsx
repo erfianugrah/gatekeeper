@@ -533,14 +533,6 @@ export function OverviewDashboard() {
 				.map(([name, value]) => ({ name, value }))
 		: [];
 
-	// Supabase category breakdown
-	const supaCategoryPie = supabaseSummary
-		? Object.entries(supabaseSummary.by_category)
-				.filter(([, v]) => v > 0)
-				.sort((a, b) => b[1] - a[1])
-				.map(([name, value]) => ({ name, value }))
-		: [];
-
 	// Traffic split — shows each service individually (purge, s3, dns, d1, kv, workers, etc.)
 	const trafficPie = [
 		...(purgeTotal > 0 ? [{ name: 'Purge', value: purgeTotal }] : []),
