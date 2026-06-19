@@ -591,6 +591,7 @@ gk upstream-tokens create --name <name> --zone-ids <ids> [--scope-type <type>] [
 | `--token`      | string | no       | Cloudflare API token value (`$UPSTREAM_CF_TOKEN`)                                  |
 | `--zone-ids`   | string | yes      | Comma-separated zone IDs this token covers, or `*` for all                         |
 | `--scope-type` | string | no       | `zone` (default, for purge/DNS) or `account` (for CF proxy: D1, KV, Workers, etc.) |
+| `--validate`   | bool   | no       | Probe the token against the Cloudflare API on registration. **Default: true.** Pass `--no-validate` to skip. Validation is advisory — the token is stored even if the probe reports warnings (printed as `[code] message`). |
 
 If `--token` is omitted, the CLI reads from `$UPSTREAM_CF_TOKEN`.
 
@@ -721,6 +722,7 @@ gk upstream-r2 create --name <name> --access-key-id <key> --r2-endpoint <url> --
 | `--secret-access-key` | string | no       | R2 secret access key (`$UPSTREAM_R2_SECRET_ACCESS_KEY`)             |
 | `--r2-endpoint`       | string | yes      | R2 endpoint URL (e.g. `https://<account>.r2.cloudflarestorage.com`) |
 | `--bucket-names`      | string | yes      | Comma-separated bucket names, or `*` for all                        |
+| `--validate`          | bool   | no       | Probe the credentials against the R2 endpoint on registration. **Default: true.** Pass `--no-validate` to skip. Validation is advisory — the credentials are stored even if the probe reports warnings. |
 
 If `--secret-access-key` is omitted, the CLI reads from `$UPSTREAM_R2_SECRET_ACCESS_KEY`.
 
