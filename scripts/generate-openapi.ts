@@ -177,7 +177,8 @@ const document = createDocument({
 			ApiKeyAuth: {
 				type: 'http',
 				scheme: 'bearer',
-				description: 'Gateway API key (prefix `gw_`). Issued via POST /admin/keys.',
+				description:
+					'Gateway API key, issued via POST /admin/keys. Normally prefixed `gw_`; keys bound to a `supabase` PAT upstream token are minted `sbp_`-shaped (sbp_ + 40 hex) so they satisfy the official `supabase` CLI token regex. The gateway looks the key up verbatim and does not enforce a prefix.',
 			},
 			AdminKeyAuth: {
 				type: 'apiKey',

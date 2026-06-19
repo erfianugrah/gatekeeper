@@ -366,7 +366,7 @@ Condition operators: `eq`, `ne`, `contains`, `not_contains`, `starts_with`, `end
 }
 ```
 
-The `id` field (prefixed `gw_`) is the Bearer token. Show it once to the user -- it cannot be retrieved again.
+The `id` field is the Bearer token. Show it once to the user -- it cannot be retrieved again. It is normally prefixed `gw_`; when the key is bound to a `supabase` PAT upstream token it is minted `sbp_`-shaped (`sbp_` + 40 hex) so it can be used as `SUPABASE_ACCESS_TOKEN` with the official `supabase` CLI (see GUIDE.md §2.4).
 
 **Error codes:** 400 (validation), 401 (unauthorized), 403 (forbidden/role)
 

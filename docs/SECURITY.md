@@ -38,7 +38,7 @@ Gatekeeper uses four authentication tiers, each suited to a different principal 
 
 **Key details:**
 
-- **API keys** are prefixed `gw_*`. The raw key is never stored -- only an HMAC-SHA256 hash (`key_hash`) is persisted in the Durable Object's SQLite database.
+- **API keys** are normally prefixed `gw_*`. Keys bound to a `supabase` PAT upstream token are minted `sbp_`-shaped (`sbp_` + 40 hex) so they satisfy the official `supabase` CLI's client-side token regex and can be used as `SUPABASE_ACCESS_TOKEN` through the proxy; the gateway looks keys up verbatim and does not enforce a prefix. The raw key is never stored -- only an HMAC-SHA256 hash (`key_hash`) is persisted in the Durable Object's SQLite database.
 - **S3 credentials** use standard AWS Signature Version 4 for authentication. The signing algorithm is `AWS4-HMAC-SHA256`. Credentials are prefixed `GK*`.
 - **Access JWTs** are validated using `crypto.subtle` (RS256) with no external dependencies. See [Cloudflare Access Integration](#cloudflare-access-integration) below.
 - **Admin key** comparison uses HMAC-SHA256 combined with `crypto.subtle.timingSafeEqual` to prevent timing side-channel attacks.

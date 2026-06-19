@@ -225,11 +225,7 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 	/** Format token label for the dropdown. */
 	const tokenLabel = (t: UpstreamToken) => {
 		const scopeInfo =
-			t.scope_type === 'zone'
-				? `zones: ${t.zone_ids}`
-				: t.scope_type === 'account'
-					? `account: ${t.zone_ids}`
-					: `projects: ${t.zone_ids}`;
+			t.scope_type === 'zone' ? `zones: ${t.zone_ids}` : t.scope_type === 'account' ? `account: ${t.zone_ids}` : `projects: ${t.zone_ids}`;
 		return `${t.name} (${scopeInfo})`;
 	};
 
@@ -389,6 +385,12 @@ function SecretBanner({ secret, onDismiss }: { secret: string; onDismiss: () => 
 					Dismiss
 				</Button>
 			</div>
+			{secret.startsWith('sbp_') && (
+				<p className="text-xs text-muted-foreground">
+					Compatible with the official <code className="font-data">supabase</code> CLI — use it as{' '}
+					<code className="font-data">SUPABASE_ACCESS_TOKEN</code> with a profile pointed at this gateway.
+				</p>
+			)}
 		</div>
 	);
 }
