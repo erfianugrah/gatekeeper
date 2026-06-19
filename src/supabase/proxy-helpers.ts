@@ -42,8 +42,10 @@ export function buildProxyResponse(upstream: Response, body: BodyInit | null, st
 		const v = upstream.headers.get(name);
 		if (v) headers.set(name, v);
 	}
-	if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-	return new Response(body ?? upstream.body, { status: statusOverride ?? upstream.status, headers });
+	const status = statusOverride ?? upstream.status;
+	const isNullBodyStatus = status === 204 || status === 205 || status === 304;
+	if (!isNullBodyStatus && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+	return new Response(isNullBodyStatus ? null : (body ?? upstream.body), { status, headers });
 }
 
 /** Extract a compact response detail string for analytics storage. */
