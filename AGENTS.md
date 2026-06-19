@@ -16,7 +16,7 @@ For all limits and quotas, retrieve from the product's `/platform/limits/` page.
 | `npx wrangler dev`                                       | Local development                                  |
 | `npx wrangler deploy`                                    | Deploy to Cloudflare                               |
 | `npx wrangler types`                                     | Generate TypeScript types                          |
-| `npm test`                                               | Run all tests (worker + CLI)                       |
+| `npm test`                                               | Run all tests (worker + CLI) — **always use `npm test` or `bun run test`, NEVER `bun test`** (bun's built-in runner bypasses vitest + the Workers runtime pool, producing ~70 false failures) |
 | `npm run test:worker`                                    | Run worker tests only (Cloudflare Workers runtime) |
 | `npm run test:cli`                                       | Run CLI tests only (Node.js runtime)               |
 | `npx vitest run test/iam.test.ts`                        | Run a single worker test file                      |
