@@ -34,6 +34,9 @@ import {
 	getDnsEvents,
 	getCfProxyEvents,
 	getCfProxySummary,
+	getSupabaseProxyEvents,
+	getSupabaseProxySummary,
+	getSupabaseProxyTimeseries,
 	getPurgeTimeseries,
 	getS3Timeseries,
 	getDnsTimeseries,
@@ -48,11 +51,13 @@ import type {
 	S3AnalyticsSummary,
 	DnsAnalyticsSummary,
 	CfProxyAnalyticsSummary,
+	SupabaseProxyAnalyticsSummary,
 	TimeseriesBucket,
 	PurgeEvent,
 	S3Event,
 	DnsEvent,
 	CfProxyEvent,
+	SupabaseProxyEvent,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { STATUS_COLORS, PURGE_TYPE_COLORS, CHART_PALETTE, CHART_TOOLTIP_STYLE } from '@/lib/utils';
@@ -272,6 +277,19 @@ function fromCfRecent(ev: CfProxyEvent): RecentEvent {
 		identity: truncateId(ev.key_id),
 	};
 }
+function fromSupabaseRecent(ev: SupabaseProxyEvent): RecentEvent {
+	const detail = `${ev.action}${ev.project_ref ? ` ${ev.project_ref}` : ''}`;
+	return {
+		id: `supa-${ev.id}`,
+		source: 'supabase',
+		status: ev.status,
+		detail: truncateId(detail, 50),
+		detailFull: detail.length > 50 ? detail : null,
+		duration_ms: ev.duration_ms,
+		created_at: ev.created_at,
+		identity: truncateId(ev.key_id),
+	};
+}
 
 // ─── Source icon/tooltip lookup for recent events ───────────────────
 
@@ -285,6 +303,7 @@ const SOURCE_ICON_MAP: Record<string, React.ComponentType<{ className?: string }
 	queues: Zap,
 	vectorize: Server,
 	hyperdrive: Server,
+	supabase: Database,
 };
 
 const SOURCE_ICON_COLOR: Record<string, string> = {
@@ -297,6 +316,7 @@ const SOURCE_ICON_COLOR: Record<string, string> = {
 	queues: 'text-lv-peach',
 	vectorize: 'text-lv-blue',
 	hyperdrive: 'text-lv-red-bright',
+	supabase: 'text-lv-peach',
 };
 
 const SOURCE_TIP: Record<string, string> = {
@@ -309,6 +329,7 @@ const SOURCE_TIP: Record<string, string> = {
 	queues: 'Queues operation',
 	vectorize: 'Vectorize index operation',
 	hyperdrive: 'Hyperdrive config operation',
+	supabase: 'Supabase Management API / metrics request',
 };
 
 function sourceIcon(source: string): React.ReactNode {
@@ -328,6 +349,7 @@ export function OverviewDashboard() {
 	const [s3Summary, setS3Summary] = useState<S3AnalyticsSummary | null>(null);
 	const [dnsSummary, setDnsSummary] = useState<DnsAnalyticsSummary | null>(null);
 	const [cfSummary, setCfSummary] = useState<CfProxyAnalyticsSummary | null>(null);
+	const [supabaseSummary, setSupabaseSummary] = useState<SupabaseProxyAnalyticsSummary | null>(null);
 	const [timeseries, setTimeseries] = useState<{ bucket: number; total: number; errors: number }[]>([]);
 	const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
 	const [resourceCounts, setResourceCounts] = useState({
@@ -346,7 +368,7 @@ export function OverviewDashboard() {
 		setLoading(true);
 		setError(null);
 		try {
-			const [purge, s3, dns, cf, purgeEvents, s3Events, dnsEvents, cfEvents, purgeTs, s3Ts, dnsTs, cfTs, keys, s3Creds, upTokens, upR2] =
+			const [purge, s3, dns, cf, supa, purgeEvents, s3Events, dnsEvents, cfEvents, supabaseEvents, purgeTs, s3Ts, dnsTs, cfTs, supaTs, keys, s3Creds, upTokens, upR2] =
 				await Promise.all([
 					getSummary().catch(() => null),
 					getS3Summary().catch(() => null),
@@ -365,17 +387,18 @@ export function OverviewDashboard() {
 					listUpstreamTokens().catch(() => []),
 					listUpstreamR2().catch(() => []),
 				]);
-			if (!purge && !s3 && !dns && !cf) {
+			if (!purge && !s3 && !dns && !cf && !supa) {
 				throw new Error('Failed to load analytics from all endpoints');
 			}
 			setPurgeSummary(purge);
 			setS3Summary(s3);
 			setDnsSummary(dns);
 			setCfSummary(cf);
+			setSupabaseSummary(supa);
 
 			// Merge all timeseries into a single array keyed by bucket
 			const tsMap = new Map<number, { bucket: number; total: number; errors: number }>();
-			for (const series of [purgeTs, s3Ts, dnsTs, cfTs]) {
+			for (const series of [purgeTs, s3Ts, dnsTs, cfTs, supaTs]) {
 				for (const b of series) {
 					const existing = tsMap.get(b.bucket);
 					if (existing) {
@@ -395,6 +418,7 @@ export function OverviewDashboard() {
 				...s3Events.map(fromS3Recent),
 				...dnsEvents.map(fromDnsRecent),
 				...cfEvents.map(fromCfRecent),
+				...supabaseEvents.map(fromSupabaseRecent),
 			]
 				.sort((a, b) => b.created_at - a.created_at)
 				.slice(0, 10);
@@ -414,6 +438,7 @@ export function OverviewDashboard() {
 			setS3Summary(null);
 			setDnsSummary(null);
 			setCfSummary(null);
+			setSupabaseSummary(null);
 		} finally {
 			setLoading(false);
 		}
@@ -429,7 +454,8 @@ export function OverviewDashboard() {
 	const s3Total = s3Summary?.total_requests ?? 0;
 	const dnsTotal = dnsSummary?.total_requests ?? 0;
 	const cfTotal = cfSummary?.total_requests ?? 0;
-	const totalRequests = purgeTotal + s3Total + dnsTotal + cfTotal;
+	const supaTotal = supabaseSummary?.total_requests ?? 0;
+	const totalRequests = purgeTotal + s3Total + dnsTotal + cfTotal + supaTotal;
 
 	// Per-service totals from cfSummary.by_service (d1, kv, workers, etc.)
 	const cfByService = cfSummary?.by_service ?? {};
@@ -440,6 +466,7 @@ export function OverviewDashboard() {
 		s3Summary?.by_status ?? {},
 		dnsSummary?.by_status ?? {},
 		cfSummary?.by_status ?? {},
+		supabaseSummary?.by_status ?? {},
 	);
 	const barData = Object.entries(mergedStatus)
 		.map(([status, count]) => ({ status, count }))
@@ -504,6 +531,7 @@ export function OverviewDashboard() {
 			.filter(([, v]) => v > 0)
 			.sort((a, b) => b[1] - a[1])
 			.map(([svc, v]) => ({ name: sourceLabel(svc), value: v })),
+		...(supaTotal > 0 ? [{ name: 'Supabase', value: supaTotal }] : []),
 	];
 	const TRAFFIC_COLORS: Record<string, string> = {
 		Purge: '#c574dd',
@@ -515,6 +543,7 @@ export function OverviewDashboard() {
 		Queues: '#fab387',
 		Vectorize: '#8796f4',
 		Hyperdrive: '#f38ba8',
+		Supabase: '#f1a171',
 	};
 
 	// Combined avg latency
@@ -524,7 +553,8 @@ export function OverviewDashboard() {
 					((purgeSummary?.avg_duration_ms ?? 0) * purgeTotal +
 						(s3Summary?.avg_duration_ms ?? 0) * s3Total +
 						(dnsSummary?.avg_duration_ms ?? 0) * dnsTotal +
-						(cfSummary?.avg_duration_ms ?? 0) * cfTotal) /
+						(cfSummary?.avg_duration_ms ?? 0) * cfTotal +
+						(supabaseSummary?.avg_duration_ms ?? 0) * supaTotal) /
 						totalRequests,
 				)
 			: 0;
@@ -605,6 +635,15 @@ export function OverviewDashboard() {
 									icon={<Cpu className="h-5 w-5 text-lv-blue" />}
 									iconBg="bg-lv-blue/15"
 									delay={165}
+								/>
+							)}
+							{supaTotal > 0 && (
+								<StatCard
+									label="Supabase"
+									value={formatNumber(supaTotal)}
+									icon={<Database className="h-5 w-5 text-lv-peach" />}
+									iconBg="bg-lv-peach/15"
+									delay={172}
 								/>
 							)}
 							<StatCard
