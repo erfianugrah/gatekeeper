@@ -89,6 +89,44 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	assertTruthy('Supabase Metrics token has id', sbMetId);
 	if (sbMetId) state.createdUpstreamTokens.push(sbMetId);
 
+	// ─── Credential validation (advisory) ──────────────────────────
+	// Registration probes the credential against the real upstream by DEFAULT
+	// (validate omitted == validate:true). A bogus PAT is rejected by Supabase, but
+	// validation is ADVISORY: the token is still stored (200 + id) and the rejection
+	// surfaces as a non-empty `warnings` array (sibling of `result`, not inside it).
+	// Needs no real credential — the fake token is deterministically rejected.
+
+	section('Supabase Proxy — Credential validation (advisory)');
+
+	const badPatReg = await admin('POST', '/admin/upstream-tokens', {
+		name: 'smoke-sb-pat-validate',
+		token: 'sbp_definitely_not_a_real_pat_value',
+		scope_type: 'supabase',
+		zone_ids: ['*'],
+		// validate intentionally omitted — exercises the default-on probe.
+	});
+	assertStatus('register bogus PAT with default validation -> 200 (advisory, still stored)', badPatReg, 200);
+	const badPatId = badPatReg.body?.result?.id;
+	assertTruthy('bogus PAT is stored despite validation failure (advisory)', badPatId);
+	if (badPatId) state.createdUpstreamTokens.push(badPatId);
+	assertTruthy(
+		'rejected PAT returns a non-empty warnings[] at the top level',
+		Array.isArray(badPatReg.body?.warnings) && badPatReg.body.warnings.length > 0,
+	);
+
+	// The opt-out path: --no-validate / validate:false stores with no probe, no warnings.
+	const skipPatReg = await admin('POST', '/admin/upstream-tokens', {
+		name: 'smoke-sb-pat-skip',
+		token: 'sbp_definitely_not_a_real_pat_value',
+		scope_type: 'supabase',
+		zone_ids: ['*'],
+		validate: false,
+	});
+	assertStatus('register bogus PAT with validate:false -> 200', skipPatReg, 200);
+	const skipPatId = skipPatReg.body?.result?.id;
+	if (skipPatId) state.createdUpstreamTokens.push(skipPatId);
+	assertTruthy('validate:false skips the probe (no warnings)', !skipPatReg.body?.warnings || skipPatReg.body.warnings.length === 0);
+
 	// ─── Asset-layer wiring (run_worker_first) ─────────────────────
 	// Unlisted paths get the dashboard index.html (HTTP 200) from the asset layer
 	// BEFORE the worker runs. These assert the worker actually handles the route.
