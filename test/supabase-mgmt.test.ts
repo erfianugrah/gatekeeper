@@ -68,6 +68,29 @@ describe('supabase management proxy RBAC', () => {
 		expect(seenAuth).toBe('Bearer sbp_real_pat_value');
 	});
 
+	it('swaps in the PAT the key is BOUND to, not whichever scope-matching token is newest', async () => {
+		// Two wildcard supabase PATs. The key is bound to the FIRST (older) one; the second is
+		// registered after, so a scope/created_at-DESC resolution would wrongly pick it. Binding
+		// must win — otherwise a key could have another credential swapped in (isolation hole) and
+		// account-level calls would forward a bogus token (the real-world `JWT could not be decoded`).
+		const boundTid = await registerSupabaseToken(['*'], 'sbp_bound_pat');
+		await registerSupabaseToken(['*'], 'sbp_other_pat_newer'); // newest scope match — must NOT be chosen
+		const key = await createSupabaseKey(policy(['supabase:projects:read'], ['supabase:account']), boundTid);
+
+		let seenAuth: string | undefined;
+		fetchMock
+			.get(SB_API)
+			.intercept({ path: `/v1/projects`, method: 'GET' })
+			.reply((opts) => {
+				seenAuth = (opts.headers as Record<string, string>)['authorization'] ?? (opts.headers as Record<string, string>)['Authorization'];
+				return { statusCode: 200, data: JSON.stringify([]), responseOptions: { headers: { 'Content-Type': 'application/json' } } };
+			});
+
+		const res = await SELF.fetch(`https://gk/supabase/v1/projects`, { headers: { Authorization: `Bearer ${key}` } });
+		expect(res.status).toBe(200);
+		expect(seenAuth).toBe('Bearer sbp_bound_pat');
+	});
+
 	it('rejects unauthenticated requests with 401', async () => {
 		const res = await SELF.fetch(`https://gk/supabase/v1/projects/${REF}/config/auth`);
 		expect(res.status).toBe(401);
@@ -263,17 +286,23 @@ describe('supabase management proxy — resource scoping', () => {
 		expect(seenAuth).toBe('Bearer sbp_wildcard_pat');
 	});
 
-	it('G25: account-level endpoint with project-specific PAT only → 502', async () => {
-		// PAT only covers the specific ref, not '*'
+	it('G25: account-wide resource (supabase:account) on a project-only token is rejected at creation → 400', async () => {
+		// A token declared for a specific ref must not mint a key that can enumerate the whole account.
+		// This is the SAME rule as project:* (account-wide ⊇ project:*) and is enforced at bind time,
+		// so the request-time credential swap can trust the binding unconditionally.
 		const tid = await registerSupabaseToken([REF], 'sbp_project_only');
-		const key = await createSupabaseKey(
-			{ version: V, statements: [{ effect: 'allow', actions: ['supabase:projects:read'], resources: ['supabase:account'] }] },
-			tid,
-		);
-
-		// GET /v1/projects is account-level → resolveSupabaseToken('*') → null → 502
-		const res = await SELF.fetch('https://gk/supabase/v1/projects', { headers: { Authorization: `Bearer ${key}` } });
-		expect(res.status).toBe(502);
+		const res = await SELF.fetch('http://localhost/admin/keys', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'sb-acct-on-project-token',
+				policy: { version: V, statements: [{ effect: 'allow', actions: ['supabase:projects:read'], resources: ['supabase:account'] }] },
+				upstream_token_id: tid,
+			}),
+		});
+		expect(res.status).toBe(400);
+		const data = await res.json<any>();
+		expect(JSON.stringify(data.errors)).toMatch(/supabase:account.*covers all projects/);
 	});
 
 	it('G30: supabase:account resource covers GET /v1/projects listing', async () => {
@@ -353,7 +382,8 @@ describe('supabase management proxy — analytics', () => {
 
 describe('supabase management proxy — condition engine', () => {
 	it('G34: supabase.write=false condition allows GET but blocks POST on the same action group', async () => {
-		const tid = await registerSupabaseToken([REF]);
+		// wildcard token: the policy grants supabase:account (account-wide), which requires it.
+		const tid = await registerSupabaseToken(['*']);
 		const key = await createSupabaseKey(
 			{
 				version: V,

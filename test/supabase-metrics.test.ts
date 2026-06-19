@@ -39,6 +39,29 @@ describe('supabase metrics proxy — auth and validation', () => {
 		expect(await res.text()).toContain('pg_stat_database_blks_hit');
 	});
 
+	it('swaps in the metrics secret the key is BOUND to, not whichever ref-matching credential is newest', async () => {
+		// Two metrics credentials for the SAME ref; the key is bound to the older. Binding must win
+		// — a newer ref-matching credential must not be swapped in (the same isolation guarantee as
+		// the management PAT path).
+		const boundTid = await registerSupabaseMetricsCredential([REF], 'sb_secret_bound');
+		await registerSupabaseMetricsCredential([REF], 'sb_secret_newer'); // newer ref match — must NOT be chosen
+		const key = await createSupabaseKey(metricsPolicy(REF), boundTid);
+
+		let seenAuth: string | undefined;
+		fetchMock
+			.get(`https://${REF}.supabase.co`)
+			.intercept({ path: '/customer/v1/privileged/metrics', method: 'GET' })
+			.reply((opts) => {
+				seenAuth = (opts.headers as Record<string, string>)['authorization'] ?? (opts.headers as Record<string, string>)['Authorization'];
+				return { statusCode: 200, data: 'ok 1', responseOptions: { headers: { 'Content-Type': 'text/plain' } } };
+			});
+
+		const res = await SELF.fetch(`https://gk/supabase/metrics/${REF}`, { headers: { Authorization: `Bearer ${key}` } });
+		expect(res.status).toBe(200);
+		// Basic base64('service_role:sb_secret_bound')
+		expect(seenAuth).toBe(`Basic ${btoa('service_role:sb_secret_bound')}`);
+	});
+
 	it('denies a metrics key from calling the Management API (no data access)', async () => {
 		const tid = await registerSupabaseMetricsCredential([REF], 'sb_secret_xyz');
 		const key = await createSupabaseKey(metricsPolicy(REF), tid);

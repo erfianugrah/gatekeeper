@@ -144,7 +144,17 @@ function validateSupabaseResources(resources: string[], scopeIds: string[], pref
 
 	for (const resource of resources) {
 		if (resource === '*') continue; // already reported above
-		if (resource === 'supabase:account') continue; // account-wide Management API endpoints
+		if (resource === 'supabase:account') {
+			// Account-wide endpoints (list ALL projects/orgs) are broader than project:* — so, like
+			// project:*, they may only be granted on a token that covers all projects. Otherwise a
+			// token declared for specific refs could mint a key that enumerates the whole account.
+			if (!isWildcard) {
+				errors.push(
+					`${prefix}.resources: 'supabase:account' is only allowed when the upstream token covers all projects (zone_ids: ["*"])`,
+				);
+			}
+			continue;
+		}
 
 		const matchedPrefix = allowedPrefixes.find((p) => resource.startsWith(p));
 		if (!matchedPrefix) {

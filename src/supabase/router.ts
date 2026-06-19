@@ -71,12 +71,20 @@ supabaseApp.get('/metrics/:ref', async (c) => {
 		return sbJsonError(status, auth.error ?? 'Forbidden');
 	}
 
-	const cred = await stub.resolveSupabaseMetricsCredential(ref);
+	// Binding wins: a key pinned to a metrics credential uses that exact secret, never a ref match.
+	const cred = auth.upstreamTokenId
+		? await stub.resolveSupabaseMetricsCredentialById(auth.upstreamTokenId)
+		: await stub.resolveSupabaseMetricsCredential(ref);
 	if (!cred) {
-		log.breadcrumb = 'supabase-metrics-credential-not-found';
+		log.breadcrumb = auth.upstreamTokenId ? 'supabase-metrics-pinned-credential-not-found' : 'supabase-metrics-credential-not-found';
 		log.status = 502;
 		console.log(JSON.stringify(log));
-		return sbJsonError(502, `No metrics credential registered for project ${ref}`);
+		return sbJsonError(
+			502,
+			auth.upstreamTokenId
+				? `Pinned metrics credential ${auth.upstreamTokenId} not found`
+				: `No metrics credential registered for project ${ref}`,
+		);
 	}
 
 	const upstreamStart = Date.now();
@@ -163,13 +171,23 @@ const managementApiHandler = async (c: Context<SupabaseEnv>) => {
 		return sbJsonError(status, auth.error ?? 'Forbidden');
 	}
 
-	// Resolve the PAT by project ref (or '*' wildcard for account-wide endpoints).
-	const pat = await stub.resolveSupabaseToken(cls.projectRef ?? '*');
+	// Resolve the PAT. A key bound to a specific upstream token (the normal case) MUST use that
+	// token — never a scope/ref match — so one key can't have another credential swapped in, and
+	// account-level calls don't forward whichever wildcard token happens to be newest. Only fall
+	// back to scope/ref resolution for legacy unbound keys. Mirrors the CF/S3/purge proxies.
+	const pat = auth.upstreamTokenId
+		? await stub.resolveUpstreamTokenById(auth.upstreamTokenId)
+		: await stub.resolveSupabaseToken(cls.projectRef ?? '*');
 	if (!pat) {
-		log.breadcrumb = 'supabase-mgmt-pat-not-found';
+		log.breadcrumb = auth.upstreamTokenId ? 'supabase-mgmt-pinned-pat-not-found' : 'supabase-mgmt-pat-not-found';
 		log.status = 502;
 		console.log(JSON.stringify(log));
-		return sbJsonError(502, 'No Supabase Personal Access Token registered for this project');
+		return sbJsonError(
+			502,
+			auth.upstreamTokenId
+				? `Pinned upstream token ${auth.upstreamTokenId} not found`
+				: 'No Supabase Personal Access Token registered for this project',
+		);
 	}
 
 	const body = method !== 'GET' && method !== 'HEAD' ? await c.req.arrayBuffer() : undefined;

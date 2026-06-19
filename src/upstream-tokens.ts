@@ -388,6 +388,17 @@ export class UpstreamTokenManager {
 	}
 
 	/**
+	 * Resolve a Supabase Metrics Basic credential by the bound upstream token id. Used when a key is
+	 * pinned to a specific metrics credential (the normal case) so binding — not a scope/ref match —
+	 * decides which secret is swapped in.
+	 */
+	resolveSupabaseMetricsCredentialById(tokenId: string): { username: string; secret: string } | null {
+		const row = this.resolveRowById(tokenId);
+		if (!row || row.scope_type !== 'supabase_metrics') return null;
+		return { username: row.username ?? 'service_role', secret: row.token };
+	}
+
+	/**
 	 * Shared exact-then-wildcard resolution over the comma-separated zone_ids column, filtered by
 	 * scope_type. Mirrors resolveTokenForAccount but returns the full row (needed for auth_type / username)
 	 * and works for any scope. Skips expired rows; newest registration wins.
@@ -462,6 +473,15 @@ export class UpstreamTokenManager {
 	}
 
 	// ─── Private helpers ────────────────────────────────────────────────
+
+	/** Fetch the full token row by id, applying the expiry check. Returns null if absent or expired. */
+	private resolveRowById(tokenId: string): UpstreamTokenRow | null {
+		const rows = queryAll<UpstreamTokenRow>(this.sql, 'SELECT * FROM upstream_tokens WHERE id = ?', tokenId);
+		if (rows.length === 0) return null;
+		const row = rows[0];
+		if (row.expires_at && row.expires_at <= Date.now()) return null;
+		return row;
+	}
 
 	private invalidateCache(): void {
 		this.resolveCache.clear();
