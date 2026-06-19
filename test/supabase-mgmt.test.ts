@@ -52,7 +52,11 @@ describe('supabase management proxy RBAC', () => {
 			.intercept({ path: `/v1/projects/${REF}/database/query`, method: 'POST' })
 			.reply((opts) => {
 				seenAuth = (opts.headers as Record<string, string>)['authorization'] ?? (opts.headers as Record<string, string>)['Authorization'];
-				return { statusCode: 201, data: JSON.stringify({ result: [] }), responseOptions: { headers: { 'Content-Type': 'application/json' } } };
+				return {
+					statusCode: 201,
+					data: JSON.stringify({ result: [] }),
+					responseOptions: { headers: { 'Content-Type': 'application/json' } },
+				};
 			});
 
 		const res = await SELF.fetch(`https://gk/supabase/v1/projects/${REF}/database/query`, {
@@ -384,4 +388,95 @@ describe('supabase management proxy — condition engine', () => {
 		});
 		expect(postRes.status).toBe(403);
 	});
+});
+
+// Per-category policy round-trip: every management category should authorize end-to-end
+// (policy allow → classify → PAT swap → upstream 200) for a correctly-scoped key, and deny
+// (403, network-free) for a key scoped to a different category. `database`, `secrets`,
+// `projects`, `edge_functions`, `metrics` are covered above/elsewhere; this fills the rest.
+describe('supabase management proxy — per-category scope coverage', () => {
+	interface ScopeCase {
+		category: string;
+		action: string;
+		method: string;
+		path: string;
+		resources: string[];
+		wildcard?: boolean; // account-level → PAT must cover '*'
+	}
+
+	const CASES: ScopeCase[] = [
+		{
+			category: 'auth',
+			action: 'supabase:auth:read',
+			method: 'GET',
+			path: `/v1/projects/${REF}/config/auth`,
+			resources: [`project:${REF}`],
+		},
+		{
+			category: 'domains',
+			action: 'supabase:domains:read',
+			method: 'GET',
+			path: `/v1/projects/${REF}/custom-hostname`,
+			resources: [`project:${REF}`],
+		},
+		{
+			category: 'environment',
+			action: 'supabase:environment:read',
+			method: 'GET',
+			path: `/v1/projects/${REF}/branches`,
+			resources: [`project:${REF}`],
+		},
+		{ category: 'rest', action: 'supabase:rest:read', method: 'GET', path: `/v1/projects/${REF}/postgrest`, resources: [`project:${REF}`] },
+		{
+			category: 'storage',
+			action: 'supabase:storage:read',
+			method: 'GET',
+			path: `/v1/projects/${REF}/storage/buckets`,
+			resources: [`project:${REF}`],
+		},
+		{
+			category: 'organizations',
+			action: 'supabase:organizations:read',
+			method: 'GET',
+			path: '/v1/organizations',
+			resources: ['supabase:account'],
+			wildcard: true,
+		},
+	];
+
+	for (const c of CASES) {
+		it(`allows ${c.category}:read end-to-end and swaps in the stored PAT`, async () => {
+			const pat = `sbp_pat_${c.category}`;
+			const tid = await registerSupabaseToken(c.wildcard ? ['*'] : [REF], pat);
+			const key = await createSupabaseKey(
+				{ version: V, statements: [{ effect: 'allow', actions: [c.action], resources: c.resources }] },
+				tid,
+			);
+
+			let seenAuth: string | undefined;
+			fetchMock
+				.get(SB_API)
+				.intercept({ path: c.path, method: c.method })
+				.reply((opts) => {
+					seenAuth = (opts.headers as Record<string, string>)['authorization'] ?? (opts.headers as Record<string, string>)['Authorization'];
+					return { statusCode: 200, data: '{}', responseOptions: { headers: { 'Content-Type': 'application/json' } } };
+				});
+
+			const res = await SELF.fetch(`https://gk/supabase${c.path}`, { headers: { Authorization: `Bearer ${key}` } });
+			expect(res.status).toBe(200);
+			expect(seenAuth).toBe(`Bearer ${pat}`);
+		});
+
+		it(`denies ${c.category} path for a metrics-only key (wrong scope, no upstream call)`, async () => {
+			const tid = await registerSupabaseToken(c.wildcard ? ['*'] : [REF]);
+			const key = await createSupabaseKey(
+				{ version: V, statements: [{ effect: 'allow', actions: ['supabase:metrics:read'], resources: c.resources }] },
+				tid,
+			);
+
+			// 403 returns before any upstream call, so no interceptor is registered.
+			const res = await SELF.fetch(`https://gk/supabase${c.path}`, { headers: { Authorization: `Bearer ${key}` } });
+			expect(res.status).toBe(403);
+		});
+	}
 });

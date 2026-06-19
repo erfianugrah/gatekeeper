@@ -84,10 +84,9 @@ describe('supabase analytics — event logging', () => {
 		});
 		await waitForAnalytics();
 
-		const res = await SELF.fetch(
-			`https://gk/admin/supabase/analytics/events?project_ref=${REF}&action=supabase:database:read`,
-			{ headers: adminHeaders() },
-		);
+		const res = await SELF.fetch(`https://gk/admin/supabase/analytics/events?project_ref=${REF}&action=supabase:database:read`, {
+			headers: adminHeaders(),
+		});
 		expect(res.status).toBe(200);
 		const data = await res.json<any>();
 		expect(data.result.length).toBeGreaterThanOrEqual(1);
