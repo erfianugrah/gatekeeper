@@ -28,6 +28,7 @@
 		"cf-typegen": "wrangler types",
 		"cli": "node --env-file=.env --import tsx cli/index.ts",
 		"smoke": "node --env-file=.env --import tsx cli/smoke-test.ts",
+		"smoke:supabase": "node --env-file=.env --import tsx cli/smoke-supabase.ts",
 		"openapi": "tsx scripts/generate-openapi.ts"
 	},
 	"devDependencies": {

@@ -132,3 +132,36 @@ jobs:
         run: bunx wrangler deploy ${{ steps.target.outputs.args }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+  # Live Supabase smoke against the just-deployed STAGING worker — this is what
+  # staging is for. The synthetic tier always runs; the live tier (real PAT swap →
+  # real Supabase Management API, all scopes + isolation) runs when the secrets are
+  # present. Staging only (push to main); the step skips cleanly if secrets are unset,
+  # so the gate never blocks a deploy before the secrets are configured.
+  live-smoke:
+    needs: deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      - name: Live Supabase smoke (staging)
+        env:
+          GATEKEEPER_URL: https://gatekeeper-staging.anugrah.workers.dev
+          GATEKEEPER_ADMIN_KEY: ${{ secrets.STAGING_ADMIN_KEY }}
+          SUPABASE_SMOKE_PAT: ${{ secrets.SUPABASE_SMOKE_PAT }}
+        run: |
+          if [ -z "$GATEKEEPER_ADMIN_KEY" ]; then
+            echo "::notice::STAGING_ADMIN_KEY not set — skipping live Supabase smoke (synthetic + live)."
+            exit 0
+          fi
+          if [ -z "$SUPABASE_SMOKE_PAT" ]; then
+            echo "::notice::SUPABASE_SMOKE_PAT not set — running synthetic tier only (live tier will self-skip)."
+          fi
+          bunx tsx cli/smoke-supabase.ts
