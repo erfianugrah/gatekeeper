@@ -1,6 +1,6 @@
 # Gatekeeper
 
-API gateway on Cloudflare Workers with an AWS IAM-style authorization engine. Fronts the Cloudflare cache purge API, DNS Records API, Cloudflare R2 (S3-compatible storage), and the broader Cloudflare API (D1, KV, Workers, Queues, Vectorize, Hyperdrive). The IAM layer is service-agnostic — the same policy engine handles all services.
+API gateway on Cloudflare Workers with an AWS IAM-style authorization engine. Fronts the Cloudflare cache purge API, DNS Records API, Cloudflare R2 (S3-compatible storage), the broader Cloudflare API (D1, KV, Workers, Queues, Vectorize, Hyperdrive), and the Supabase Management API + per-project metrics. The IAM layer is service-agnostic — the same policy engine handles all services.
 
 ## What it does
 
@@ -11,8 +11,9 @@ API gateway on Cloudflare Workers with an AWS IAM-style authorization engine. Fr
 5. **Rate limit headers** — the purge endpoint returns `Ratelimit` and `Ratelimit-Policy` (IETF Structured Fields format) so clients know their budget.
 6. **Token bucket enforcement** — rejects purge requests client-side before they hit the upstream API. Purge: bulk (50/sec, burst 500) and single-file (3,000/sec, burst 6,000). S3: 100/sec, burst 200. CF proxy: 200/sec, burst 400.
 7. **Request collapsing** — identical concurrent purges get deduplicated at both isolate and Durable Object levels.
-8. **Analytics** — every purge, DNS, S3, and CF proxy operation is logged to D1. Query events, get summaries, filter by key/credential/zone/account/service/time range. CF proxy events are broken down by individual service (D1, KV, Workers, etc.).
-9. **Dashboard** — Astro SPA served from the same Worker via Static Assets. Unified analytics view with dynamic per-source tabs.
+8. **Supabase RBAC overlay** — fronts a stored Supabase Personal Access Token or per-project metrics secret so a coarse account-level credential is handed out only as narrowly-scoped Gatekeeper keys. Every request is classified to a `supabase:<category>:<read|write>` action (11 categories) and authorized before the credential is swapped in; unclassified paths deny by default. Covers the Management API (`/supabase/v1`, `/v0`) and per-project Prometheus metrics (`/supabase/metrics/:ref`).
+9. **Analytics** — every purge, DNS, S3, CF proxy, and Supabase proxy operation is logged to D1. Query events, get summaries, filter by key/credential/zone/account/project/service/time range. CF proxy events are broken down by individual service (D1, KV, Workers, etc.).
+10. **Dashboard** — Astro SPA served from the same Worker via Static Assets. Unified analytics view with dynamic per-source tabs.
 
 ## Authentication
 
@@ -79,7 +80,7 @@ See [Deployment](docs/DEPLOYMENT.md) for production setup.
 | [Guide](docs/GUIDE.md)               | Getting started, creating keys/credentials, every policy permutation |
 | [API Reference](docs/API.md)         | All endpoints with request/response examples                         |
 | [CLI Reference](docs/CLI.md)         | Every command, flag, and usage example                               |
-| [Security](docs/SECURITY.md)         | IAM policy engine, auth tiers, conditions, 11 policy examples        |
+| [Security](docs/SECURITY.md)         | IAM policy engine, auth tiers, conditions, per-service actions       |
 | [Architecture](docs/ARCHITECTURE.md) | System design, Durable Object, rate limiting, dashboard              |
 | [Deployment](docs/DEPLOYMENT.md)     | Wrangler config, secrets, building, deploying                        |
 | [Contributing](docs/CONTRIBUTING.md) | Dev setup, code style, test architecture, adding endpoints           |
@@ -93,18 +94,22 @@ See [Deployment](docs/DEPLOYMENT.md) for production setup.
 - **Dashboard**: Astro 5 + React 19 + Tailwind CSS 4 + shadcn/ui
 - **CLI**: citty
 - **S3 signing**: aws4fetch
-- **Tests**: Vitest + @cloudflare/vitest-pool-workers (1,038 unit tests, ~730 e2e smoke assertions)
+- **Tests**: Vitest + @cloudflare/vitest-pool-workers (worker + CLI unit tests), Playwright e2e (CD deploy gate), live smoke suite
+- **CI/CD**: GitHub Actions — preflight + e2e gate; push `main` → staging, tag `v*` → production
 
 ## Commands
 
 ```bash
-npm run dev          # local development
-npm test             # run all tests (worker + CLI)
-npm run typecheck    # type-check worker + CLI
-npm run lint         # check formatting
-npm run preflight    # typecheck + lint + test + build
-npm run openapi      # regenerate openapi.json from Zod schemas
-npm run ship         # preflight + deploy
+npm run dev               # local development
+npm test                  # run all tests (worker + CLI)
+npm run typecheck         # type-check worker + CLI
+npm run lint              # check formatting
+npm run preflight         # typecheck + lint + test + build
+npm run test:e2e          # Playwright e2e (auto-starts wrangler dev)
+npm run check:api-coverage # live upstream-drift check (not in preflight)
+npm run openapi           # regenerate openapi.json from Zod schemas
+npm run ship              # preflight + deploy (production)
+npm run ship:staging      # preflight + deploy (staging)
 ```
 
 ## License

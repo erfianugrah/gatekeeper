@@ -597,6 +597,12 @@ If `--token` is omitted, the CLI reads from `$UPSTREAM_CF_TOKEN`.
 For account-scoped tokens (`--scope-type account`), the `--zone-ids` parameter
 contains Cloudflare **account IDs** (not zone IDs).
 
+> **Supabase credentials are not creatable via the CLI.** `--scope-type` only
+> accepts `zone` or `account`. The Supabase scope types (`supabase`,
+> `supabase_metrics`) and their `auth_type` / `username` fields are API- and
+> dashboard-only — see [API Reference §12](API.md#12-upstream-tokens) and
+> [Guide §2.4](GUIDE.md#24-supabase-management-api--metrics-rbac-overlay).
+
 ```bash
 gk upstream-tokens create \
   --name "prod-purge" \
@@ -881,6 +887,44 @@ gk dns-analytics summary --since 2025-01-01T00:00:00Z --json
 ## cf-analytics
 
 CF proxy analytics are currently available via the admin HTTP API only (no CLI command). See the [API Reference](API.md#11-cf-proxy-analytics) for endpoint details.
+
+---
+
+## supabase-analytics
+
+View Supabase proxy analytics. Requires `--admin-key`. Not zone-scoped.
+
+### supabase-analytics events
+
+Query recent Supabase proxy events (newest first).
+
+```bash
+gk supabase-analytics events [flags]
+```
+
+| Flag            | Type   | Required | Description                                                       |
+| --------------- | ------ | -------- | ----------------------------------------------------------------- |
+| `--project-ref` | string | no       | Filter by Supabase project ref                                    |
+| `--key-id`      | string | no       | Filter by Gatekeeper API key ID                                   |
+| `--category`    | string | no       | Filter by category (database, auth, secrets, edge_functions, metrics, ...) |
+| `--action`      | string | no       | Filter by action (e.g. `supabase:database:write`)                 |
+| `--since`       | string | no       | Start time (ISO 8601 or unix ms)                                  |
+| `--until`       | string | no       | End time (ISO 8601 or unix ms)                                    |
+| `--limit`       | string | no       | Max events to return (default 100, max 1000)                      |
+
+### supabase-analytics summary
+
+Aggregated Supabase proxy analytics (counts, status/category/action breakdowns, average latency).
+
+```bash
+gk supabase-analytics summary [flags]
+```
+
+Accepts the same filters as `events` except `--limit`.
+
+```bash
+gk supabase-analytics summary --project-ref abcdefghij0123456789
+```
 
 ---
 
