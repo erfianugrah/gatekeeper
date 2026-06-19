@@ -29,7 +29,9 @@
 		"cli": "node --env-file=.env --import tsx cli/index.ts",
 		"smoke": "node --env-file=.env --import tsx cli/smoke-test.ts",
 		"smoke:supabase": "node --env-file=.env --import tsx cli/smoke-supabase.ts",
-		"openapi": "tsx scripts/generate-openapi.ts"
+		"openapi": "tsx scripts/generate-openapi.ts",
+		"env:decrypt": "sops -d --input-type dotenv --output-type dotenv .env.sops > .env",
+		"env:edit": "sops --input-type dotenv --output-type dotenv .env.sops"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.12.19",
