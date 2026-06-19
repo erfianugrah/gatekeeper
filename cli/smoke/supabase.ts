@@ -41,6 +41,11 @@ const REF_B = 'bbbbbbbbbbbbbbbbbbbb';
 
 const SUPABASE_SMOKE_PAT = process.env['SUPABASE_SMOKE_PAT'];
 const SUPABASE_SMOKE_REF = process.env['SUPABASE_SMOKE_REF'];
+// Alternative to SUPABASE_SMOKE_PAT: bind the live keys to an ALREADY-REGISTERED supabase
+// upstream token (the upt_… id). Lets the live tier run against a deployment that already
+// has a PAT on file without handing the raw token to the smoke runner. The pre-existing
+// token is NOT deleted during cleanup (only keys the smoke run mints are).
+const SUPABASE_SMOKE_TOKEN_ID = process.env['SUPABASE_SMOKE_TOKEN_ID'];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -63,6 +68,15 @@ async function createSbKey(name: string, policy: object, upstreamTokenId: string
 function isJsonNotHtml(r: Resp): boolean {
 	const ct = r.headers.get('content-type') ?? '';
 	return ct.includes('application/json') && !r.raw.trimStart().startsWith('<');
+}
+
+/**
+ * Live-tier assertion: the request authorized AND reached the real upstream.
+ * 401 = gatekeeper key rejected OR upstream rejected the swapped PAT; 403 = policy deny.
+ * Any other status (200/4xx/5xx from Supabase) proves classify → authorize → PAT-swap → upstream.
+ */
+function assertReached(name: string, r: Resp): void {
+	assertTruthy(`${name} (HTTP ${r.status}, not 401/403)`, r.status !== 401 && r.status !== 403);
 }
 
 const policy = (actions: string[], resources: string[]) => ({
@@ -331,26 +345,35 @@ export async function run(ctx: SmokeContext): Promise<void> {
  * (auth -> classify -> policy -> PAT swap -> real Supabase -> real data).
  */
 async function runLiveApiTier(): Promise<void> {
-	if (!SUPABASE_SMOKE_PAT) {
-		section('Supabase Proxy — Live API-through-proxy (skipped — no SUPABASE_SMOKE_PAT)');
-		console.log(`  ${dim('Set SUPABASE_SMOKE_PAT=<real sbp_... token> to exercise the real Supabase Management API through the proxy.')}`);
+	if (!SUPABASE_SMOKE_PAT && !SUPABASE_SMOKE_TOKEN_ID) {
+		section('Supabase Proxy — Live API-through-proxy (skipped — no SUPABASE_SMOKE_PAT / SUPABASE_SMOKE_TOKEN_ID)');
+		console.log(`  ${dim('Set SUPABASE_SMOKE_PAT=<real sbp_... token> (registers a fresh PAT) or')}`);
+		console.log(`  ${dim('SUPABASE_SMOKE_TOKEN_ID=<upt_… id> (binds to an existing PAT) to exercise the real Management API.')}`);
 		return;
 	}
 
-	section('Supabase Proxy — Live API-through-proxy');
-
-	// Register the real PAT (validated) and a key that can list projects.
-	const realReg = await admin('POST', '/admin/upstream-tokens', {
-		name: 'smoke-sb-pat-live',
-		token: SUPABASE_SMOKE_PAT,
-		scope_type: 'supabase',
-		zone_ids: ['*'],
-		validate: true,
-	});
-	assertStatus('register real Supabase PAT (validated) -> 200', realReg, 200);
-	const liveId = realReg.body?.result?.id;
-	if (liveId) state.createdUpstreamTokens.push(liveId);
-	if (!liveId) return;
+	let liveId: string;
+	if (SUPABASE_SMOKE_TOKEN_ID) {
+		// Bind to an already-registered PAT — do NOT track it for deletion.
+		section('Supabase Proxy — Live API-through-proxy (existing token)');
+		liveId = SUPABASE_SMOKE_TOKEN_ID;
+		console.log(`  ${dim(`binding live keys to existing upstream token ${liveId}`)}`);
+	} else {
+		section('Supabase Proxy — Live API-through-proxy');
+		// Register the real PAT (validated) and a key that can list projects.
+		const realReg = await admin('POST', '/admin/upstream-tokens', {
+			name: 'smoke-sb-pat-live',
+			token: SUPABASE_SMOKE_PAT,
+			scope_type: 'supabase',
+			zone_ids: ['*'],
+			validate: true,
+		});
+		assertStatus('register real Supabase PAT (validated) -> 200', realReg, 200);
+		const regId = realReg.body?.result?.id;
+		if (regId) state.createdUpstreamTokens.push(regId);
+		if (!regId) return;
+		liveId = regId;
+	}
 
 	const { r: liveKeyCr, keyId: LIVE_KEY } = await createSbKey(
 		'smoke-sb-live-api',
@@ -371,6 +394,57 @@ async function runLiveApiTier(): Promise<void> {
 	const orgs = await sb(LIVE_KEY, 'GET', '/v1/organizations');
 	assertStatus('live: GET /v1/organizations through proxy -> 200', orgs, 200);
 	assertTruthy('live: /v1/organizations returns a real array', Array.isArray(orgs.body));
+
+	// ─── Live all-scopes read coverage ─────────────────────────────
+	// Discover a real project ref, then GET-read every project-scoped category through the
+	// proxy with an all-scopes key. Reads only — never a write against the real project.
+	// Each assertReached proves classify → authorize → PAT-swap → real Supabase for that scope.
+	const refs: string[] = Array.isArray(projects.body)
+		? projects.body.map((p: any) => p?.id ?? p?.ref).filter((x: unknown): x is string => typeof x === 'string')
+		: [];
+	const liveRef = SUPABASE_SMOKE_REF ?? refs[0];
+
+	if (!liveRef) {
+		section('Supabase Proxy — Live all-scopes (skipped — no accessible project ref)');
+	} else {
+		section('Supabase Proxy — Live all-scopes read coverage');
+		const { keyId: ALL_KEY } = await createSbKey(
+			'smoke-sb-live-all',
+			policy(['supabase:*'], [`project:${liveRef}`, 'supabase:account']),
+			liveId,
+		);
+		const scopeReads: Array<{ category: string; path: string }> = [
+			{ category: 'auth', path: `/v1/projects/${liveRef}/config/auth` },
+			{ category: 'database', path: `/v1/projects/${liveRef}/config/database/postgres` },
+			{ category: 'rest', path: `/v1/projects/${liveRef}/postgrest` },
+			{ category: 'secrets', path: `/v1/projects/${liveRef}/secrets` },
+			{ category: 'edge_functions', path: `/v1/projects/${liveRef}/functions` },
+			{ category: 'storage', path: `/v1/projects/${liveRef}/storage/buckets` },
+			{ category: 'domains', path: `/v1/projects/${liveRef}/custom-hostname` },
+			{ category: 'environment', path: `/v1/projects/${liveRef}/branches` },
+		];
+		for (const s of scopeReads) {
+			assertReached(`live: ${s.category} read reaches Supabase`, await sb(ALL_KEY, 'GET', s.path));
+		}
+
+		// ─── Live scope isolation (network-free 403s, no upstream call) ─
+		// Prove on the REAL deployment that a key can't reach a resource its policy omits.
+		section('Supabase Proxy — Live scope isolation');
+		const otherRef = liveRef === REF_A ? REF_B : REF_A; // a ref the project-scoped key is NOT scoped to
+		const { keyId: PROJ_KEY } = await createSbKey('smoke-sb-live-projonly', policy(['supabase:*'], [`project:${liveRef}`]), liveId);
+		assertStatus(
+			`live: project:${liveRef} key denied other project ${otherRef} -> 403`,
+			await sb(PROJ_KEY, 'GET', `/v1/projects/${otherRef}/config/auth`),
+			403,
+		);
+		assertStatus('live: project-scoped key denied account-level /v1/projects -> 403', await sb(PROJ_KEY, 'GET', '/v1/projects'), 403);
+		const { keyId: ACCT_KEY } = await createSbKey('smoke-sb-live-acctonly', policy(['supabase:*'], ['supabase:account']), liveId);
+		assertStatus(
+			'live: account-scoped key denied project endpoint -> 403',
+			await sb(ACCT_KEY, 'GET', `/v1/projects/${liveRef}/config/auth`),
+			403,
+		);
+	}
 
 	// Authorization still bites on the live path: this key has no secrets:read.
 	const denySecrets = await sb(LIVE_KEY, 'GET', '/v1/projects/aaaaaaaaaaaaaaaaaaaa/secrets');
