@@ -250,11 +250,13 @@ No manual migration steps are required.
 
 CD lives in `.github/workflows/ci.yml` (the `deploy` job, `needs: [preflight, e2e]` so a red suite or a failed Playwright e2e run never ships):
 
-- **push to `main`** → deploy **staging**
+- **push to `main`** → deploy **staging**, then run the `live-smoke` job against it
 - **push tag `v*`** → deploy **production**
 - **`workflow_dispatch`** → deploy the chosen env
 
 Auth is the scoped `CLOUDFLARE_API_TOKEN` repo secret (Workers Scripts + D1 on the account, Workers Routes + Zone Read on the zone) — **never** the global API key. The e2e job is a deploy gate because it catches the `run_worker_first` asset-layer class of bug that the worker test pool is blind to (vitest calls `app.fetch` directly).
+
+**`live-smoke`** (`needs: deploy`, push-to-`main` only) runs `cli/smoke-supabase.ts` against the freshly deployed staging worker — a synthetic tier always, plus a real PAT-swap live tier when the `SUPABASE_SMOKE_PAT` repo secret is set. It targets staging via the `STAGING_ADMIN_KEY` repo secret and self-skips when that is unset (so it never blocks a deploy before secrets exist). It is intentionally **not** run on `workflow_dispatch` (which can target prod) because it mints real resources via the admin key. The full multi-surface `npm run smoke` is deliberately **not** in CI — it needs the complete upstream credential set (CF API token, R2/DNS creds) and is run manually.
 
 Secrets are per-environment: `wrangler secret put <NAME> --env staging`. Staging has its own `ADMIN_KEY`; the other secrets (`CF_ACCESS_*`, `RBAC_*`) are unset on staging until needed.
 
@@ -306,7 +308,9 @@ entirely from `wrangler.jsonc`.
 | `npm run deploy:staging`   | Build dashboard, then `wrangler deploy --env staging`|
 | `npm run ship:staging`     | Preflight + deploy staging                           |
 | `npm run test:e2e`         | Playwright E2E tests (auto-starts `wrangler dev`)    |
-| `npm run smoke`            | E2E smoke tests against a live instance              |
+| `npm run smoke`            | Full multi-surface E2E smoke against a live instance |
+| `npm run smoke:supabase`   | Supabase-only smoke (synthetic + opt-in live tier)   |
+| `bun run env:decrypt`      | Decrypt `.env.sops` → `.env` (needs the SOPS age key)|
 | `npm run check:api-coverage` | Live upstream-drift check (not in preflight)       |
 | `npm run api-coverage:write` | Refresh + write api-coverage snapshots             |
 | `npm run openapi`          | Generate OpenAPI specification                       |
@@ -335,7 +339,9 @@ gk keys list --zone-id abc123
 ```
 
 For local development with the CLI, use the `.env` file (loaded automatically by
-`npm run cli`):
+`npm run cli`). If you have the SOPS age key, the shared credential set is
+committed encrypted as `.env.sops` — run `bun run env:decrypt` to produce the
+plaintext `.env` (and `bun run env:edit` to change a value):
 
 ```
 GATEKEEPER_URL=http://localhost:8787

@@ -1537,11 +1537,11 @@ CF proxy request volume over time in hourly buckets. Same shape as purge timeser
 
 Fronts a stored Supabase credential (Personal Access Token or per-project metrics secret) with Gatekeeper's IAM + policy engine. Every inbound request is **classified** to a `supabase:<category>:<read|write>` action and authorized **before** the stored upstream credential is resolved. Unclassified paths **deny by default** (404). The eleven categories are `auth`, `database`, `domains`, `edge_functions`, `environment`, `organizations`, `projects`, `rest`, `secrets`, `storage`, `metrics`.
 
-These are consumer-facing proxy routes authenticated with a **Gatekeeper API key** (`Authorization: Bearer gw_...`), not the admin key. The gateway swaps in the stored Supabase credential upstream.
+These are consumer-facing proxy routes authenticated with a **Gatekeeper API key** (`Authorization: Bearer gw_...`), not the admin key. The gateway swaps in the Supabase credential the key is **bound** to (its `upstream_token_id`) upstream — never a scope/ref match — so one key can never have another key's credential swapped in (mirrors the CF/S3/purge proxies).
 
 ### `ALL /supabase/v1/*`
 
-Supabase Management API proxy. Resolves the best-matching `supabase` (Bearer PAT) upstream token for the request's project ref and forwards to `https://api.supabase.com/v1/*` with the PAT swapped in.
+Supabase Management API proxy. Resolves the `supabase` (Bearer PAT) upstream token the key is **bound** to (`upstream_token_id`; scope/ref resolution is only a fallback for legacy unbound keys) and forwards to `https://api.supabase.com/v1/*` with the PAT swapped in.
 
 **Auth:** ApiKeyAuth (key policy must allow the classified `supabase:<category>:<read|write>` action; resource `project:<ref>`)
 
@@ -1553,7 +1553,7 @@ The **experimental/unstable** `/v0` surface. Only `GET /supabase/v0/projects/:re
 
 ### `GET /supabase/metrics/:ref`
 
-Per-project Prometheus metrics over HTTP Basic. Resolves the `supabase_metrics` secret for `:ref`, swaps in the Basic credential, and streams the Prometheus text through unchanged.
+Per-project Prometheus metrics over HTTP Basic. Resolves the `supabase_metrics` secret the key is **bound** to (scope/ref resolution is only a fallback for legacy unbound keys), swaps in the Basic credential, and streams the Prometheus text through unchanged.
 
 **Auth:** ApiKeyAuth (policy must allow `supabase:metrics:read`)
 
