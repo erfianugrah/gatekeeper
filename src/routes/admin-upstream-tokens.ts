@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { getStub } from '../do-stub';
-import { resolveCreatedBy, validateCfToken, emitAudit } from './admin-helpers';
+import { resolveCreatedBy, validateCfToken, validateSupabaseToken, emitAudit } from './admin-helpers';
 import {
 	createUpstreamTokenSchema,
 	updateUpstreamTokenSchema,
@@ -28,12 +28,14 @@ adminUpstreamTokensApp.post('/', async (c) => {
 	const parsed = await parseJsonBody(c, createUpstreamTokenSchema, log);
 	if (parsed instanceof Response) return parsed;
 
-	// Validate token activity + scope permissions (unless explicitly opted out)
+	// Validate token activity + scope permissions (unless explicitly opted out).
+	// CF and Supabase credentials validate against different upstreams; pick the right probe.
 	const warnings: ValidationWarning[] = [];
 	const isSupabase = parsed.scope_type === 'supabase' || parsed.scope_type === 'supabase_metrics';
-	// CF token validation does not apply to Supabase credentials (different upstream + auth model).
-	if (parsed.validate !== false && !isSupabase) {
-		const validationWarnings = await validateCfToken(parsed.token, parsed.scope_type as 'zone' | 'account', parsed.zone_ids);
+	if (parsed.validate !== false) {
+		const validationWarnings = isSupabase
+			? await validateSupabaseToken(parsed.token, parsed.scope_type as 'supabase' | 'supabase_metrics', parsed.zone_ids, parsed.username)
+			: await validateCfToken(parsed.token, parsed.scope_type as 'zone' | 'account', parsed.zone_ids);
 		if (validationWarnings.length > 0) {
 			warnings.push(...validationWarnings);
 			log.validationFailed = true;

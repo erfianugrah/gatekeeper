@@ -2,6 +2,7 @@
 
 import { AwsClient } from 'aws4fetch';
 import { CF_API_BASE } from '../constants';
+import { SUPABASE_API_BASE, SUPABASE_PROJECT_HOST, SUPABASE_METRICS_PATH } from '../supabase/constants';
 import { logAuditEvent } from '../audit-log';
 import type { AuditEvent } from '../audit-log';
 import type { Context } from 'hono';
@@ -240,6 +241,108 @@ async function probeAccountAccess(token: string, accountIds: string[]): Promise<
 		if (w) warnings.push(w);
 	}
 
+	return warnings;
+}
+
+// ─── Supabase credential validation ─────────────────────────────────────────
+
+/**
+ * Validate a Supabase credential against the real upstream it will be swapped in for.
+ *
+ *  - supabase (PAT)      → GET https://api.supabase.com/v1/projects with the Bearer PAT.
+ *                          200 = active; 401/403 = rejected. For specific project refs,
+ *                          confirm each ref appears in the accessible-projects list; for
+ *                          wildcard, warn if the PAT can see 0 projects (mirrors the CF probe).
+ *  - supabase_metrics    → GET https://<ref>.supabase.co/customer/v1/privileged/metrics with
+ *                          HTTP Basic for each concrete ref. 401/403 = secret rejected.
+ *                          Wildcard metrics tokens cannot be verified without a ref → skipped.
+ *
+ * Returns an array of warnings (empty = all good). Never throws.
+ */
+export async function validateSupabaseToken(
+	token: string,
+	scopeType: 'supabase' | 'supabase_metrics',
+	scopeIds: string[],
+	username?: string,
+): Promise<ValidationWarning[]> {
+	if (scopeType === 'supabase_metrics') {
+		return validateSupabaseMetrics(token, scopeIds, username ?? 'service_role');
+	}
+	return validateSupabasePat(token, scopeIds);
+}
+
+/** Verify a Supabase PAT via GET /v1/projects and check declared project-ref coverage. */
+async function validateSupabasePat(pat: string, scopeIds: string[]): Promise<ValidationWarning[]> {
+	const warnings: ValidationWarning[] = [];
+	try {
+		const res = await fetch(`${SUPABASE_API_BASE}/v1/projects`, {
+			headers: { Authorization: `Bearer ${pat}` },
+			signal: AbortSignal.timeout(VALIDATE_TIMEOUT_MS),
+		});
+		if (res.status === 401 || res.status === 403) {
+			console.log(JSON.stringify({ breadcrumb: 'validate-supabase-pat-rejected', status: res.status }));
+			return [{ code: 422, message: `Supabase PAT validation failed: Management API rejected the token (HTTP ${res.status})` }];
+		}
+		if (!res.ok) {
+			console.log(JSON.stringify({ breadcrumb: 'validate-supabase-pat-failed', status: res.status }));
+			return [{ code: 422, message: `Supabase PAT validation failed: GET /v1/projects returned HTTP ${res.status}` }];
+		}
+		const projects: any = await res.json().catch(() => []);
+		const accessibleRefs: string[] = Array.isArray(projects)
+			? projects.map((p) => p?.id).filter((x): x is string => typeof x === 'string')
+			: [];
+		const isWildcard = scopeIds.length === 1 && scopeIds[0] === '*';
+		if (isWildcard) {
+			console.log(JSON.stringify({ breadcrumb: 'validate-supabase-pat-ok', accessibleProjects: accessibleRefs.length }));
+			if (accessibleRefs.length === 0) {
+				warnings.push({ code: 422, message: 'Supabase PAT has wildcard scope but can access 0 projects — verify token permissions' });
+			}
+		} else {
+			for (const ref of scopeIds) {
+				if (ref === '*') continue;
+				if (!accessibleRefs.includes(ref)) {
+					warnings.push({ code: 422, message: `Supabase project '${ref}' is not accessible with this PAT` });
+				}
+			}
+			console.log(JSON.stringify({ breadcrumb: 'validate-supabase-pat-ok', declaredRefs: scopeIds.length, warnings: warnings.length }));
+		}
+		return warnings;
+	} catch (e: any) {
+		const msg = e?.name === 'TimeoutError' ? 'validation request timed out' : (e?.message ?? 'unknown error');
+		console.log(JSON.stringify({ breadcrumb: 'validate-supabase-pat-error', error: msg }));
+		return [{ code: 422, message: `Supabase PAT validation failed: ${msg}` }];
+	}
+}
+
+/** Verify a Supabase metrics secret via the per-project metrics endpoint (HTTP Basic) for each concrete ref. */
+async function validateSupabaseMetrics(secret: string, scopeIds: string[], username: string): Promise<ValidationWarning[]> {
+	const warnings: ValidationWarning[] = [];
+	const refs = scopeIds.filter((r) => r !== '*');
+	if (refs.length === 0) {
+		// Wildcard metrics token — the metrics endpoint is per-project, so there is nothing to probe.
+		console.log(JSON.stringify({ breadcrumb: 'validate-supabase-metrics-skipped-wildcard' }));
+		return warnings;
+	}
+	const basic = btoa(`${username}:${secret}`);
+	const probes = refs.map(async (ref): Promise<ValidationWarning | null> => {
+		try {
+			const res = await fetch(`${SUPABASE_PROJECT_HOST(ref)}${SUPABASE_METRICS_PATH}`, {
+				headers: { Authorization: `Basic ${basic}` },
+				signal: AbortSignal.timeout(VALIDATE_TIMEOUT_MS),
+			});
+			if (res.status === 401 || res.status === 403) {
+				console.log(JSON.stringify({ breadcrumb: 'validate-supabase-metrics-rejected', ref, status: res.status }));
+				return { code: 422, message: `Supabase metrics secret rejected for project '${ref}' (HTTP ${res.status})` };
+			}
+			console.log(JSON.stringify({ breadcrumb: 'validate-supabase-metrics-ok', ref, status: res.status }));
+			return null;
+		} catch (e: any) {
+			const msg = e?.name === 'TimeoutError' ? 'timed out' : (e?.message ?? 'unknown error');
+			console.log(JSON.stringify({ breadcrumb: 'validate-supabase-metrics-error', ref, error: msg }));
+			return { code: 422, message: `Supabase metrics check for '${ref}' failed: ${msg}` };
+		}
+	});
+	for (const w of await Promise.all(probes)) if (w) warnings.push(w);
 	return warnings;
 }
 

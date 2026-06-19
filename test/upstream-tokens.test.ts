@@ -603,6 +603,143 @@ describe('Upstream tokens — validate on registration', () => {
 	});
 });
 
+// --- Supabase credential validation (PAT against Management API, metrics secret against project endpoint) ---
+
+describe('Upstream tokens — Supabase validation', () => {
+	const SB_API = 'https://api.supabase.com';
+	const REF = 'abcdefghij0123456789'; // 20-char [a-z0-9]
+	const REF_OTHER = 'zzzzyyyyxxxx00009999';
+	const metricsHost = (ref: string) => `https://${ref}.supabase.co`;
+	const METRICS_PATH = '/customer/v1/privileged/metrics';
+
+	beforeAll(() => {
+		fetchMock.activate();
+		fetchMock.disableNetConnect();
+	});
+	afterEach(() => {
+		fetchMock.assertNoPendingInterceptors();
+	});
+
+	it('valid PAT + wildcard refs -> probes /v1/projects -> no warnings', async () => {
+		fetchMock
+			.get(SB_API)
+			.intercept({ method: 'GET', path: '/v1/projects' })
+			.reply(200, JSON.stringify([{ id: REF, name: 'proj' }]), { headers: { 'Content-Type': 'application/json' } });
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({ name: 'sb-pat-wildcard', token: 'sbp_valid_pat_value', scope_type: 'supabase', zone_ids: ['*'] }),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.warnings).toBeUndefined();
+	});
+
+	it('PAT rejected by Management API (401) -> warning', async () => {
+		fetchMock
+			.get(SB_API)
+			.intercept({ method: 'GET', path: '/v1/projects' })
+			.reply(401, JSON.stringify({ message: 'Unauthorized' }), { headers: { 'Content-Type': 'application/json' } });
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({ name: 'sb-pat-bad', token: 'sbp_invalid_pat', scope_type: 'supabase', zone_ids: ['*'] }),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.warnings).toHaveLength(1);
+		expect(data.warnings[0].code).toBe(422);
+		expect(data.warnings[0].message).toMatch(/Management API rejected the token/);
+	});
+
+	it('valid PAT but declared ref not accessible -> per-ref warning', async () => {
+		fetchMock
+			.get(SB_API)
+			.intercept({ method: 'GET', path: '/v1/projects' })
+			.reply(200, JSON.stringify([{ id: REF_OTHER, name: 'other' }]), { headers: { 'Content-Type': 'application/json' } });
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({ name: 'sb-pat-ref-miss', token: 'sbp_pat_value', scope_type: 'supabase', zone_ids: [REF] }),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.warnings).toHaveLength(1);
+		expect(data.warnings[0].message).toMatch(new RegExp(`project '${REF}' is not accessible`));
+	});
+
+	it('valid metrics secret for a concrete ref -> no warnings', async () => {
+		fetchMock
+			.get(metricsHost(REF))
+			.intercept({ method: 'GET', path: METRICS_PATH })
+			.reply(200, '# HELP up\nup 1\n', { headers: { 'Content-Type': 'text/plain' } });
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'sb-metrics-ok',
+				token: 'metrics_secret_value',
+				scope_type: 'supabase_metrics',
+				auth_type: 'basic',
+				username: 'service_role',
+				zone_ids: [REF],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.warnings).toBeUndefined();
+	});
+
+	it('metrics secret rejected (401) -> warning', async () => {
+		fetchMock
+			.get(metricsHost(REF))
+			.intercept({ method: 'GET', path: METRICS_PATH })
+			.reply(401, 'unauthorized', { headers: { 'Content-Type': 'text/plain' } });
+
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'sb-metrics-bad',
+				token: 'metrics_bad_secret',
+				scope_type: 'supabase_metrics',
+				auth_type: 'basic',
+				zone_ids: [REF],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.warnings).toHaveLength(1);
+		expect(data.warnings[0].message).toMatch(new RegExp(`metrics secret rejected for project '${REF}'`));
+	});
+
+	it('wildcard metrics token -> no probe, no warnings', async () => {
+		// No intercept registered — disableNetConnect would throw if a probe fired.
+		const res = await SELF.fetch('http://localhost/admin/upstream-tokens', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'sb-metrics-wildcard',
+				token: 'metrics_secret_value',
+				scope_type: 'supabase_metrics',
+				auth_type: 'basic',
+				zone_ids: ['*'],
+			}),
+		});
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(data.warnings).toBeUndefined();
+	});
+});
+
 // --- Resolution logic (Fix #1 — ORDER BY created_at DESC, exact vs wildcard) ---
 
 describe('Upstream tokens — resolution', () => {
