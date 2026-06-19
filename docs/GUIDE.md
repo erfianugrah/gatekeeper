@@ -577,10 +577,12 @@ The official `supabase` CLI can talk to the proxy directly -- you do **not** nee
 ```yaml
 # ~/.supabase/gatekeeper.yaml
 name: gatekeeper
-api_url: https://gate.erfi.io/supabase
+api_url: https://gate.erfi.io/supabase/
 dashboard_url: https://gate.erfi.io
 project_host: supabase.co
 ```
+
+> **The trailing slash on `api_url` is load-bearing.** The CLI's generated client resolves the operation path as `./v1/projects` *relative to* `api_url`. With a trailing slash (`.../supabase/`) that resolves to `.../supabase/v1/projects` (correct); without it (`.../supabase`) the last path segment is replaced and you get `.../v1/projects` -- the `/supabase` prefix is silently dropped and requests miss the proxy.
 
 ```bash
 export SUPABASE_PROFILE=$HOME/.supabase/gatekeeper.yaml
