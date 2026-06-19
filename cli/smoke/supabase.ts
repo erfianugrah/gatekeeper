@@ -7,19 +7,23 @@
  *     ordering, the classifier + deny-by-default policy engine, and token binding.
  *     Every deny assertion returns BEFORE any upstream call, so this tier is
  *     network-free and deterministic.
- *  2. Live CLI-through-proxy (opt-in) — when SUPABASE_SMOKE_PAT is set, registers
- *     the real PAT and drives the OFFICIAL `supabase` CLI through the proxy
- *     (SUPABASE_API_URL=<gateway>/supabase, SUPABASE_ACCESS_TOKEN=<gatekeeper key>).
- *     This is the true "test the actual API" path — any wire-incompatibility
- *     surfaces through the real client. Skipped unless a PAT is provided.
+ *  2. Live API-through-proxy (opt-in) — when SUPABASE_SMOKE_PAT is set, registers
+ *     the real PAT (validated) and exercises the REAL Supabase Management API
+ *     through the proxy using a Gatekeeper key as the Bearer token — the actual
+ *     client contract (gateway authorizes, then swaps in the stored PAT upstream).
+ *     Asserts real project/org data comes back. Skipped unless a PAT is provided.
+ *
+ *     NOTE: we deliberately do NOT drive the official `supabase` CLI here — it does
+ *     client-side token-format validation (rejects anything not shaped like
+ *     `sbp_...`), so a Gatekeeper `gw_` key cannot be used as its access token.
+ *     The real-world integration is any HTTP client / SDK sending the gw_ key as
+ *     Bearer, which is exactly what this tier probes.
  *
  *     SUPABASE_SMOKE_PAT   — a real Supabase Personal Access Token (sbp_...)
- *     SUPABASE_GO_BINARY   — passed through if the local `supabase` shim needs it
  */
 
-import { execSync } from 'node:child_process';
 import type { SmokeContext, Resp } from './helpers.js';
-import { req, admin, section, assertStatus, assertMatch, assertTruthy, state, sleep, green, red, dim, yellow, BASE } from './helpers.js';
+import { req, admin, section, assertStatus, assertMatch, assertTruthy, state, sleep, dim } from './helpers.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -252,21 +256,22 @@ export async function run(ctx: SmokeContext): Promise<void> {
 
 	// ─── Live CLI-through-proxy (opt-in) ───────────────────────────
 
-	await runLiveCliTier(sbPatId);
+	await runLiveApiTier();
 }
 
 /**
- * Opt-in tier: register the real PAT and drive the official `supabase` CLI through
- * the proxy. Proves end-to-end wire compatibility with a real Supabase client.
+ * Opt-in tier: register the real PAT and exercise the real Supabase Management API
+ * through the proxy with a Gatekeeper key as Bearer. Proves the end-to-end live path
+ * (auth -> classify -> policy -> PAT swap -> real Supabase -> real data).
  */
-async function runLiveCliTier(sbPatId: string | undefined): Promise<void> {
+async function runLiveApiTier(): Promise<void> {
 	if (!SUPABASE_SMOKE_PAT) {
-		section('Supabase Proxy — Live CLI-through-proxy (skipped — no SUPABASE_SMOKE_PAT)');
-		console.log(`  ${dim('Set SUPABASE_SMOKE_PAT=<real sbp_... token> to drive the official supabase CLI through the proxy.')}`);
+		section('Supabase Proxy — Live API-through-proxy (skipped — no SUPABASE_SMOKE_PAT)');
+		console.log(`  ${dim('Set SUPABASE_SMOKE_PAT=<real sbp_... token> to exercise the real Supabase Management API through the proxy.')}`);
 		return;
 	}
 
-	section('Supabase Proxy — Live CLI-through-proxy');
+	section('Supabase Proxy — Live API-through-proxy');
 
 	// Register the real PAT (validated) and a key that can list projects.
 	const realReg = await admin('POST', '/admin/upstream-tokens', {
@@ -282,46 +287,26 @@ async function runLiveCliTier(sbPatId: string | undefined): Promise<void> {
 	if (!liveId) return;
 
 	const { r: liveKeyCr, keyId: LIVE_KEY } = await createSbKey(
-		'smoke-sb-live-cli',
+		'smoke-sb-live-api',
 		policy(['supabase:projects:read', 'supabase:organizations:read'], ['supabase:account']),
 		liveId,
 	);
-	assertStatus('create live CLI key -> 200', liveKeyCr, 200);
+	assertStatus('create live API key -> 200', liveKeyCr, 200);
 	if (!LIVE_KEY) return;
 
-	// Drive the official supabase CLI through the proxy.
-	const env: Record<string, string> = {
-		...process.env,
-		SUPABASE_API_URL: `${BASE}/supabase`,
-		SUPABASE_ACCESS_TOKEN: LIVE_KEY,
-	};
-
-	const result = (() => {
-		try {
-			const out = execSync('supabase projects list -o json', {
-				env,
-				timeout: 30_000,
-				stdio: ['pipe', 'pipe', 'pipe'],
-				encoding: 'utf-8',
-			});
-			return { ok: true, out: out.trim() };
-		} catch (e: any) {
-			return { ok: false, out: (e.stderr?.toString() || e.stdout?.toString() || e.message || '').trim() };
-		}
-	})();
-
-	if (result.ok) {
-		state.pass++;
-		let count = 0;
-		try {
-			count = JSON.parse(result.out).length;
-		} catch {
-			/* non-JSON output still counts as a successful exit */
-		}
-		console.log(`  ${green('PASS')}  supabase CLI 'projects list' through proxy ${dim(`(${count} projects)`)}`);
-	} else {
-		state.fail++;
-		state.errors.push(`supabase CLI through proxy: ${result.out.slice(0, 160)}`);
-		console.log(`  ${red('FAIL')}  supabase CLI 'projects list' through proxy ${dim(`(${result.out.slice(0, 160)})`)}`);
+	// Real Management API read through the proxy — the gw_ key is swapped for the PAT upstream.
+	const projects = await sb(LIVE_KEY, 'GET', '/v1/projects');
+	assertStatus('live: GET /v1/projects through proxy -> 200', projects, 200);
+	assertTruthy('live: /v1/projects returns a real project array', Array.isArray(projects.body));
+	if (Array.isArray(projects.body)) {
+		console.log(`  ${dim(`(${projects.body.length} projects via swapped PAT)`)}`);
 	}
+
+	const orgs = await sb(LIVE_KEY, 'GET', '/v1/organizations');
+	assertStatus('live: GET /v1/organizations through proxy -> 200', orgs, 200);
+	assertTruthy('live: /v1/organizations returns a real array', Array.isArray(orgs.body));
+
+	// Authorization still bites on the live path: this key has no secrets:read.
+	const denySecrets = await sb(LIVE_KEY, 'GET', '/v1/projects/aaaaaaaaaaaaaaaaaaaa/secrets');
+	assertStatus('live: secrets read denied (no scope) -> 403', denySecrets, 403);
 }
