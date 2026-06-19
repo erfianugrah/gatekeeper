@@ -39,7 +39,9 @@ const create = defineCommand({
 		},
 		validate: {
 			type: 'boolean',
-			description: 'Validate the token against Cloudflare API on creation',
+			description:
+				'Probe the token against the Cloudflare API on registration (default: true). Pass --no-validate to skip. Validation is advisory — the token is stored even if the probe reports warnings.',
+			default: true,
 		},
 	},
 	async run({ args }) {
@@ -75,8 +77,8 @@ const create = defineCommand({
 			body.expires_in_days = days;
 		}
 
-		if (args.validate) {
-			body.validate = true;
+		if (args.validate === false) {
+			body.validate = false;
 		}
 
 		const { status, data, durationMs } = await request(config, 'POST', '/admin/upstream-tokens', {
@@ -100,10 +102,10 @@ const create = defineCommand({
 		formatUpstreamToken(result);
 		console.error('');
 
-		const warnings = result.warnings as string[] | undefined;
+		const warnings = (data as Record<string, unknown>).warnings as { code: number; message: string }[] | undefined;
 		if (warnings && warnings.length > 0) {
 			for (const w of warnings) {
-				warn(w);
+				warn(`[${w.code}] ${w.message}`);
 			}
 			console.error('');
 		}
