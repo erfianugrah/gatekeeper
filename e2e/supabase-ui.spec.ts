@@ -131,7 +131,9 @@ test.describe('Upstream Tokens — Supabase scope types', () => {
 
 		await page.locator('input[placeholder="e.g. production-purge, staging-token"]').fill('e2e-sb-wildcard');
 		await page.locator('input[type="password"]').fill('sbp_fake_pat_value');
-		// Leave Project Refs at the default '*'.
+		// Leave Project Refs at the default '*'. Skip server-side validation so the test stays
+		// hermetic (a real PAT would otherwise be probed against the Supabase Management API).
+		await page.locator('#skip-validation').check();
 
 		await page.locator('[role="dialog"] button:has-text("Register")').click();
 

@@ -130,6 +130,13 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 			? '* for all accounts, or comma-separated account IDs'
 			: '* for all zones, or comma-separated zone IDs';
 	const credentialLabel = isMetrics ? 'Metrics Secret' : isSupabase ? 'Personal Access Token (PAT)' : 'Cloudflare API Token';
+	// Scope-aware copy: each credential type validates against a different upstream.
+	const dialogDescription = isMetrics
+		? 'Register a Supabase project metrics secret. The secret will be verified against the per-project metrics endpoint on creation.'
+		: isSupabase
+			? 'Register a Supabase Personal Access Token. The PAT will be validated against the Supabase Management API on creation.'
+			: 'Register a Cloudflare API token. The token will be validated against declared zones/accounts on creation.';
+	const validationTarget = isMetrics ? 'the Supabase metrics endpoint' : isSupabase ? 'the Supabase Management API' : 'the Cloudflare API';
 
 	const handleCreate = async () => {
 		setError(null);
@@ -138,7 +145,7 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 			return;
 		}
 		if (!token.trim()) {
-			setError('Cloudflare API token is required');
+			setError(`${credentialLabel} is required`);
 			return;
 		}
 
@@ -212,9 +219,7 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 			<DialogContent className="max-w-lg">
 				<DialogHeader>
 					<DialogTitle>Register Upstream Token</DialogTitle>
-					<DialogDescription>
-						Register a Cloudflare API token. The token will be validated against declared zones/accounts on creation.
-					</DialogDescription>
+					<DialogDescription>{dialogDescription}</DialogDescription>
 				</DialogHeader>
 
 				<div className="space-y-4">
@@ -243,7 +248,8 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 							</SelectContent>
 						</Select>
 						<p className={T.muted}>
-							Zone: cache purge / DNS. Account: CF API proxy. Supabase: Management API (Bearer PAT). Supabase Metrics: per-project metrics (HTTP Basic).
+							Zone: cache purge / DNS. Account: CF API proxy. Supabase: Management API (Bearer PAT). Supabase Metrics: per-project metrics
+							(HTTP Basic).
 						</p>
 					</div>
 
@@ -283,7 +289,7 @@ function CreateTokenDialog({ onCreated }: CreateTokenDialogProps) {
 							className="rounded border-border"
 						/>
 						<Label htmlFor="skip-validation" className="text-xs text-muted-foreground cursor-pointer">
-							Skip validation (do not verify token against Cloudflare API)
+							Skip validation (do not verify against {validationTarget})
 						</Label>
 					</div>
 
