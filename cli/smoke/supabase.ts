@@ -13,17 +13,25 @@
  *     client contract (gateway authorizes, then swaps in the stored PAT upstream).
  *     Asserts real project/org data comes back. Skipped unless a PAT is provided.
  *
- *     NOTE: we deliberately do NOT drive the official `supabase` CLI here — it does
- *     client-side token-format validation (rejects anything not shaped like
- *     `sbp_...`), so a Gatekeeper `gw_` key cannot be used as its access token.
- *     The real-world integration is any HTTP client / SDK sending the gw_ key as
- *     Bearer, which is exactly what this tier probes.
+ *     A key bound to a `supabase` PAT is minted `sbp_`-shaped (sbp_ + 40 hex), so
+ *     it satisfies the official `supabase` CLI's client-side token regex and can be
+ *     used verbatim as SUPABASE_ACCESS_TOKEN. When the `supabase` binary is present
+ *     this tier additionally drives the REAL CLI through the proxy (profile file
+ *     pointed at /supabase, sbp_ key as the access token).
  *
  *     SUPABASE_SMOKE_PAT   — a real Supabase Personal Access Token (sbp_...)
  */
 
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import type { SmokeContext, Resp } from './helpers.js';
-import { req, admin, section, assertStatus, assertMatch, assertTruthy, state, sleep, dim } from './helpers.js';
+import { req, admin, section, assertStatus, assertMatch, assertTruthy, state, sleep, dim, BASE } from './helpers.js';
+
+/** The official `supabase` CLI accepts only this access-token shape (client-side). */
+const SBP_KEY_RE = /^sbp_(oauth_)?[a-f0-9]{40}$/;
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -236,6 +244,36 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const denyMetricsRef = await sb(METRICS_SCOPED_KEY, 'GET', `/metrics/${REF_B}`);
 	assertStatus('metrics key scoped to REF_A: GET /metrics/REF_B -> 403 (resource mismatch)', denyMetricsRef, 403);
 
+	// ─── CLI-compatible key shape (synthetic, network-free) ────────
+	// A key bound to a `supabase` PAT is minted sbp_-shaped so the official CLI's
+	// client-side token regex accepts it; a `supabase_metrics` (HTTP Basic) key is
+	// NOT the CLI's access token, so it keeps the default gw_ shape. The gateway
+	// looks keys up verbatim and does not enforce a prefix, so the sbp_ key
+	// authenticates exactly like a gw_ key (proven here without any upstream call).
+
+	section('Supabase Proxy — CLI-compatible key shape');
+
+	const { r: sbpCr, keyId: SBP_KEY } = await createSbKey(
+		'smoke-sb-cli-shape',
+		policy(['supabase:metrics:read'], ['supabase:account']),
+		sbPatId,
+	);
+	assertStatus('create key bound to supabase PAT -> 200', sbpCr, 200);
+	assertMatch('PAT-bound key is sbp_+40hex (passes the official CLI regex)', SBP_KEY, SBP_KEY_RE);
+
+	// The sbp_-shaped key authenticates: this metrics-only key is DENIED (403) at the
+	// policy layer on /v1/projects — a 401 would mean auth rejected the sbp_ key.
+	const sbpAuthd = await sb(SBP_KEY, 'GET', '/v1/projects');
+	assertStatus('sbp_-shaped key authenticates (403 at policy, not 401 at auth)', sbpAuthd, 403);
+
+	const { r: gwCr, keyId: GW_METRICS_KEY } = await createSbKey(
+		'smoke-sb-metrics-shape',
+		policy(['supabase:metrics:read'], [`project:${REF_A}`]),
+		sbMetId,
+	);
+	assertStatus('create key bound to supabase_metrics credential -> 200', gwCr, 200);
+	assertMatch('metrics-bound key keeps the default gw_ shape', GW_METRICS_KEY, /^gw_[a-f0-9]{32}$/);
+
 	// ─── Analytics admin endpoints ─────────────────────────────────
 
 	section('Supabase Proxy Analytics');
@@ -309,4 +347,68 @@ async function runLiveApiTier(): Promise<void> {
 	// Authorization still bites on the live path: this key has no secrets:read.
 	const denySecrets = await sb(LIVE_KEY, 'GET', '/v1/projects/aaaaaaaaaaaaaaaaaaaa/secrets');
 	assertStatus('live: secrets read denied (no scope) -> 403', denySecrets, 403);
+
+	// sbp_-shaped key (PAT-bound) carries the exact token a CLI sends. Prove it works
+	// end-to-end against the REAL Supabase Management API through the proxy.
+	const { r: sbpKeyCr, keyId: SBP_LIVE_KEY } = await createSbKey(
+		'smoke-sb-live-cli',
+		policy(['supabase:projects:read'], ['supabase:account']),
+		liveId,
+	);
+	assertStatus('create live sbp_-shaped key -> 200', sbpKeyCr, 200);
+	assertMatch('live key is sbp_-shaped', SBP_LIVE_KEY, SBP_KEY_RE);
+	if (!SBP_LIVE_KEY) return;
+
+	const sbpProjects = await sb(SBP_LIVE_KEY, 'GET', '/v1/projects');
+	assertStatus('live: sbp_ key GET /v1/projects through proxy -> 200', sbpProjects, 200);
+	assertTruthy('live: sbp_ key returns a real project array', Array.isArray(sbpProjects.body));
+
+	// Real-life smoke: drive the actual `supabase` binary through the proxy.
+	await runOfficialCliTier(SBP_LIVE_KEY);
+}
+
+/** True if the official `supabase` CLI binary is on PATH. */
+function supabaseCliAvailable(): boolean {
+	try {
+		execFileSync('supabase', ['--version'], { stdio: 'ignore' });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Drive the REAL `supabase` CLI through the proxy with the sbp_-shaped Gatekeeper
+ * key as SUPABASE_ACCESS_TOKEN. A custom profile points the CLI's api_url at the
+ * proxy's /supabase surface. The trailing slash on api_url is load-bearing: the
+ * CLI's generated client resolves "./v1/projects" relative to api_url, so without
+ * the slash the /supabase path segment is dropped.
+ */
+async function runOfficialCliTier(sbpKey: string): Promise<void> {
+	if (!supabaseCliAvailable()) {
+		section('Supabase Proxy — Official `supabase` CLI (skipped — binary not on PATH)');
+		console.log(`  ${dim('Install the `supabase` CLI to exercise the real client through the proxy with an sbp_ key.')}`);
+		return;
+	}
+
+	section('Supabase Proxy — Official `supabase` CLI through proxy');
+
+	const dir = mkdtempSync(join(tmpdir(), 'gk-sb-cli-'));
+	const profilePath = join(dir, 'gatekeeper.yaml');
+	writeFileSync(profilePath, `name: gatekeeper\napi_url: ${BASE}/supabase/\ndashboard_url: ${BASE}\nproject_host: supabase.co\n`);
+
+	try {
+		const out = execFileSync('supabase', ['projects', 'list'], {
+			env: { ...process.env, SUPABASE_PROFILE: profilePath, SUPABASE_ACCESS_TOKEN: sbpKey },
+			encoding: 'utf8',
+			stdio: ['ignore', 'pipe', 'pipe'],
+		});
+		assertTruthy('official CLI: `supabase projects list` succeeded through the proxy', typeof out === 'string');
+		console.log(`  ${dim('(real `supabase` CLI authenticated with sbp_ key -> proxy -> swapped PAT -> Supabase)')}`);
+	} catch (e: any) {
+		const stderr = (e?.stderr ?? e?.message ?? '').toString().trim().slice(0, 300);
+		assertTruthy(`official CLI: \`supabase projects list\` exit 0 (stderr: ${stderr})`, false);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 }
