@@ -1,6 +1,13 @@
 import { env, SELF } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
-import { adminHeaders } from './helpers';
+import { describe, it, expect, afterEach } from 'vitest';
+import {
+	adminHeaders,
+	registerSupabaseToken,
+	registerSupabaseMetricsCredential,
+	createSupabaseKey,
+	cleanupCreatedResources,
+} from './helpers';
+import type { PolicyDocument } from '../src/policy-types';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -119,5 +126,41 @@ describe('supabase credential creation validation', () => {
 			body: JSON.stringify({ name: 'bad', token: 'sbp_x', scope_type: 'supabase', zone_ids: ['NOT-A-VALID-REF'] }),
 		});
 		expect(res.status).toBe(400);
+	});
+});
+
+// A key bound to a Supabase Management-API PAT is minted in the shape the
+// official `supabase` CLI accepts client-side (^sbp_(oauth_)?[a-f0-9]{40}$), so
+// it can be used verbatim as SUPABASE_ACCESS_TOKEN through the proxy.
+describe('supabase CLI-compatible key shape', () => {
+	afterEach(() => cleanupCreatedResources());
+
+	function policy(actions: string[]): PolicyDocument {
+		return { version: '2025-01-01', statements: [{ effect: 'allow', actions, resources: [`project:${REF}`] }] };
+	}
+
+	it('mints an sbp_+40hex key when bound to a supabase PAT (passes the CLI regex)', async () => {
+		const tid = await registerSupabaseToken([REF]);
+		const keyId = await createSupabaseKey(policy(['supabase:database:read']), tid);
+		expect(keyId).toMatch(/^sbp_(oauth_)?[a-f0-9]{40}$/);
+	});
+
+	it('keeps the default gw_ shape for a supabase_metrics (HTTP Basic) credential', async () => {
+		const tid = await registerSupabaseMetricsCredential([REF]);
+		const keyId = await createSupabaseKey(policy(['supabase:metrics:read']), tid);
+		expect(keyId).toMatch(/^gw_[a-f0-9]{32}$/);
+	});
+
+	it('rotation preserves the sbp_ shape (rotated key still passes the CLI regex)', async () => {
+		const tid = await registerSupabaseToken([REF]);
+		const keyId = await createSupabaseKey(policy(['supabase:database:read']), tid);
+		const res = await SELF.fetch(`https://gk/admin/keys/${keyId}/rotate`, {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({}),
+		});
+		const data = await res.json<any>();
+		expect(res.status).toBe(200);
+		expect(data.result.new_key.id).toMatch(/^sbp_(oauth_)?[a-f0-9]{40}$/);
 	});
 });

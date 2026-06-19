@@ -567,6 +567,32 @@ curl "$GATEKEEPER_URL/supabase/metrics/$REF" -H "Authorization: Bearer $GATEKEEP
 - `GET /supabase/metrics/:ref` -- the Basic-auth path above (swaps in the `supabase_metrics` secret).
 - `GET /supabase/v0/projects/:ref/analytics/metrics` -- an **experimental** path that uses the stored `supabase` PAT instead. The `/v0` surface is treated as external/unstable: only this metrics endpoint is classified, everything else under `/v0` denies by default.
 
+#### Driving the official `supabase` CLI through the proxy
+
+The official `supabase` CLI can talk to the proxy directly -- you do **not** need to hand it the real PAT. Two facts make this work:
+
+1. **Key shape.** The CLI validates `SUPABASE_ACCESS_TOKEN` client-side against `^sbp_(oauth_)?[a-f0-9]{40}$` before any request leaves. A Gatekeeper key bound to a `supabase` (PAT) upstream token is therefore minted in that exact shape -- `sbp_` + 40 hex -- **automatically** (metrics-scope keys keep the default `gw_` shape; they are not the CLI's access token). The gateway looks the key up verbatim and does not enforce a prefix, so the `sbp_`-shaped key authenticates exactly like a `gw_` key. Rotation preserves the shape.
+2. **API host.** The CLI's API host comes from its profile. Any profile name that is not built-in is treated as a path to a config file, so point it at the proxy:
+
+```yaml
+# ~/.supabase/gatekeeper.yaml
+name: gatekeeper
+api_url: https://gate.erfi.io/supabase
+dashboard_url: https://gate.erfi.io
+project_host: supabase.co
+```
+
+```bash
+export SUPABASE_PROFILE=$HOME/.supabase/gatekeeper.yaml
+export SUPABASE_ACCESS_TOKEN=sbp_<the Gatekeeper key minted for a supabase-scoped upstream token>
+
+supabase projects list
+# -> GET https://gate.erfi.io/supabase/v1/projects, Authorization: Bearer sbp_...
+# -> auth -> classify -> policy -> PAT swap -> real Supabase
+```
+
+The CLI's commands still go through the same classify -> policy pipeline, so the scoped key only permits the `supabase:<category>:<read|write>` actions its policy allows -- a read-only CLI key cannot run `supabase db push`, etc.
+
 ---
 
 ## 3. Creating API Keys

@@ -10,6 +10,15 @@ import type { PolicyDocument, RequestContext } from './policy-types';
 
 /** Key prefix for all keys. */
 const KEY_PREFIX = 'gw_';
+/**
+ * Supabase-CLI-compatible key prefix. Keys bound to a Supabase Management-API
+ * token are minted as `sbp_` + 40 hex (20 bytes) so they satisfy the official
+ * `supabase` CLI's client-side token regex `^sbp_(oauth_)?[a-f0-9]{40}$` and can
+ * be used verbatim as SUPABASE_ACCESS_TOKEN through the proxy. extractBearerKey
+ * looks the id up verbatim and does not enforce a prefix, so the gateway treats
+ * an sbp_-shaped key identically to a gw_ key.
+ */
+const SUPABASE_KEY_PREFIX = 'sbp_';
 
 export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 	/** Create tables if they don't exist. Call inside blockConcurrencyWhile. */
@@ -68,7 +77,7 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 
 	/** Create a key with a policy document. */
 	createKey(req: CreateKeyRequest): { key: ApiKey } {
-		const id = this.generateKeyId();
+		const id = this.generateKeyId(req.upstream_token_id);
 		const now = Date.now();
 		const expiresAt = req.expires_in_days ? now + req.expires_in_days * MS_PER_DAY : null;
 
@@ -406,8 +415,23 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 		return `Key does not have scope for: ${denied.join(', ')}`;
 	}
 
-	private generateKeyId(): string {
-		return generateHexId(KEY_PREFIX, 16);
+	private generateKeyId(upstreamTokenId?: string | null): string {
+		if (upstreamTokenId && this.isSupabaseMgmtToken(upstreamTokenId)) {
+			return generateHexId(SUPABASE_KEY_PREFIX, 20); // sbp_ + 40 hex
+		}
+		return generateHexId(KEY_PREFIX, 16); // gw_ + 32 hex
+	}
+
+	/**
+	 * True when the bound upstream token is a Supabase Management-API PAT
+	 * (scope_type 'supabase'). Metrics credentials (scope_type
+	 * 'supabase_metrics', HTTP Basic) are NOT the CLI's access token, so they
+	 * keep the default gw_ shape. Shares the DO's SqlStorage with
+	 * UpstreamTokenManager, so the lookup is a local read.
+	 */
+	private isSupabaseMgmtToken(upstreamTokenId: string): boolean {
+		const rows = queryAll<{ scope_type: string }>(this.sql, `SELECT scope_type FROM upstream_tokens WHERE id = ?`, upstreamTokenId);
+		return rows.length > 0 && rows[0].scope_type === 'supabase';
 	}
 }
 
