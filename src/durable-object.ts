@@ -668,6 +668,11 @@ export class Gatekeeper extends DurableObject<Env> {
 		return this.upstreamTokens.resolveSupabaseMetricsCredential(ref);
 	}
 
+	/** Resolve a Supabase Metrics Basic credential by bound upstream token id. Returns null if absent/expired/wrong scope. */
+	async resolveSupabaseMetricsCredentialById(tokenId: string): Promise<{ username: string; secret: string } | null> {
+		return this.upstreamTokens.resolveSupabaseMetricsCredentialById(tokenId);
+	}
+
 	// ─── Upstream R2 RPC methods ────────────────────────────────────────
 
 	async createUpstreamR2(req: CreateUpstreamR2Request): Promise<{ endpoint: UpstreamR2 }> {
