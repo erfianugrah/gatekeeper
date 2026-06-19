@@ -478,6 +478,7 @@ interface StatementEditorProps {
 	canRemove: boolean;
 	visibleGroups: readonly ActionGroup[];
 	resourceHint?: string;
+	tokenScopeType?: PolicyBuilderProps['tokenScopeType'];
 }
 
 /** Group actions with categories into sections with dividers. */
@@ -532,7 +533,7 @@ function renderActionsWithCategories(
 	return items;
 }
 
-function StatementEditor({ index, statement, onChange, onRemove, canRemove, visibleGroups, resourceHint }: StatementEditorProps) {
+function StatementEditor({ index, statement, onChange, onRemove, canRemove, visibleGroups, resourceHint, tokenScopeType }: StatementEditorProps) {
 	const [collapsed, setCollapsed] = useState(false);
 
 	// Smart collapse: only expand groups that have active selections
@@ -745,9 +746,22 @@ function StatementEditor({ index, statement, onChange, onRemove, canRemove, visi
 							className="text-xs font-data"
 						/>
 						<p className={cn(T.muted, 'italic')}>
-							<code className="text-lv-cyan">zone:id</code> for zones, <code className="text-lv-cyan">account:id</code> for account-level,{' '}
-							<code className="text-lv-cyan">account:id/d1/db-id</code> for instance-scoped. Bare <code className="text-lv-cyan">*</code> is
-							not allowed.
+							{tokenScopeType === 'supabase' ? (
+								<>
+									<code className="text-lv-cyan">project:&lt;ref&gt;</code> for a specific project,{' '}
+									<code className="text-lv-cyan">supabase:account</code> for account-level actions (orgs, projects list),{' '}
+									<code className="text-lv-cyan">project:*</code> to allow across all projects.
+								</>
+							) : tokenScopeType === 'supabase_metrics' ? (
+								<>
+									<code className="text-lv-cyan">project:&lt;ref&gt;</code> — one project ref per statement.
+								</>
+							) : (
+								<>
+									<code className="text-lv-cyan">zone:id</code> for zones, <code className="text-lv-cyan">account:id</code> for account-level,{' '}
+									<code className="text-lv-cyan">account:id/d1/db-id</code> for instance-scoped. Bare <code className="text-lv-cyan">*</code> is not allowed.
+								</>
+							)}
 						</p>
 					</div>
 
@@ -835,6 +849,7 @@ export function PolicyBuilder({ value, onChange, tokenScopeType, resourceHint }:
 						canRemove={value.statements.length > 1}
 						visibleGroups={visibleGroups}
 						resourceHint={resourceHint}
+						tokenScopeType={tokenScopeType}
 					/>
 				);
 			})}
