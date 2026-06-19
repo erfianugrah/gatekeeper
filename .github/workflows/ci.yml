@@ -1,8 +1,8 @@
 name: CI
 
-# Correctness gate on every push to main and every PR. Mirrors `npm run preflight`
+# Correctness gate on every push to main and every PR. Mirrors `bun run preflight`
 # (typecheck + lint + test + check:openapi + build) so what passes locally is what CI enforces.
-# The api-coverage hermetic test runs as part of `npm test` here; upstream-schema drift is a
+# The api-coverage hermetic test runs as part of `bun run test` here; upstream-schema drift is a
 # separate scheduled job (api-coverage-drift.yml).
 #
 # Continuous deployment is gated on preflight (`needs: preflight`) so a red suite never ships:
@@ -38,27 +38,23 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            dashboard/package-lock.json
+          bun-version: latest
 
       - name: Install dependencies
         run: |
-          npm ci
-          npm ci --prefix dashboard
+          bun install --frozen-lockfile
+          cd dashboard && bun install --frozen-lockfile
 
       # The worker test pool (@cloudflare/vitest-pool-workers) loads wrangler.jsonc, whose
-      # assets.directory points at dashboard/dist — it must exist before `npm test` runs, and
+      # assets.directory points at dashboard/dist — it must exist before `bun run test` runs, and
       # preflight builds it only at the end. Build it up front in clean CI checkouts.
       - name: Build dashboard (required by worker test pool)
-        run: npm run build:dashboard
+        run: bun run build:dashboard
 
       - name: Preflight (typecheck + lint + test + openapi + build)
-        run: npm run preflight
+        run: bun run preflight
 
   # Browser-level checks that the worker test pool can't catch — most importantly the
   # run_worker_first asset-layer wiring (vitest calls app.fetch directly, bypassing the
@@ -69,29 +65,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            dashboard/package-lock.json
+          bun-version: latest
 
       - name: Install dependencies
         run: |
-          npm ci
-          npm ci --prefix dashboard
+          bun install --frozen-lockfile
+          cd dashboard && bun install --frozen-lockfile
 
       # wrangler dev serves assets.directory → dashboard/dist; it must exist before the
       # Playwright webServer boots the worker.
       - name: Build dashboard
-        run: npm run build:dashboard
+        run: bun run build:dashboard
 
       - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
+        run: bunx playwright install --with-deps chromium
 
       - name: Run E2E (Playwright + wrangler dev)
-        run: npm run test:e2e
+        run: bun run test:e2e
         env:
           CI: "true"
 
@@ -105,21 +97,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            dashboard/package-lock.json
+          bun-version: latest
 
       - name: Install dependencies
         run: |
-          npm ci
-          npm ci --prefix dashboard
+          bun install --frozen-lockfile
+          cd dashboard && bun install --frozen-lockfile
 
       - name: Build dashboard
-        run: npm run build:dashboard
+        run: bun run build:dashboard
 
       - name: Resolve target environment
         id: target
@@ -132,7 +120,7 @@ jobs:
             TARGET="staging"
           fi
           echo "env=$TARGET" >> "$GITHUB_OUTPUT"
-          # Production is the top-level config (bare deploy, matching `npm run deploy`);
+          # Production is the top-level config (bare deploy, matching `bun run deploy`);
           # only named environments take --env. So prod gets no flag, staging gets --env staging.
           if [ "$TARGET" = "production" ]; then
             echo "args=" >> "$GITHUB_OUTPUT"
@@ -141,6 +129,6 @@ jobs:
           fi
 
       - name: Deploy (${{ steps.target.outputs.env }})
-        run: npx wrangler deploy ${{ steps.target.outputs.args }}
+        run: bunx wrangler deploy ${{ steps.target.outputs.args }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

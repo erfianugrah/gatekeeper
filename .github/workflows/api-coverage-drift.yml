@@ -1,7 +1,7 @@
 name: API coverage drift
 
 # Scheduled upstream-schema drift detection. The hermetic test (test/api-coverage.test.ts)
-# runs in `npm test` and only checks the committed baseline; THIS job reaches the network,
+# runs in `bun run test` and only checks the committed baseline; THIS job reaches the network,
 # fetches the live Supabase + Cloudflare specs, and fails (opening a tracking issue) when an
 # upstream adds/moves/removes an endpoint the proxy doesn't yet handle. See
 # scripts/api-coverage/README.md.
@@ -25,18 +25,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
+          bun-version: latest
 
-      - run: npm ci
+      - run: bun install --frozen-lockfile
 
       - name: Check API coverage drift
         id: drift
         run: |
           set +e
-          npm run check:api-coverage 2>&1 | tee drift-output.txt
+          bun run check:api-coverage 2>&1 | tee drift-output.txt
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -56,7 +55,7 @@ jobs:
             cat drift-output.txt
             echo '```'
             echo
-            echo "Fix: review the drift, run \`npm run api-coverage:write\`, and commit the snapshot diff"
+            echo "Fix: review the drift, run \`bun run api-coverage:write\`, and commit the snapshot diff"
             echo "(deciding per new op whether it needs a classifier rule or an allowlist entry)."
             echo "See \`scripts/api-coverage/README.md\`."
           } > drift-issue-body.md
