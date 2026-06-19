@@ -13,25 +13,27 @@ For all limits and quotas, retrieve from the product's `/platform/limits/` page.
 
 | Command                                                  | Purpose                                            |
 | -------------------------------------------------------- | -------------------------------------------------- |
-| `npx wrangler dev`                                       | Local development                                  |
-| `npx wrangler deploy`                                    | Deploy to Cloudflare                               |
-| `npx wrangler types`                                     | Generate TypeScript types                          |
-| `npm test`                                               | Run all tests (worker + CLI) — **always use `npm test` or `bun run test`, NEVER `bun test`** (bun's built-in runner bypasses vitest + the Workers runtime pool, producing ~70 false failures) |
-| `npm run test:worker`                                    | Run worker tests only (Cloudflare Workers runtime) |
-| `npm run test:cli`                                       | Run CLI tests only (Node.js runtime)               |
-| `npx vitest run test/iam.test.ts`                        | Run a single worker test file                      |
-| `npx vitest run -c vitest.cli.config.ts cli/cli.test.ts` | Run a single CLI test file                         |
-| `npx vitest run -t "test name"`                          | Run a single test by name                          |
-| `npm run typecheck`                                      | Type-check worker + CLI (no emit)                  |
-| `npm run lint`                                           | Check formatting (Prettier)                        |
-| `npm run lint:fix`                                       | Auto-fix formatting                                |
-| `npm run build`                                          | Build dashboard + CLI                              |
-| `npm run build:cli`                                      | Build the CLI only                                 |
-| `npm run preflight`                                      | typecheck + lint + test + build (run before PR)    |
-| `npm run cli -- <command>`                               | Run the CLI locally (uses tsx + .env)              |
-| `npm run test:e2e`                                       | Run Playwright E2E tests (auto-starts wrangler dev) |
-| `npx playwright test e2e/supabase-ui.spec.ts`            | Run a single E2E test file                         |
-| `GATEKEEPER_URL=http://localhost:8787 npm run smoke`     | Run the live-API smoke suite against a deployment  |
+| `bunx wrangler dev`                                      | Local development                                  |
+| `bunx wrangler deploy`                                   | Deploy to Cloudflare                               |
+| `bunx wrangler types`                                    | Generate TypeScript types                          |
+| `bun run test`                                           | Run all tests (worker + CLI) — **always use `bun run test` (or `npm test`), NEVER `bun test`** (bun's built-in runner bypasses vitest + the Workers runtime pool, producing ~70 false failures) |
+| `bun run test:worker`                                    | Run worker tests only (Cloudflare Workers runtime) |
+| `bun run test:cli`                                       | Run CLI tests only (Node.js runtime)               |
+| `bunx vitest run test/iam.test.ts`                       | Run a single worker test file                      |
+| `bunx vitest run -c vitest.cli.config.ts cli/cli.test.ts`| Run a single CLI test file                         |
+| `bunx vitest run -t "test name"`                         | Run a single test by name                          |
+| `bun run typecheck`                                      | Type-check worker + CLI (no emit)                  |
+| `bun run lint`                                           | Check formatting (Prettier)                        |
+| `bun run lint:fix`                                       | Auto-fix formatting                                |
+| `bun run build`                                          | Build dashboard + CLI                              |
+| `bun run build:cli`                                      | Build the CLI only                                 |
+| `bun run preflight`                                      | typecheck + lint + test + openapi + build (run before PR) |
+| `bun run cli -- <command>`                               | Run the CLI locally (uses tsx + .env)              |
+| `bun run test:e2e`                                       | Run Playwright E2E tests (auto-starts wrangler dev) |
+| `bunx playwright test e2e/supabase-ui.spec.ts`           | Run a single E2E test file                         |
+| `GATEKEEPER_URL=http://localhost:8787 bun run smoke`     | Run the live-API smoke suite against a deployment  |
+
+Dependencies are installed with `bun install` (lockfile: `bun.lock`, root + `dashboard/`). CI uses `oven-sh/setup-bun@v2` + `bun install --frozen-lockfile`.
 
 Run `wrangler types` after changing bindings in wrangler.jsonc.
 
@@ -43,11 +45,11 @@ There are three test layers:
 - **cli** (`vitest.cli.config.ts`): Runs `cli/**/*.test.ts` in plain Node.js.
 - **e2e** (`playwright.config.ts`): Playwright browser tests in `e2e/**/*.spec.ts`, run against `http://localhost:8787`. The Playwright `webServer` config auto-starts `wrangler dev` (injecting `ADMIN_KEY=test-admin-secret-key-12345` via `--var`, since `.dev.vars` is gitignored); locally it reuses a server you already have running, in CI it boots a fresh one. The dashboard must be built first (`assets.directory` → `dashboard/dist`). Specs: purge profiles, pill inputs, condition editor, form validation, and **Supabase UI** (`supabase-ui.spec.ts` — upstream-token scope types + project-ref validation, PolicyBuilder scope-gated action groups). E2e is a **deploy gate in CI** (`deploy` needs `[preflight, e2e]`) because it catches the `run_worker_first` asset-layer class of bug that the worker test pool is blind to (vitest calls `app.fetch` directly).
 
-When running a single worker test file, you do NOT need `-c vitest.worker.config.ts` because the default config includes both projects. For CLI tests, you DO need `-c vitest.cli.config.ts` or run via `npm run test:cli`.
+When running a single worker test file, you do NOT need `-c vitest.worker.config.ts` because the default config includes both projects. For CLI tests, you DO need `-c vitest.cli.config.ts` or run via `bun run test:cli`.
 
 ### Live-API smoke suite
 
-`npm run smoke` (entry `cli/smoke-test.ts`) exercises a deployment end-to-end over HTTP. `BASE = GATEKEEPER_URL ?? http://localhost:8787`; `IS_REMOTE` when `https://`. Each surface is a module under `cli/smoke/` (admin, purge, s3, dns, cf-proxy, **supabase**, …). The **supabase** module has two tiers: a synthetic tier (always runs, no real credential — asset-layer wiring, auth ordering, classifier + deny-by-default, token binding) and an opt-in live tier gated on `SUPABASE_SMOKE_PAT` that registers a real PAT and exercises the **real Supabase Management API** through the proxy with a Gatekeeper key as Bearer (auth → classify → policy → PAT swap → real Supabase). The smoke tier itself uses the raw HTTP contract (not the official CLI) because the keys it mints in the synthetic flow are the default `gw_` shape. The official `supabase` CLI *can* be driven through the proxy, though: a key bound to a `supabase` (PAT) upstream token is auto-minted in the CLI-compatible shape `sbp_` + 40 hex (matching the CLI's client-side regex `^sbp_(oauth_)?[a-f0-9]{40}$`), and the gateway looks keys up verbatim without enforcing a prefix. See `docs/GUIDE.md` §2.4 "Driving the official `supabase` CLI through the proxy" for the profile-file + env recipe. The shape decision lives in `IamManager.generateKeyId` (`src/iam.ts`), keyed off the bound upstream token's `scope_type`; rotation preserves it. Smoke is NOT in CI preflight (it needs real upstream credentials and creates real resources) — run it manually / on a schedule.
+`bun run smoke` (entry `cli/smoke-test.ts`) exercises a deployment end-to-end over HTTP. `BASE = GATEKEEPER_URL ?? http://localhost:8787`; `IS_REMOTE` when `https://`. Each surface is a module under `cli/smoke/` (admin, purge, s3, dns, cf-proxy, **supabase**, …). The **supabase** module has two tiers: a synthetic tier (always runs, no real credential — asset-layer wiring, auth ordering, classifier + deny-by-default, token binding) and an opt-in live tier gated on `SUPABASE_SMOKE_PAT` that registers a real PAT and exercises the **real Supabase Management API** through the proxy with a Gatekeeper key as Bearer (auth → classify → policy → PAT swap → real Supabase). The smoke tier itself uses the raw HTTP contract (not the official CLI) because the keys it mints in the synthetic flow are the default `gw_` shape. The official `supabase` CLI *can* be driven through the proxy, though: a key bound to a `supabase` (PAT) upstream token is auto-minted in the CLI-compatible shape `sbp_` + 40 hex (matching the CLI's client-side regex `^sbp_(oauth_)?[a-f0-9]{40}$`), and the gateway looks keys up verbatim without enforcing a prefix. See `docs/GUIDE.md` §2.4 "Driving the official `supabase` CLI through the proxy" for the profile-file + env recipe. The shape decision lives in `IamManager.generateKeyId` (`src/iam.ts`), keyed off the bound upstream token's `scope_type`; rotation preserves it. Smoke is NOT in CI preflight (it needs real upstream credentials and creates real resources) — run it manually / on a schedule.
 
 ## Node.js Compatibility
 
@@ -62,10 +64,10 @@ Two Workers, one codebase, via wrangler [environments](https://developers.cloudf
 | **production** (top-level config) | `gatekeeper` | `gate.erfi.io` (custom domain) | `gatekeeper-analytics` |
 | **staging** (`env.staging`) | `gatekeeper-staging` | `gatekeeper-staging.anugrah.workers.dev` | `gatekeeper-analytics-staging` |
 
-- **Top-level config IS production.** Bare `wrangler deploy` (and `npm run deploy` / `ship`) deploys prod. The `@cloudflare/vitest-pool-workers` test pool also reads the top-level config (no `environment` set), so the top-level bindings must stay intact.
+- **Top-level config IS production.** Bare `wrangler deploy` (and `bun run deploy` / `ship`) deploys prod. The `@cloudflare/vitest-pool-workers` test pool also reads the top-level config (no `environment` set), so the top-level bindings must stay intact.
 - **`env.staging` repeats the bindings on purpose.** `durable_objects` and `d1_databases` are [non-inheritable](https://developers.cloudflare.com/workers/wrangler/configuration/#non-inheritable-keys) — once any one is overridden in an env, all bindings must be redeclared there. `routes` is inheritable, so staging overrides it to `[]` + `workers_dev: true` to avoid claiming `gate.erfi.io`. Staging gets its own isolated DO namespace automatically (separate Worker script).
 - `account_id` is pinned in `wrangler.jsonc` because the dev-box global API key spans multiple accounts; without it wrangler errors on account ambiguity.
-- Deploy staging manually with `npm run deploy:staging` (or `ship:staging` to gate on preflight first).
+- Deploy staging manually with `bun run deploy:staging` (or `ship:staging` to gate on preflight first).
 - **CD lives in `ci.yml`** (`deploy` job, `needs: preflight` so a red suite never ships): push to `main` → staging, push tag `v*` → production, `workflow_dispatch` → chosen env. Auth is the scoped `CLOUDFLARE_API_TOKEN` repo secret (Workers Scripts + D1 on the account, Workers Routes + Zone Read on erfi.io) — **never** the global API key.
 - Secrets are per-environment (`wrangler secret put <NAME> --env staging`). Staging has its own `ADMIN_KEY`; the other secrets (CF_ACCESS_*, RBAC_*) are unset on staging until needed.
 
@@ -274,8 +276,8 @@ Fronts a stored Supabase Personal Access Token (PAT) / metrics secret with Gatek
 
 The proxy classifies every inbound request and **denies anything unclassified by default**. That fails safe, but it means an upstream can add/move an endpoint and the proxy silently stops covering it with no error. `scripts/api-coverage/` makes that drift loud. It is a **provider registry** (`registry.ts`) behind a common `CoverageProvider` interface (`types.ts`) — adding the next spec-backed upstream is one conforming module under `providers/` + one registration line + one committed snapshot, never a bespoke bolt-on. Full detail in `scripts/api-coverage/README.md`.
 
-- **Two layers, two concerns.** `test/api-coverage.test.ts` is the **hermetic** invariant (no network, runs in the Workers pool on every `npm test`): it reads each provider's committed snapshot fixture and re-runs every op through the proxy's own classifier, asserting no silent gap, that the committed `covered` flag matches the classifier, and that the allowlist has no stale/now-covered entries. `scripts/api-coverage/refresh.ts` is the **live drift** check (hits the network, run via `npm run check:api-coverage`): it fetches the upstream OpenAPI doc and fails when an endpoint is added/moved/removed vs the committed snapshot or is uncovered-and-not-allowlisted.
-- **`check:api-coverage` is deliberately NOT in `preflight`** — preflight must stay offline-safe (like `check:openapi`, which regenerates locally). The hermetic test in `npm test` is what runs in preflight. Run `check:api-coverage` on a schedule / before a release; on drift, run `npm run api-coverage:write` and commit the snapshot diff after deciding whether each new op needs a classifier rule or an allowlist entry.
+- **Two layers, two concerns.** `test/api-coverage.test.ts` is the **hermetic** invariant (no network, runs in the Workers pool on every `bun run test`): it reads each provider's committed snapshot fixture and re-runs every op through the proxy's own classifier, asserting no silent gap, that the committed `covered` flag matches the classifier, and that the allowlist has no stale/now-covered entries. `scripts/api-coverage/refresh.ts` is the **live drift** check (hits the network, run via `bun run check:api-coverage`): it fetches the upstream OpenAPI doc and fails when an endpoint is added/moved/removed vs the committed snapshot or is uncovered-and-not-allowlisted.
+- **`check:api-coverage` is deliberately NOT in `preflight`** — preflight must stay offline-safe (like `check:openapi`, which regenerates locally). The hermetic test in `bun run test` is what runs in preflight. Run `check:api-coverage` on a schedule / before a release; on drift, run `bun run api-coverage:write` and commit the snapshot diff after deciding whether each new op needs a classifier rule or an allowlist entry.
 - **Snapshot fixtures** (`scripts/api-coverage/fixtures/*.ops.json`) are statically imported by their provider (`snapshot: snapshotJson as SnapshotOp[]`) so the test reads them without `node:fs` in the Workers pool. They are deterministic (sorted by `METHOD path`, tab-indented, trailing newline) so git diffs are stable — no timestamps in the file.
 - **Providers must not import `cloudflare:workers`** — `refresh.ts` runs in plain tsx. The classifiers they depend on (`classifySupabaseRequest`, S3 `detectOperation`, CF per-service `operations.ts`) are all pure, so this holds.
 - **All three fronted upstreams are registered, each with the coverage model that fits its surface** — one uniform `CoverageProvider` interface, three different surface sources: `supabase` (live OpenAPI spec vs `classifySupabaseRequest`; 165 ops, 158 covered, 7 allowlisted), `s3` (runtime enum `S3_OPERATIONS` from `src/s3/operations.ts` vs the real `detectOperation` routing, each op carrying a representative probe; 66 ops, all covered, completeness-guarded so the enum can't grow without a probe), `cloudflare` (live CF OpenAPI filtered to the proxied sub-resources, matched against the real Hono `app.routes` of each service sub-app; 128 in-surface ops, 115 covered, 13 deliberately allowlisted). The CF provider imports the service route sub-apps purely to read `.routes` — safe because nothing under `src/cf/` imports `cloudflare:workers` (only `durable-object.ts` does, via type-only edges). The discipline that keeps this honest: only filter CF ops *under prefixes we actually proxy* into the surface — never the whole CF API — so the allowlist stays small and meaningful instead of a 99% tautology.
