@@ -59,6 +59,8 @@ supabaseApp.get('/metrics/:ref', async (c) => {
 	};
 
 	const stub = getStub(env);
+	// Note: the `ref` argument to authorize() has no effect for Supabase keys (which have no
+	// zone_id set). Resource scoping is enforced entirely via ctx.resource in the policy engine.
 	const auth = await stub.authorize(keyId, ref, [ctx]);
 	if (!auth.authorized) {
 		const status = authErrorStatus(auth.error);
@@ -140,11 +142,17 @@ const managementApiHandler = async (c: Context<SupabaseEnv>) => {
 			'supabase.category': cls.category,
 			'supabase.method': method,
 			'supabase.write': cls.write,
+			// projectRef is null for account-level endpoints (GET /v1/projects, /v1/organizations).
+			// Omitting the field is intentional: the policy engine's effect-aware skip treats a
+			// missing field as vacuously satisfied on allow statements, which is correct — an
+			// account-level action should not be blocked by a project_ref condition.
 			...(cls.projectRef ? { 'supabase.project_ref': cls.projectRef } : {}),
 		},
 	};
 
 	const stub = getStub(env);
+	// Note: the second arg to authorize() (zoneId) is a no-op for Supabase keys (no zone_id set).
+	// Resource scoping is enforced by the policy engine via ctx.resource / ctx.action.
 	const auth = await stub.authorize(keyId, cls.projectRef ?? '', [ctx]);
 	if (!auth.authorized) {
 		const status = authErrorStatus(auth.error);

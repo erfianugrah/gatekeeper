@@ -95,6 +95,7 @@ adminSupabaseAnalyticsApp.get('/summary', async (c) => {
 
 adminSupabaseAnalyticsApp.get('/timeseries', async (c) => {
 	if (!c.env.ANALYTICS_DB) {
+		console.log(JSON.stringify({ breadcrumb: 'analytics-not-configured', route: 'supabase-proxy-timeseries' }));
 		return jsonError(c, 503, 'Analytics not configured');
 	}
 
