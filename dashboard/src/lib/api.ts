@@ -241,7 +241,7 @@ export async function getKey(id: string, zoneId?: string): Promise<{ key: ApiKey
 	return apiFetch<{ key: ApiKey }>(`/admin/keys/${id}${qs ? `?${qs}` : ''}`);
 }
 
-/** Create a key. The key.id (gw_...) IS the Bearer token — there is no separate secret field. */
+/** Create a key. The key.id IS the Bearer token — there is no separate secret field. Normally `gw_`-prefixed; keys bound to a `supabase` PAT upstream token are minted `sbp_`-shaped for official-CLI compatibility. */
 export async function createKey(req: CreateKeyRequest): Promise<{ key: ApiKey }> {
 	return apiFetch<{ key: ApiKey }>('/admin/keys', {
 		method: 'POST',
@@ -751,7 +751,9 @@ export async function getSupabaseProxySummary(query: Omit<SupabaseProxyEventsQue
 	return apiFetch<SupabaseProxyAnalyticsSummary>(`/admin/supabase/analytics/summary${qs ? `?${qs}` : ''}`);
 }
 
-export async function getSupabaseProxyTimeseries(query: { project_ref?: string; since?: number; until?: number } = {}): Promise<TimeseriesBucket[]> {
+export async function getSupabaseProxyTimeseries(
+	query: { project_ref?: string; since?: number; until?: number } = {},
+): Promise<TimeseriesBucket[]> {
 	const params = new URLSearchParams();
 	if (query.project_ref) params.set('project_ref', query.project_ref);
 	if (query.since) params.set('since', String(query.since));
