@@ -1,6 +1,13 @@
 import { SELF, fetchMock } from 'cloudflare:test';
 import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
-import { adminHeaders, waitForAnalytics, createSupabaseKey, registerSupabaseMetricsCredential, registerSupabaseToken, cleanupCreatedResources } from './helpers';
+import {
+	adminHeaders,
+	waitForAnalytics,
+	createSupabaseKey,
+	registerSupabaseMetricsCredential,
+	registerSupabaseToken,
+	cleanupCreatedResources,
+} from './helpers';
 
 const REF = 'abcdefghijklmnopqrst';
 const REF_B = 'zzzzzzzzzz0000000000';
@@ -120,9 +127,7 @@ describe('supabase metrics proxy — auth and validation', () => {
 		expect(evRes.status).toBe(200);
 		const data = await evRes.json<any>();
 		expect(Array.isArray(data.result)).toBe(true);
-		const hit = (data.result as any[]).some(
-			(r) => r.action === 'supabase:metrics:read' && r.category === 'metrics' && r.status === 200,
-		);
+		const hit = (data.result as any[]).some((r) => r.action === 'supabase:metrics:read' && r.category === 'metrics' && r.status === 200);
 		expect(hit).toBe(true);
 	});
 

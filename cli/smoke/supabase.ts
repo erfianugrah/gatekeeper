@@ -244,6 +244,34 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	const denyMetricsRef = await sb(METRICS_SCOPED_KEY, 'GET', `/metrics/${REF_B}`);
 	assertStatus('metrics key scoped to REF_A: GET /metrics/REF_B -> 403 (resource mismatch)', denyMetricsRef, 403);
 
+	// ─── Per-scope deny matrix (all 11 categories, network-free) ───
+	// A single metrics-only key is denied on a representative path for every OTHER
+	// management category. Each 403 returns BEFORE any upstream call and proves the
+	// classifier mapped that path to a category-specific action (not metrics:read) and
+	// the policy engine denies it by default — end-to-end through the real worker.
+	// The 11th category, `metrics`, is the key's own scope and is exercised by the
+	// dedicated metrics sections (resource-mismatch deny above + live tier).
+
+	section('Supabase Proxy — Per-scope deny matrix (all categories)');
+
+	const SCOPE_PATHS: Array<{ category: string; method: string; path: string }> = [
+		{ category: 'auth', method: 'GET', path: `/v1/projects/${REF_A}/config/auth` },
+		{ category: 'database', method: 'GET', path: `/v1/projects/${REF_A}/config/database/postgres` },
+		{ category: 'domains', method: 'GET', path: `/v1/projects/${REF_A}/custom-hostname` },
+		{ category: 'edge_functions', method: 'GET', path: `/v1/projects/${REF_A}/functions` },
+		{ category: 'environment', method: 'GET', path: `/v1/projects/${REF_A}/branches` },
+		{ category: 'organizations', method: 'GET', path: '/v1/organizations' },
+		{ category: 'projects', method: 'GET', path: `/v1/projects/${REF_A}/health` },
+		{ category: 'rest', method: 'GET', path: `/v1/projects/${REF_A}/postgrest` },
+		{ category: 'secrets', method: 'GET', path: `/v1/projects/${REF_A}/secrets` },
+		{ category: 'storage', method: 'GET', path: `/v1/projects/${REF_A}/storage/buckets` },
+	];
+
+	for (const c of SCOPE_PATHS) {
+		const deny = await sb(METRICS_ONLY_KEY, c.method, c.path);
+		assertStatus(`metrics-only key denied on ${c.category} path (${c.method} ${c.path}) -> 403`, deny, 403);
+	}
+
 	// ─── CLI-compatible key shape (synthetic, network-free) ────────
 	// A key bound to a `supabase` PAT is minted sbp_-shaped so the official CLI's
 	// client-side token regex accepts it; a `supabase_metrics` (HTTP Basic) key is
