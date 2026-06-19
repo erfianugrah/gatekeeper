@@ -374,14 +374,17 @@ export function OverviewDashboard() {
 					getS3Summary().catch(() => null),
 					getDnsSummary().catch(() => null),
 					getCfProxySummary().catch(() => null),
+					getSupabaseProxySummary().catch(() => null),
 					getEvents({ limit: 10 }).catch(() => [] as PurgeEvent[]),
 					getS3Events({ limit: 10 }).catch(() => [] as S3Event[]),
 					getDnsEvents({ limit: 10 }).catch(() => [] as DnsEvent[]),
 					getCfProxyEvents({ limit: 10 }).catch(() => [] as CfProxyEvent[]),
+					getSupabaseProxyEvents({ limit: 10 }).catch(() => [] as SupabaseProxyEvent[]),
 					getPurgeTimeseries().catch(() => [] as TimeseriesBucket[]),
 					getS3Timeseries().catch(() => [] as TimeseriesBucket[]),
 					getDnsTimeseries().catch(() => [] as TimeseriesBucket[]),
 					getCfProxyTimeseries().catch(() => [] as TimeseriesBucket[]),
+					getSupabaseProxyTimeseries().catch(() => [] as TimeseriesBucket[]),
 					listKeys().catch(() => []),
 					listS3Credentials().catch(() => []),
 					listUpstreamTokens().catch(() => []),
@@ -521,6 +524,22 @@ export function OverviewDashboard() {
 		Vectorize: '#8796f4',
 		Hyperdrive: '#f38ba8',
 	};
+
+	// Supabase category breakdown
+	const supaCategoryPie = supabaseSummary
+		? Object.entries(supabaseSummary.by_category)
+				.filter(([, v]) => v > 0)
+				.sort((a, b) => b[1] - a[1])
+				.map(([name, value]) => ({ name, value }))
+		: [];
+
+	// Supabase category breakdown
+	const supaCategoryPie = supabaseSummary
+		? Object.entries(supabaseSummary.by_category)
+				.filter(([, v]) => v > 0)
+				.sort((a, b) => b[1] - a[1])
+				.map(([name, value]) => ({ name, value }))
+		: [];
 
 	// Traffic split — shows each service individually (purge, s3, dns, d1, kv, workers, etc.)
 	const trafficPie = [
@@ -1047,6 +1066,32 @@ export function OverviewDashboard() {
 														/>
 														<Bar dataKey="value" radius={[0, 4, 4, 0]}>
 															{cfActionPie.map((entry, i) => (
+																<Cell key={entry.name} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />
+															))}
+														</Bar>
+													</BarChart>
+												</ResponsiveContainer>
+											</CardContent>
+										</Card>
+									)}
+									{supaTotal > 0 && supaCategoryPie.length > 0 && (
+										<Card>
+											<CardHeader>
+												<CardTitle className={T.sectionHeading}>Supabase Categories</CardTitle>
+											</CardHeader>
+											<CardContent>
+												<ResponsiveContainer width="100%" height={260}>
+													<BarChart data={supaCategoryPie} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
+														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
+														<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={120} />
+														<Tooltip
+															contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
+															itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
+															labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
+															formatter={(value: number) => [formatNumber(value), 'Requests']}
+														/>
+														<Bar dataKey="value" radius={[0, 4, 4, 0]}>
+															{supaCategoryPie.map((entry, i) => (
 																<Cell key={entry.name} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />
 															))}
 														</Bar>

@@ -452,7 +452,7 @@ export function UpstreamTokensPage() {
 			{/* ── Empty state ────────────────────────────────────── */}
 			{!loading && tokens.length === 0 && !error && (
 				<div className="flex h-48 items-center justify-center">
-					<p className={T.mutedSm}>No upstream tokens registered. Register one to enable cache purging.</p>
+					<p className={T.mutedSm}>No upstream tokens registered. Register one to get started.</p>
 				</div>
 			)}
 
@@ -479,7 +479,7 @@ export function UpstreamTokensPage() {
 									<TableHead className={T.sectionLabel}>ID</TableHead>
 									<TableHead className={T.sectionLabel}>Token</TableHead>
 									<TableHead className={T.sectionLabel}>Scope</TableHead>
-									<TableHead className={T.sectionLabel}>Zones / Accounts</TableHead>
+									<TableHead className={T.sectionLabel}>Zones / Accounts / Projects</TableHead>
 									<TableHead className={T.sectionLabel}>Expires</TableHead>
 									<TableHead className={T.sectionLabel}>Created</TableHead>
 									<TableHead className={T.sectionLabel}>Created By</TableHead>
