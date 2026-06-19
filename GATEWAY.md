@@ -1,9 +1,11 @@
 # Gatekeeper Gateway Roadmap
 
-> **Status**: Working document. Will be subsumed into proper docs once features land.
-> **Last updated**: 2026-03-27
+> **Status**: Forward-looking roadmap. The phases below (schema validation, JWT-for-proxied-traffic, mTLS, generic reverse proxy, transforms, circuit breaker, plugins) are **not yet built** — this is the plan, not the current state.
+> **Last updated**: 2026-06-19
 
 This document details the plan to evolve Gatekeeper from a Cloudflare API governance layer into a full API gateway that surpasses CF API Shield and encroaches on Kong Gateway territory — all running on Cloudflare Workers with zero external infrastructure.
+
+**Since this roadmap was first drafted (2026-03-27), the governance-layer baseline has grown**: the broader CF API proxy (D1/KV/Workers/Queues/Vectorize/Hyperdrive), the Supabase Management API + metrics RBAC overlay, built-in + OAuth/OIDC auth, RBAC, the Astro dashboard, and the API-coverage drift framework have all landed. Those are documented in [docs/](docs/) — they are the current product. Everything under "Phase 1/2/3" here remains unbuilt.
 
 ---
 
@@ -316,7 +318,8 @@ The pipeline execution order in Section 8 shows exactly where each "phase" runs 
 ┌─────────────────────────────────────────────────────────────────┐
 │                         D1 Database                              │
 │  ┌──────────────┬───────────┬───────────┬─────────────────────┐ │
-│  │ purge_events │ s3_events │ dns_events│ cf_proxy / audit     │ │
+│  │ purge_events │ s3_events │ dns_events│ cf_proxy / supabase / │ │
+│  │              │           │           │ audit                │ │
 │  └──────────────┴───────────┴───────────┴─────────────────────┘ │
 │  10 GB hard cap — retention cron keeps it in check              │
 └─────────────────────────────────────────────────────────────────┘

@@ -42,7 +42,7 @@ function evaluatePolicyForContext(policy: PolicyDocument, ctx: RequestContext): 
  * are vacuously satisfied (skipped) — this lets a single `allow purge:*` statement
  * with a host condition work for tag/prefix/everything purges that have no host field.
  * For deny statements, absent fields cause the condition to fail, so the deny doesn't fire.
- * See PLAN.md for the full truth table and rationale.
+ * See docs/SECURITY.md (Inapplicable Conditions) for the full truth table and rationale.
  */
 function matchesStatement(stmt: Statement, ctx: RequestContext): boolean {
 	if (!matchesAction(stmt.actions, ctx.action)) return false;
