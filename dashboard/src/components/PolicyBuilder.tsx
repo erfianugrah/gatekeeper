@@ -733,7 +733,7 @@ function StatementEditor({ index, statement, onChange, onRemove, canRemove, visi
 					<div className="space-y-2">
 						<Label className={T.formLabel}>Resources</Label>
 						<Input
-							placeholder={resourceHint ?? 'e.g. zone:abc123, account:id/d1/db-id'}
+							placeholder={resourceHint ?? (tokenScopeType === 'supabase' || tokenScopeType === 'supabase_metrics' ? 'e.g. project:abcdefghij1234567890' : 'e.g. zone:abc123, account:id/d1/db-id')}
 							value={statement.resources.join(', ')}
 							onChange={(e) => {
 								const raw = e.target.value;
