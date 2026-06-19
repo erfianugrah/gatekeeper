@@ -298,7 +298,9 @@ The Supabase Management API proxy classifies each request to `supabase:<category
 | `supabase:metrics:read`        | Read per-project Prometheus metrics                      |
 | `supabase:*`                   | Wildcard — all Supabase Management actions               |
 
-Resources are `project:<ref>` (20-char project ref) or `project:*`.
+Resources are `project:<ref>` (20-char project ref), `project:*`, `org:<slug>`, `branch:<id>`, or `supabase:account` (account-wide endpoints). `supabase:account` and `project:*` both grant account-wide reach, so at bind time both require an upstream token that covers **all** projects (`zone_ids: ["*"]`) — a token scoped to specific refs cannot mint a key that enumerates the whole account.
+
+At request time the proxy resolves the credential by the key's bound `upstream_token_id`, never by a scope/ref match (scope resolution is only a fallback for legacy unbound keys). This guarantees a key can only ever use the exact credential it was bound to.
 
 ### Resources
 
@@ -316,7 +318,8 @@ Typed identifiers with optional wildcards.
 | `account:*`                | Account-level (S3 ListBuckets, CF proxy)                                    |
 | `account:<id>`             | Specific account (CF proxy: D1, KV, Workers, Queues, Vectorize, Hyperdrive) |
 | `project:<ref>`            | Specific Supabase project (20-char ref)                                     |
-| `project:*`                | All Supabase projects                                                       |
+| `project:*`                | All Supabase projects (requires a wildcard `supabase` token at bind time)   |
+| `supabase:account`         | Account-wide Supabase endpoints (requires a wildcard `supabase` token)      |
 | `*`                        | Everything (dangerous -- use sparingly)                                     |
 
 **Matching rules:**

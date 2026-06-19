@@ -44,7 +44,7 @@ This guide covers development setup, code conventions, testing, and the workflow
 
 3. **Create a `.dev.vars` file** in the project root with your local secrets. This file is used by `wrangler dev` and is `.gitignore`d. At minimum you need `ADMIN_KEY`. Refer to `wrangler.jsonc` and `src/env.d.ts` for the full list of bindings and secrets.
 
-4. **Create a `.env` file** for the CLI (also `.gitignore`d). See `.env.example`:
+4. **Provide a `.env` file** for the CLI / smoke tests (the plaintext `.env` is `.gitignore`d). If you have the SOPS age key, the shared test credential set is committed encrypted as `.env.sops` — run `bun run env:decrypt` to produce `.env` (and `bun run env:edit` to change a value, which re-encrypts on save). Otherwise create `.env` by hand from `.env.example`:
 
    ```
    GATEKEEPER_URL=https://gate.erfi.io
@@ -266,6 +266,8 @@ Worker tests run inside the actual Cloudflare Workers runtime using `@cloudflare
 
 **e2e is a deploy gate in CI** (`deploy` needs `[preflight, e2e]`) because it catches the `run_worker_first` asset-layer class of bug the worker pool is blind to (vitest calls `app.fetch` directly, bypassing the static-asset layer).
 
+**`live-smoke` is a post-deploy gate** (`needs: deploy`, push-to-`main` only → always staging). It runs `cli/smoke-supabase.ts` (the focused Supabase entry — no CF creds) against the freshly deployed staging worker: a synthetic tier always runs, plus a real PAT-swap live tier when `SUPABASE_SMOKE_PAT` is set. It self-skips cleanly when `STAGING_ADMIN_KEY` is unset, so it never blocks a deploy before the secrets are configured. Gated to push-to-`main` (never `workflow_dispatch`, which can target prod) because it mints real resources via the admin key.
+
 **API coverage** has two layers. `test/api-coverage.test.ts` is the **hermetic** invariant (no network, runs in `npm test` / preflight): it reads each provider's committed snapshot and re-runs every op through the proxy's own classifier, asserting no silent gap. `npm run check:api-coverage` is the **live** drift check (hits the upstream OpenAPI doc, deliberately **excluded** from preflight to keep preflight offline-safe) — run it on a schedule / before a release; on drift, run `npm run api-coverage:write` and commit the snapshot diff.
 
 ### Running Tests
@@ -295,7 +297,7 @@ npm run smoke
 
 Note: when running a single worker test file you do NOT need `-c vitest.worker.config.ts` because the default workspace config includes the worker project. For CLI tests you DO need `-c vitest.cli.config.ts`.
 
-Smoke tests (`npm run smoke`) run against a live Gatekeeper instance and cover purge, S3 proxy, DNS proxy, CF proxy (`cf-proxy.ts`), the Supabase proxy (`supabase.ts` — a synthetic tier that always runs plus an opt-in live tier gated on `SUPABASE_SMOKE_PAT` that registers a real PAT and exercises the real Supabase Management API through the proxy with a Gatekeeper key as Bearer. Note: the official `supabase` CLI is deliberately NOT used — it does client-side token-format validation and rejects any token not shaped like `sbp_...`, so a Gatekeeper `gw_` key can't drive it; the real-world contract is any HTTP client/SDK sending the gw_ key, which is what the tier probes), analytics, bulk operations, config, and dashboard endpoints. Tests include granular policy enforcement: per-tag/host/prefix/URL-path scoping with wildcard/regex/set operators, cache-key header conditions, `url.query` param matching, cross-field AND conditions (host + path + header), Worker script-scoped keys, D1 `sql_command` conditions, KV `key_name` prefix conditions, S3 object-level/key-extension/key-prefix/filename conditions, multi-directory deny overlaps, and cross-service policies. All resources created during smoke tests (keys, S3 credentials, upstream tokens, upstream R2, DNS records, D1 databases, KV namespaces, config overrides, etc.) are tracked in `state` arrays and cleaned up in the orchestrator's `finally` block, even on crash.
+Smoke tests (`npm run smoke`) run against a live Gatekeeper instance and cover purge, S3 proxy, DNS proxy, CF proxy (`cf-proxy.ts`), the Supabase proxy (`supabase.ts` — also runnable in isolation via `npm run smoke:supabase` / `cli/smoke-supabase.ts`, which is what the CI `live-smoke` job uses; a synthetic tier that always runs plus an opt-in live tier gated on `SUPABASE_SMOKE_PAT` that registers a real PAT and exercises the real Supabase Management API through the proxy with a Gatekeeper key as Bearer. Note: the official `supabase` CLI is deliberately NOT used — it does client-side token-format validation and rejects any token not shaped like `sbp_...`, so a Gatekeeper `gw_` key can't drive it; the real-world contract is any HTTP client/SDK sending the gw_ key, which is what the tier probes), analytics, bulk operations, config, and dashboard endpoints. Tests include granular policy enforcement: per-tag/host/prefix/URL-path scoping with wildcard/regex/set operators, cache-key header conditions, `url.query` param matching, cross-field AND conditions (host + path + header), Worker script-scoped keys, D1 `sql_command` conditions, KV `key_name` prefix conditions, S3 object-level/key-extension/key-prefix/filename conditions, multi-directory deny overlaps, and cross-service policies. All resources created during smoke tests (keys, S3 credentials, upstream tokens, upstream R2, DNS records, D1 databases, KV namespaces, config overrides, etc.) are tracked in `state` arrays and cleaned up in the orchestrator's `finally` block, even on crash.
 
 ### Test Conventions
 
@@ -365,7 +367,10 @@ vi.spyOn(process, 'exit').mockImplementation(() => {
 | `npm run check:api-coverage` | Live upstream-drift check (not in preflight)   |
 | `npm run api-coverage:write` | Refresh + write api-coverage snapshots         |
 | `npm run openapi`      | Regenerate `openapi.json` from Zod schemas           |
-| `npm run smoke`        | E2E smoke tests against a live instance              |
+| `npm run smoke`        | Full multi-surface E2E smoke against a live instance |
+| `npm run smoke:supabase` | Supabase-only smoke (synthetic + opt-in live tier; no CF creds needed) |
+| `bun run env:decrypt`  | Decrypt `.env.sops` → `.env` (needs the SOPS age key) |
+| `bun run env:edit`     | Edit `.env.sops` in place (re-encrypts on save)      |
 | `npm run cli -- <cmd>` | Run the CLI locally (uses tsx + .env)                |
 
 **Before opening a pull request**, always run:

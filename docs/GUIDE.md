@@ -564,7 +564,7 @@ curl "$GATEKEEPER_URL/supabase/metrics/$REF" -H "Authorization: Bearer $GATEKEEP
 
 **Metrics without handing out a god-mode key.** Scraping Supabase metrics traditionally means giving the scraper the project's `service_role` secret. The overlay removes that: store the secret (or a PAT) once, and hand scrapers a Gatekeeper key scoped to `supabase:metrics:read` only. Two backends satisfy that action -- pick whichever credential you have on file:
 
-- `GET /supabase/metrics/:ref` -- the Basic-auth path above (swaps in the `supabase_metrics` secret).
+- `GET /supabase/metrics/:ref` -- the Basic-auth path above (swaps in the bound `supabase_metrics` secret).
 - `GET /supabase/v0/projects/:ref/analytics/metrics` -- an **experimental** path that uses the stored `supabase` PAT instead. The `/v0` surface is treated as external/unstable: only this metrics endpoint is classified, everything else under `/v0` denies by default.
 
 #### Driving the official `supabase` CLI through the proxy
@@ -2657,7 +2657,7 @@ Management API actions follow `supabase:<category>:<read|write>` across the elev
 
 `supabase:auth:read`, `supabase:auth:write`, `supabase:database:read`, `supabase:database:write`, `supabase:domains:read`, `supabase:domains:write`, `supabase:edge_functions:read`, `supabase:edge_functions:write`, `supabase:environment:read`, `supabase:environment:write`, `supabase:organizations:read`, `supabase:organizations:write`, `supabase:projects:read`, `supabase:projects:write`, `supabase:rest:read`, `supabase:rest:write`, `supabase:secrets:read`, `supabase:secrets:write`, `supabase:storage:read`, `supabase:storage:write`, `supabase:metrics:read`, `supabase:*`
 
-Resources are `project:<ref>` (20-char project ref) or `project:*`.
+Resources are `project:<ref>` (20-char project ref), `project:*`, `org:<slug>`, `branch:<id>`, or `supabase:account` (account-wide endpoints). Because `supabase:account` and `project:*` both grant account-wide reach, both require a `supabase` upstream token that covers all projects (`zone_ids: ["*"]`) when the key is created. The credential is resolved at request time by the key's bound `upstream_token_id` (never a scope/ref match), so a key always uses exactly the credential it was bound to.
 
 ### Resource patterns
 
@@ -2673,7 +2673,8 @@ Resources are `project:<ref>` (20-char project ref) or `project:*`.
 | `account:<id>`             | Specific account (CF proxy: D1, KV, Workers...) |
 | `account:*`                | All accounts (S3 ListBuckets, CF proxy)         |
 | `project:<ref>`            | Specific Supabase project (20-char ref)         |
-| `project:*`                | All Supabase projects                           |
+| `project:*`                | All Supabase projects (needs wildcard token)    |
+| `supabase:account`         | Account-wide Supabase endpoints (needs wildcard token) |
 | `*`                        | Everything                                      |
 
 ### Condition operators

@@ -1,0 +1,26 @@
+# gitleaks configuration — extends the default ruleset and allowlists the
+# repo's known-benign matches so `secret_scan` (and any pre-commit hook) stays
+# signal-only. Tracked secrets live encrypted in .env.sops; the plaintext .env
+# is gitignored and produced locally via `bun run env:decrypt`.
+title = "gatekeeper"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Gitignored local secret files — never committed; .env.sops is the tracked encrypted form."
+paths = [
+  '''(^|/)\.env$''',
+  '''(^|/)\.dev\.vars$''',
+]
+
+[[allowlists]]
+description = "Deterministic S3 / SigV4 test fixtures (dummy faceface… endpoint + keys, not real credentials)."
+paths = ['''(^|/)test/s3-helpers\.ts$''']
+
+[[allowlists]]
+description = "Documentation placeholders (gw_abc123…, a1b2c3d4…)."
+regexes = [
+  '''gw_abc123''',
+  '''a1b2c3d4e5f6''',
+]
