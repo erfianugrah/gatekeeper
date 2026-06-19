@@ -84,7 +84,7 @@ const policy = (actions: string[], resources: string[]) => ({
 	statements: [{ effect: 'allow', actions, resources }],
 });
 
-export async function run(ctx: SmokeContext): Promise<void> {
+export async function run(_ctx?: SmokeContext): Promise<void> {
 	// ─── Upstream token setup ──────────────────────────────────────
 
 	section('Supabase Proxy Upstream Token Setup');
