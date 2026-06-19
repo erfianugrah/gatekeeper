@@ -1246,9 +1246,11 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	});
 	assertStatus('header-device: desktop -> 403', hdrBad, 403);
 
-	// Without headers -> header field doesn't exist -> 403
+	// Without headers the header.CF-Device-Type field is absent. Effect-aware skip: a missing field
+	// on an ALLOW condition is vacuously satisfied (skipped), so the allow fires -> 200. (Use a deny
+	// statement to exclude the headerless case.) Matches the policy-engine unit tests.
 	const hdrNoHeader = await purge(HDR_KEY, PURGE_URL, { files: ['https://erfi.io/page.html'] });
-	assertStatus('header-device: no headers -> 403', hdrNoHeader, 403);
+	assertStatus('header-device: no headers -> 200 (allow condition skipped on missing field)', hdrNoHeader, 200);
 
 	// Header deny: allow purge:url, deny when CF-Device-Type == "bot"
 	const headerDenyPolicy = {
@@ -1447,8 +1449,10 @@ export async function run(ctx: SmokeContext): Promise<void> {
 	});
 	assertStatus('triple: wrong path -> 403', trBadPath, 403);
 
+	// Missing CF-Device-Type field -> the device leaf is skipped on this allow; the remaining
+	// host+path leaves still match cdn.erfi.io/assets/* -> 200. (Effect-aware skip; see unit tests.)
 	const trNoHeader = await purge(TR_KEY, PURGE_URL, { files: ['https://cdn.erfi.io/assets/app.js'] });
-	assertStatus('triple: no device header -> 403', trNoHeader, 403);
+	assertStatus('triple: no device header -> 200 (device leaf skipped, host+path still match)', trNoHeader, 200);
 
 	// Allow + deny with different field combos: allow purge:url broadly, deny /admin/* on *.internal.erfi.io
 	const crossDenyPolicy = {
