@@ -35,10 +35,13 @@ import {
 	dnsAnalyticsSummaryQuerySchema,
 	cfProxyAnalyticsEventsQuerySchema,
 	cfProxyAnalyticsSummaryQuerySchema,
+	supabaseProxyAnalyticsEventsQuerySchema,
+	supabaseProxyAnalyticsSummaryQuerySchema,
 	purgeTimeseriesQuerySchema,
 	s3TimeseriesQuerySchema,
 	dnsTimeseriesQuerySchema,
 	cfProxyTimeseriesQuerySchema,
+	supabaseProxyTimeseriesQuerySchema,
 	auditEventsQuerySchema,
 	listKeysQuerySchema,
 	listS3CredentialsQuerySchema,
@@ -123,7 +126,8 @@ const tags = [
 	{ name: 'Purge', description: 'Cloudflare cache purge via gateway keys' },
 	{ name: 'DNS', description: 'Cloudflare DNS record management via gateway keys' },
 	{ name: 'Keys', description: 'CRUD for API keys with IAM policies' },
-	{ name: 'Analytics', description: 'Analytics events and summaries (purge, DNS, S3)' },
+	{ name: 'Analytics', description: 'Analytics events and summaries (purge, DNS, S3, CF, Supabase)' },
+	{ name: 'Supabase', description: 'Supabase Management API and metrics proxy via gateway keys' },
 	{ name: 'S3Credentials', description: 'CRUD for S3-compatible credentials with IAM policies' },
 
 	{ name: 'S3Proxy', description: 'S3-compatible proxy to Cloudflare R2 storage' },
@@ -154,6 +158,35 @@ const auditEventSchema = z
 		created_at: z.number(),
 	})
 	.meta({ id: 'AuditEvent' });
+
+const supabaseProxyEventSchema = z
+	.object({
+		key_id: z.string(),
+		project_ref: z.string().nullable(),
+		category: z.string(),
+		action: z.string(),
+		status: z.number(),
+		upstream_status: z.number().nullable(),
+		duration_ms: z.number(),
+		upstream_latency_ms: z.number().nullable(),
+		response_size: z.number().nullable(),
+		response_detail: z.string().nullable(),
+		created_by: z.string().nullable(),
+		created_at: z.number(),
+	})
+	.meta({ id: 'SupabaseProxyEvent', description: 'A single Supabase proxy analytics event' });
+
+const supabaseProxyAnalyticsSummarySchema = z
+	.object({
+		total_requests: z.number(),
+		by_status: z.record(z.string(), z.number()),
+		by_category: z.record(z.string(), z.number()),
+		by_action: z.record(z.string(), z.number()),
+		avg_duration_ms: z.number(),
+		avg_upstream_latency_ms: z.number(),
+		avg_response_size: z.number(),
+	})
+	.meta({ id: 'SupabaseProxyAnalyticsSummary', description: 'Aggregate Supabase proxy analytics' });
 
 // ─── Assemble the document ──────────────────────────────────────────────────
 
@@ -877,6 +910,169 @@ const document = createDocument({
 				requestParams: { query: cfProxyTimeseriesQuerySchema },
 				responses: {
 					'200': ok('Hourly CF proxy timeseries', successEnvelope(z.array(timeseriesBucketSchema))),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
+
+		// ─── Supabase Proxy + Analytics ───────────────────────────────
+		'/supabase/v1/{path}': {
+			get: {
+				tags: ['Supabase'],
+				operationId: 'supabaseV1Get',
+				summary: 'Proxy Supabase Management API GET requests',
+				description:
+					'Forwards authenticated GET requests to Supabase Management API /v1 endpoints. ' +
+					'Authorization uses a gateway bearer key (Authorization: Bearer <key>).',
+				security: purgeKeySecurity,
+				requestParams: { path: z.object({ path: z.string().meta({ description: 'Path tail under /supabase/v1/' }) }) },
+				responses: {
+					'200': { description: 'JSON response proxied from Supabase Management API', ...jsonContent(z.unknown()) },
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'404': errorResponse('Endpoint not mapped in Gatekeeper policy surface'),
+					'502': errorResponse('No Supabase Personal Access Token registered for this project'),
+				},
+			},
+			post: {
+				tags: ['Supabase'],
+				operationId: 'supabaseV1Post',
+				summary: 'Proxy Supabase Management API POST requests',
+				security: purgeKeySecurity,
+				requestParams: { path: z.object({ path: z.string().meta({ description: 'Path tail under /supabase/v1/' }) }) },
+				responses: {
+					'200': { description: 'JSON response proxied from Supabase Management API', ...jsonContent(z.unknown()) },
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'404': errorResponse('Endpoint not mapped in Gatekeeper policy surface'),
+					'502': errorResponse('No Supabase Personal Access Token registered for this project'),
+				},
+			},
+			patch: {
+				tags: ['Supabase'],
+				operationId: 'supabaseV1Patch',
+				summary: 'Proxy Supabase Management API PATCH requests',
+				security: purgeKeySecurity,
+				requestParams: { path: z.object({ path: z.string().meta({ description: 'Path tail under /supabase/v1/' }) }) },
+				responses: {
+					'200': { description: 'JSON response proxied from Supabase Management API', ...jsonContent(z.unknown()) },
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'404': errorResponse('Endpoint not mapped in Gatekeeper policy surface'),
+					'502': errorResponse('No Supabase Personal Access Token registered for this project'),
+				},
+			},
+			put: {
+				tags: ['Supabase'],
+				operationId: 'supabaseV1Put',
+				summary: 'Proxy Supabase Management API PUT requests',
+				security: purgeKeySecurity,
+				requestParams: { path: z.object({ path: z.string().meta({ description: 'Path tail under /supabase/v1/' }) }) },
+				responses: {
+					'200': { description: 'JSON response proxied from Supabase Management API', ...jsonContent(z.unknown()) },
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'404': errorResponse('Endpoint not mapped in Gatekeeper policy surface'),
+					'502': errorResponse('No Supabase Personal Access Token registered for this project'),
+				},
+			},
+			delete: {
+				tags: ['Supabase'],
+				operationId: 'supabaseV1Delete',
+				summary: 'Proxy Supabase Management API DELETE requests',
+				security: purgeKeySecurity,
+				requestParams: { path: z.object({ path: z.string().meta({ description: 'Path tail under /supabase/v1/' }) }) },
+				responses: {
+					'200': { description: 'JSON response proxied from Supabase Management API', ...jsonContent(z.unknown()) },
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'404': errorResponse('Endpoint not mapped in Gatekeeper policy surface'),
+					'502': errorResponse('No Supabase Personal Access Token registered for this project'),
+				},
+			},
+		},
+		'/supabase/v0/{path}': {
+			get: {
+				tags: ['Supabase'],
+				operationId: 'supabaseV0Get',
+				summary: 'Proxy experimental Supabase Management API /v0 GET requests',
+				description:
+					'Proxies experimental /v0 Management API GET endpoints. Gatekeeper currently maps only selected /v0 paths; unmapped paths return 404.',
+				security: purgeKeySecurity,
+				requestParams: { path: z.object({ path: z.string().meta({ description: 'Path tail under /supabase/v0/' }) }) },
+				responses: {
+					'200': { description: 'JSON response proxied from Supabase Management API', ...jsonContent(z.unknown()) },
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'404': errorResponse('Endpoint not mapped in Gatekeeper policy surface'),
+					'502': errorResponse('No Supabase Personal Access Token registered for this project'),
+				},
+			},
+		},
+		'/supabase/metrics/{ref}': {
+			get: {
+				tags: ['Supabase'],
+				operationId: 'supabaseMetricsGet',
+				summary: 'Proxy Supabase project metrics (Prometheus text)',
+				description:
+					'Proxies Supabase metrics for a single project and returns Prometheus text. ' +
+					'Authorization uses a gateway bearer key (Authorization: Bearer <key>).',
+				security: purgeKeySecurity,
+				requestParams: {
+					path: z.object({
+						ref: z
+							.string()
+							.regex(/^[a-z0-9]{20}$/)
+							.meta({ description: 'Supabase project ref' }),
+					}),
+				},
+				responses: {
+					'200': {
+						description: 'Prometheus metrics payload proxied from Supabase',
+						content: { 'text/plain': { schema: z.string() } },
+					},
+					'400': errorResponse('Invalid project ref'),
+					'401': errorResponse('Missing or invalid API key'),
+					'403': errorResponse('Policy denied'),
+					'502': errorResponse('No metrics credential registered for project'),
+				},
+			},
+		},
+		'/admin/supabase/analytics/events': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getSupabaseProxyAnalyticsEvents',
+				summary: 'Query Supabase proxy analytics events',
+				security: adminSecurity,
+				requestParams: { query: supabaseProxyAnalyticsEventsQuerySchema },
+				responses: {
+					'200': ok('List of Supabase proxy events', successEnvelope(z.array(supabaseProxyEventSchema))),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
+		'/admin/supabase/analytics/summary': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getSupabaseProxyAnalyticsSummary',
+				summary: 'Query Supabase proxy analytics summary',
+				security: adminSecurity,
+				requestParams: { query: supabaseProxyAnalyticsSummaryQuerySchema },
+				responses: {
+					'200': ok('Supabase proxy analytics summary', successEnvelope(supabaseProxyAnalyticsSummarySchema)),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
+		'/admin/supabase/analytics/timeseries': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getSupabaseProxyTimeseries',
+				summary: 'Supabase proxy request volume over time (hourly buckets)',
+				security: adminSecurity,
+				requestParams: { query: supabaseProxyTimeseriesQuerySchema },
+				responses: {
+					'200': ok('Hourly Supabase proxy timeseries', successEnvelope(z.array(timeseriesBucketSchema))),
 					'503': errorResponse('Analytics not configured'),
 				},
 			},
