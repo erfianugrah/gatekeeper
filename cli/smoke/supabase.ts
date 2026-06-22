@@ -430,12 +430,24 @@ async function runLiveApiTier(): Promise<void> {
 	assertStatus('create live API key -> 200', liveKeyCr, 200);
 	if (!LIVE_KEY) return;
 
-	// Real Management API read through the proxy — the gw_ key is swapped for the PAT upstream.
-	const projects = await sb(LIVE_KEY, 'GET', '/v1/projects');
+	// Real Management API read through the proxy — the key is swapped for the PAT upstream.
+	// Supabase's projects endpoint occasionally returns transient 5xx/429; retry a few times
+	// before treating it as a hard failure.
+	let projects = await sb(LIVE_KEY, 'GET', '/v1/projects');
+	for (let attempt = 1; attempt <= 3; attempt += 1) {
+		const ok = projects.status === 200 && Array.isArray(projects.body);
+		const retryable = projects.status >= 500 || projects.status === 429;
+		if (ok || !retryable || attempt === 3) break;
+		console.log(`  ${dim(`live projects probe retry ${attempt}/3 after HTTP ${projects.status}`)}`);
+		await sleep(400 * attempt);
+		projects = await sb(LIVE_KEY, 'GET', '/v1/projects');
+	}
 	assertStatus('live: GET /v1/projects through proxy -> 200', projects, 200);
 	assertTruthy('live: /v1/projects returns a real project array', Array.isArray(projects.body));
 	if (Array.isArray(projects.body)) {
 		console.log(`  ${dim(`(${projects.body.length} projects via swapped PAT)`)}`);
+	} else {
+		console.log(`  ${dim(`projects payload: ${projects.raw.slice(0, 240)}`)}`);
 	}
 
 	const orgs = await sb(LIVE_KEY, 'GET', '/v1/organizations');
