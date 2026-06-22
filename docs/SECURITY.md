@@ -289,7 +289,7 @@ The Vectorize service covers 14 actions: index CRUD (`vectorize:create_index`, `
 
 #### Supabase service (RBAC overlay)
 
-The Supabase Management API proxy classifies each request to `supabase:<category>:<read|write>` across eleven categories (`auth`, `database`, `domains`, `edge_functions`, `environment`, `organizations`, `projects`, `rest`, `secrets`, `storage`, `metrics`). Read vs write is derived from the HTTP method (with an explicit read-override set for the POST-but-read endpoints). Per-project metrics use the standalone `supabase:metrics:read` action. **Unclassified paths deny by default** (404) — the classifier is the RBAC surface, and an upstream that moves an endpoint fails safe (drift is surfaced by the api-coverage framework, not silently allowed).
+The Supabase Management API proxy classifies each request to `supabase:<category>:<read|write>` across categories including `auth`, `database`, `domains`, `edge_functions`, `environment`, `organizations`, `oauth`, `profile`, `projects`, `rest`, `secrets`, `snippets`, `storage`, and `metrics`. Read vs write is derived from the HTTP method (with an explicit read-override set for the POST-but-read endpoints). Per-project metrics use the standalone `supabase:metrics:read` action. **Unclassified paths deny by default** (404) — the classifier is the RBAC surface, and an upstream that moves an endpoint fails safe (drift is surfaced by the api-coverage framework, not silently allowed).
 
 | Action                         | Description                                              |
 | ------------------------------ | -------------------------------------------------------- |
@@ -463,7 +463,7 @@ DNS records also have access to the [request-level fields](#request-level-fields
 | Field                   | Source        | Description                                  |
 | ----------------------- | ------------- | -------------------------------------------- |
 | `supabase.project_ref`  | URL path      | Supabase project ref (20-char)               |
-| `supabase.category`     | classifier    | One of the eleven categories                 |
+| `supabase.category`     | classifier    | One of the supported Supabase categories     |
 | `supabase.method`       | HTTP method   | `GET`, `POST`, `PATCH`, `DELETE`, ...        |
 | `supabase.write`        | classifier    | Boolean — whether the action is a write      |
 

@@ -1535,9 +1535,11 @@ CF proxy request volume over time in hourly buckets. Same shape as purge timeser
 
 ## 11.2 Supabase Proxy
 
-Fronts a stored Supabase credential (Personal Access Token or per-project metrics secret) with Gatekeeper's IAM + policy engine. Every inbound request is **classified** to a `supabase:<category>:<read|write>` action and authorized **before** the stored upstream credential is resolved. Unclassified paths **deny by default** (404). The eleven categories are `auth`, `database`, `domains`, `edge_functions`, `environment`, `organizations`, `projects`, `rest`, `secrets`, `storage`, `metrics`.
+Fronts a stored Supabase credential (Personal Access Token or per-project metrics secret) with Gatekeeper's IAM + policy engine. Every inbound request is **classified** to a `supabase:<category>:<read|write>` action and authorized **before** the stored upstream credential is resolved. Unclassified paths **deny by default** (404). Categories include `auth`, `database`, `domains`, `edge_functions`, `environment`, `organizations`, `oauth`, `profile`, `projects`, `rest`, `secrets`, `snippets`, `storage`, and `metrics`.
 
 These are consumer-facing proxy routes authenticated with a **Gatekeeper API key** (`Authorization: Bearer gw_...`), not the admin key. The gateway swaps in the Supabase credential the key is **bound** to (its `upstream_token_id`) upstream — never a scope/ref match — so one key can never have another key's credential swapped in (mirrors the CF/S3/purge proxies).
+
+**Verification contract:** `npm run smoke:supabase` is API-first and asserts raw `/supabase/*` HTTP behavior before any official CLI compatibility check. Optional live tiers are controlled by `SUPABASE_SMOKE_PAT`, `SUPABASE_SMOKE_METRICS_SECRET` + `SUPABASE_SMOKE_METRICS_REF`, and `SUPABASE_SMOKE_ENABLE_WRITE_PROBE=1`.
 
 ### `ALL /supabase/v1/*`
 
