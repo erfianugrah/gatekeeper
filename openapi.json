@@ -34,7 +34,11 @@
     },
     {
       "name": "Analytics",
-      "description": "Analytics events and summaries (purge, DNS, S3)"
+      "description": "Analytics events and summaries (purge, DNS, S3, CF, Supabase)"
+    },
+    {
+      "name": "Supabase",
+      "description": "Supabase Management API and metrics proxy via gateway keys"
     },
     {
       "name": "S3Credentials",
@@ -4224,6 +4228,845 @@
         }
       }
     },
+    "/supabase/v1/{path}": {
+      "get": {
+        "tags": [
+          "Supabase"
+        ],
+        "operationId": "supabaseV1Get",
+        "summary": "Proxy Supabase Management API GET requests",
+        "description": "Forwards authenticated GET requests to Supabase Management API /v1 endpoints. Authorization uses a gateway bearer key (Authorization: Bearer <key>).",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "schema": {
+              "type": "string",
+              "description": "Path tail under /supabase/v1/"
+            },
+            "required": true,
+            "description": "Path tail under /supabase/v1/"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON response proxied from Supabase Management API",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Policy denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Endpoint not mapped in Gatekeeper policy surface",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "No Supabase Personal Access Token registered for this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Supabase"
+        ],
+        "operationId": "supabaseV1Post",
+        "summary": "Proxy Supabase Management API POST requests",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "schema": {
+              "type": "string",
+              "description": "Path tail under /supabase/v1/"
+            },
+            "required": true,
+            "description": "Path tail under /supabase/v1/"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON response proxied from Supabase Management API",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Policy denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Endpoint not mapped in Gatekeeper policy surface",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "No Supabase Personal Access Token registered for this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Supabase"
+        ],
+        "operationId": "supabaseV1Patch",
+        "summary": "Proxy Supabase Management API PATCH requests",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "schema": {
+              "type": "string",
+              "description": "Path tail under /supabase/v1/"
+            },
+            "required": true,
+            "description": "Path tail under /supabase/v1/"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON response proxied from Supabase Management API",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Policy denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Endpoint not mapped in Gatekeeper policy surface",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "No Supabase Personal Access Token registered for this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Supabase"
+        ],
+        "operationId": "supabaseV1Put",
+        "summary": "Proxy Supabase Management API PUT requests",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "schema": {
+              "type": "string",
+              "description": "Path tail under /supabase/v1/"
+            },
+            "required": true,
+            "description": "Path tail under /supabase/v1/"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON response proxied from Supabase Management API",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Policy denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Endpoint not mapped in Gatekeeper policy surface",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "No Supabase Personal Access Token registered for this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Supabase"
+        ],
+        "operationId": "supabaseV1Delete",
+        "summary": "Proxy Supabase Management API DELETE requests",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "schema": {
+              "type": "string",
+              "description": "Path tail under /supabase/v1/"
+            },
+            "required": true,
+            "description": "Path tail under /supabase/v1/"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON response proxied from Supabase Management API",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Policy denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Endpoint not mapped in Gatekeeper policy surface",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "No Supabase Personal Access Token registered for this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/supabase/v0/{path}": {
+      "get": {
+        "tags": [
+          "Supabase"
+        ],
+        "operationId": "supabaseV0Get",
+        "summary": "Proxy experimental Supabase Management API /v0 GET requests",
+        "description": "Proxies experimental /v0 Management API GET endpoints. Gatekeeper currently maps only selected /v0 paths; unmapped paths return 404.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "path",
+            "schema": {
+              "type": "string",
+              "description": "Path tail under /supabase/v0/"
+            },
+            "required": true,
+            "description": "Path tail under /supabase/v0/"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON response proxied from Supabase Management API",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Policy denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Endpoint not mapped in Gatekeeper policy surface",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "No Supabase Personal Access Token registered for this project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/supabase/metrics/{ref}": {
+      "get": {
+        "tags": [
+          "Supabase"
+        ],
+        "operationId": "supabaseMetricsGet",
+        "summary": "Proxy Supabase project metrics (Prometheus text)",
+        "description": "Proxies Supabase metrics for a single project and returns Prometheus text. Authorization uses a gateway bearer key (Authorization: Bearer <key>).",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9]{20}$",
+              "description": "Supabase project ref"
+            },
+            "required": true,
+            "description": "Supabase project ref"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prometheus metrics payload proxied from Supabase",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid project ref",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Policy denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "No metrics credential registered for project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/supabase/analytics/events": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "operationId": "getSupabaseProxyAnalyticsEvents",
+        "summary": "Query Supabase proxy analytics events",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project_ref",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of Supabase proxy events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SupabaseProxyEvent"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Analytics not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/supabase/analytics/summary": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "operationId": "getSupabaseProxyAnalyticsSummary",
+        "summary": "Query Supabase proxy analytics summary",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project_ref",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Supabase proxy analytics summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "$ref": "#/components/schemas/SupabaseProxyAnalyticsSummary"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Analytics not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/supabase/analytics/timeseries": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "operationId": "getSupabaseProxyTimeseries",
+        "summary": "Supabase proxy request volume over time (hourly buckets)",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_ref",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Hourly Supabase proxy timeseries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TimeseriesBucket"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Analytics not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/upstream-tokens": {
       "post": {
         "tags": [
@@ -6686,6 +7529,160 @@
         ],
         "additionalProperties": false,
         "description": "Aggregate CF proxy analytics"
+      },
+      "SupabaseProxyEvent": {
+        "type": "object",
+        "properties": {
+          "key_id": {
+            "type": "string"
+          },
+          "project_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          },
+          "upstream_status": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "duration_ms": {
+            "type": "number"
+          },
+          "upstream_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "response_size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "response_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "key_id",
+          "project_ref",
+          "category",
+          "action",
+          "status",
+          "upstream_status",
+          "duration_ms",
+          "upstream_latency_ms",
+          "response_size",
+          "response_detail",
+          "created_by",
+          "created_at"
+        ],
+        "additionalProperties": false,
+        "description": "A single Supabase proxy analytics event"
+      },
+      "SupabaseProxyAnalyticsSummary": {
+        "type": "object",
+        "properties": {
+          "total_requests": {
+            "type": "number"
+          },
+          "by_status": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "by_category": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "by_action": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "avg_duration_ms": {
+            "type": "number"
+          },
+          "avg_upstream_latency_ms": {
+            "type": "number"
+          },
+          "avg_response_size": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "total_requests",
+          "by_status",
+          "by_category",
+          "by_action",
+          "avg_duration_ms",
+          "avg_upstream_latency_ms",
+          "avg_response_size"
+        ],
+        "additionalProperties": false,
+        "description": "Aggregate Supabase proxy analytics"
       },
       "UpstreamToken": {
         "type": "object",

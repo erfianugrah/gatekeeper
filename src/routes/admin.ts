@@ -69,6 +69,8 @@ adminApp.use('/keys', requireRoleByMethod('viewer', 'operator'));
 adminApp.use('/analytics/*', requireRole('viewer'));
 adminApp.use('/dns/*', requireRole('viewer'));
 adminApp.use('/cf/*', requireRole('viewer'));
+adminApp.use('/supabase/analytics/*', requireRole('viewer'));
+adminApp.use('/supabase/analytics', requireRole('viewer'));
 adminApp.use('/s3/*', requireRoleByMethod('viewer', 'operator'));
 adminApp.use('/s3', requireRoleByMethod('viewer', 'operator'));
 
