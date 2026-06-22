@@ -714,6 +714,13 @@ export interface SupabaseProxyAnalyticsSummary {
 	by_category: Record<string, number>;
 	by_action: Record<string, number>;
 	avg_duration_ms: number;
+	avg_upstream_latency_ms: number;
+	avg_response_size: number;
+	total_errors: number;
+	error_rate_pct: number;
+	unauthorized_count: number;
+	timeout_count: number;
+	upstream_5xx_count: number;
 }
 
 export interface SupabaseProxyEventsQuery {

@@ -53,6 +53,11 @@ export interface SupabaseProxyAnalyticsSummary {
 	avg_duration_ms: number;
 	avg_upstream_latency_ms: number;
 	avg_response_size: number;
+	total_errors: number;
+	error_rate_pct: number;
+	unauthorized_count: number;
+	timeout_count: number;
+	upstream_5xx_count: number;
 }
 
 // ─── Table init ─────────────────────────────────────────────────────────────
@@ -160,7 +165,7 @@ export async function querySupabaseProxySummary(
 	await ensureTables(db);
 	const { where, params } = buildWhere(query);
 
-	const [totalRow, statusRows, categoryRows, actionRows, avgRow] = await db.batch([
+	const [totalRow, statusRows, categoryRows, actionRows, avgRow, healthRow] = await db.batch([
 		db.prepare(`SELECT COUNT(*) as cnt FROM supabase_proxy_events ${where}`).bind(...params),
 		db.prepare(`SELECT status, COUNT(*) as cnt FROM supabase_proxy_events ${where} GROUP BY status`).bind(...params),
 		db
@@ -174,6 +179,16 @@ export async function querySupabaseProxySummary(
 				`SELECT AVG(duration_ms) as avg_ms, AVG(upstream_latency_ms) as avg_upstream_ms, AVG(response_size) as avg_resp_size FROM supabase_proxy_events ${where}`,
 			)
 			.bind(...params),
+		db
+			.prepare(
+				`SELECT
+					SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END) as error_cnt,
+					SUM(CASE WHEN upstream_status = 401 OR lower(COALESCE(response_detail, '')) LIKE '%unauthorized%' THEN 1 ELSE 0 END) as unauthorized_cnt,
+					SUM(CASE WHEN lower(COALESCE(response_detail, '')) LIKE '%timeout%' THEN 1 ELSE 0 END) as timeout_cnt,
+					SUM(CASE WHEN upstream_status >= 500 THEN 1 ELSE 0 END) as upstream_5xx_cnt
+				FROM supabase_proxy_events ${where}`,
+			)
+			.bind(...params),
 	]);
 
 	const total = totalRow.results[0] as any;
@@ -185,13 +200,22 @@ export async function querySupabaseProxySummary(
 	for (const row of actionRows.results as any[]) byAction[row.action] = row.cnt;
 
 	const avg = avgRow.results[0] as any;
+	const health = healthRow.results[0] as any;
+	const totalRequests = Number(total?.cnt ?? 0);
+	const totalErrors = Number(health?.error_cnt ?? 0);
+	const errorRatePct = totalRequests > 0 ? Math.round((totalErrors / totalRequests) * 1000) / 10 : 0;
 	return {
-		total_requests: total?.cnt ?? 0,
+		total_requests: totalRequests,
 		by_status: byStatus,
 		by_category: byCategory,
 		by_action: byAction,
 		avg_duration_ms: Math.round(avg?.avg_ms ?? 0),
 		avg_upstream_latency_ms: Math.round(avg?.avg_upstream_ms ?? 0),
 		avg_response_size: Math.round(avg?.avg_resp_size ?? 0),
+		total_errors: totalErrors,
+		error_rate_pct: errorRatePct,
+		unauthorized_count: Number(health?.unauthorized_cnt ?? 0),
+		timeout_count: Number(health?.timeout_cnt ?? 0),
+		upstream_5xx_count: Number(health?.upstream_5xx_cnt ?? 0),
 	};
 }

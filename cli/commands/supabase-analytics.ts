@@ -182,6 +182,11 @@ const summary = defineCommand({
 		console.error('');
 
 		label('Total requests', bold(String(s.total_requests)));
+		label('Total errors', bold(String(s.total_errors)));
+		label('Error rate', bold(String(s.error_rate_pct) + '%'));
+		label('Unauthorized', bold(String(s.unauthorized_count)));
+		label('Timeouts', bold(String(s.timeout_count)));
+		label('Upstream 5xx', bold(String(s.upstream_5xx_count)));
 		label('Avg duration', bold(String(s.avg_duration_ms) + 'ms'));
 		label('Avg upstream latency', bold(String(s.avg_upstream_latency_ms) + 'ms'));
 		label('Avg response size', bold(String(s.avg_response_size) + ' bytes'));
