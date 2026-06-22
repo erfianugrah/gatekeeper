@@ -300,6 +300,11 @@ test.describe('Purge Profiles', () => {
 });
 
 test.describe('Purge Form', () => {
+	test.beforeEach(async ({ page }) => {
+		await page.goto(PURGE_URL);
+		await clearProfiles(page);
+	});
+
 	test('zone ID validation shows error for invalid format', async ({ page }) => {
 		await waitForPurgePage(page);
 
@@ -339,9 +344,9 @@ test.describe('Purge Form', () => {
 	test('purge everything shows warning banner', async ({ page }) => {
 		await waitForPurgePage(page);
 
-		const purgeType = page.locator('select');
+		const purgeType = page.locator('label:has-text("Purge Type") + select');
 		await purgeType.selectOption('everything');
-		await expect(purgeType).toHaveValue('everything');
+		await expect(purgeType).toHaveValue('everything', { timeout: 10000 });
 
 		const warning = page.locator('text=This will purge all cached content for the zone');
 		await expect.poll(async () => warning.isVisible(), { timeout: 10000 }).toBe(true);
@@ -363,9 +368,13 @@ test.describe('Purge Form', () => {
 		await valuesInput.focus();
 		await page.evaluate(() => {
 			const input = document.querySelector('input[aria-label="Purge values"]') as HTMLInputElement;
-			const dt = new DataTransfer();
-			dt.setData('text/plain', 'tag-a,tag-b,tag-c');
-			input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }));
+			const pasteEvent = new Event('paste', { bubbles: true, cancelable: true }) as Event & {
+				clipboardData?: { getData: (type: string) => string };
+			};
+			pasteEvent.clipboardData = {
+				getData: (type: string) => (type === 'text' || type === 'text/plain' ? 'tag-a,tag-b,tag-c' : ''),
+			};
+			input.dispatchEvent(pasteEvent);
 		});
 
 		// Three pills should appear

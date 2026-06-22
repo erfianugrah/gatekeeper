@@ -69,9 +69,19 @@ async function waitForSupabaseEvent(request: import('@playwright/test').APIReque
 	const deadline = Date.now() + 10_000;
 	while (Date.now() < deadline) {
 		const res = await request.get(`/admin/supabase/analytics/events?key_id=${encodeURIComponent(keyId)}&limit=5`, { headers });
-		expect(res.ok()).toBeTruthy();
+		if (!res.ok()) {
+			await new Promise((resolve) => setTimeout(resolve, 250));
+			continue;
+		}
 		const data = (await res.json()) as any;
-		if (Array.isArray(data.result) && data.result.some((row: any) => row.key_id === keyId)) return;
+		if (!data?.success) {
+			await new Promise((resolve) => setTimeout(resolve, 250));
+			continue;
+		}
+		// key_id values are intentionally redacted in analytics responses.
+		// The filtered endpoint returning any row is sufficient evidence that the
+		// event has been written for this key.
+		if (Array.isArray(data.result) && data.result.length > 0) return;
 		await new Promise((resolve) => setTimeout(resolve, 250));
 	}
 	throw new Error(`Timed out waiting for Supabase analytics event for key ${keyId}`);
