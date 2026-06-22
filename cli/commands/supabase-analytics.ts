@@ -221,8 +221,89 @@ const summary = defineCommand({
 	},
 });
 
+// --- supabase-analytics timeseries ---
+const timeseries = defineCommand({
+	meta: {
+		name: 'timeseries',
+		description: 'Get Supabase proxy analytics timeseries buckets',
+	},
+	args: {
+		...baseArgs,
+		'project-ref': {
+			type: 'string',
+			description: 'Filter by Supabase project ref',
+		},
+		'key-id': {
+			type: 'string',
+			description: 'Filter by API key ID',
+		},
+		category: {
+			type: 'string',
+			description: 'Filter by category (database, auth, metrics, ...)',
+		},
+		action: {
+			type: 'string',
+			description: 'Filter by action',
+		},
+		since: {
+			type: 'string',
+			description: 'Start time (ISO 8601 or unix ms)',
+		},
+		until: {
+			type: 'string',
+			description: 'End time (ISO 8601 or unix ms)',
+		},
+	},
+	async run({ args }) {
+		const config = resolveConfig(args);
+
+		const params = new URLSearchParams();
+		if (args['project-ref']) params.set('project_ref', args['project-ref']);
+		if (args['key-id']) params.set('key_id', args['key-id']);
+		if (args.category) params.set('category', args.category);
+		if (args.action) params.set('action', args.action);
+		if (args.since) params.set('since', String(parseTime(args.since)));
+		if (args.until) params.set('until', String(parseTime(args.until)));
+
+		const qs = params.toString();
+		const path = qs ? `/admin/supabase/analytics/timeseries?${qs}` : '/admin/supabase/analytics/timeseries';
+		const { status, data, durationMs } = await request(config, 'GET', path, {
+			auth: 'admin',
+			label: 'Fetching Supabase proxy timeseries...',
+		});
+
+		if (args.json) {
+			assertOk(status, data);
+			printJson(data);
+			return;
+		}
+
+		assertOk(status, data);
+		const result = (data as Record<string, unknown>).result as Record<string, unknown>[];
+
+		if (result.length === 0) {
+			info(`No Supabase proxy timeseries buckets found ${dim(`(${formatDuration(durationMs)})`)}`);
+			return;
+		}
+
+		console.error('');
+		info(`${bold(String(result.length))} bucket${result.length === 1 ? '' : 's'} ${dim(`(${formatDuration(durationMs)})`)}`);
+		console.error('');
+
+		const rows = result.map((bucket) => {
+			const ts = new Date(bucket.bucket as number).toISOString().slice(0, 19).replace('T', ' ');
+			const count = Number(bucket.count ?? 0);
+			const errors = Number(bucket.errors ?? 0);
+			return [ts, bold(String(count)), errors > 0 ? red(String(errors)) : green(String(errors))];
+		});
+
+		table(['Time', 'Count', 'Errors'], rows);
+		console.error('');
+	},
+});
+
 // --- supabase-analytics (parent) ---
 export default defineCommand({
 	meta: { name: 'supabase-analytics', description: 'View Supabase proxy analytics' },
-	subCommands: { events, summary },
+	subCommands: { events, summary, timeseries },
 });
