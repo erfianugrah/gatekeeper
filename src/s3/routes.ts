@@ -8,6 +8,7 @@ import { s3XmlError, parseDeleteObjectKeys } from './xml';
 import { getStub } from '../do-stub';
 import { extractRequestFields } from '../request-fields';
 import { MAX_DELETE_OBJECTS_BODY_BYTES, MAX_LOG_VALUE_LENGTH, AUDIT_CREATED_BY_API_KEY } from '../constants';
+import { makePreview } from '../crypto';
 import type { HonoEnv } from '../types';
 import type { RequestContext } from '../policy-types';
 import type { R2Credentials } from './upstream-r2';
@@ -76,7 +77,7 @@ s3App.all('/*', async (c) => {
 		}
 
 		accessKeyId = parsed.accessKeyId;
-		log.accessKeyId = accessKeyId;
+		log.accessKeyId = makePreview(accessKeyId);
 
 		const secret = await stub.getS3Secret(accessKeyId);
 		if (!secret) {
@@ -127,7 +128,7 @@ s3App.all('/*', async (c) => {
 		}
 
 		accessKeyId = parsed.accessKeyId;
-		log.accessKeyId = accessKeyId;
+		log.accessKeyId = makePreview(accessKeyId);
 
 		const secret = await stub.getS3Secret(accessKeyId);
 		if (!secret) {
@@ -288,7 +289,7 @@ s3App.all('/*', async (c) => {
 		const r2Response = await forwardToR2(c.req.raw, s3Path, r2Creds, deleteObjectsBody);
 
 		log.status = r2Response.status;
-		log.identity = accessKeyId;
+		log.identity = makePreview(accessKeyId);
 		log.durationMs = Date.now() - start;
 
 		// Capture R2 error response detail for debugging (status >= 400)
@@ -337,7 +338,7 @@ s3App.all('/*', async (c) => {
 		log.status = 502;
 		log.error = 'upstream_error';
 		log.detail = e.message;
-		log.identity = accessKeyId;
+		log.identity = makePreview(accessKeyId);
 		log.durationMs = Date.now() - start;
 		console.log(JSON.stringify(log));
 

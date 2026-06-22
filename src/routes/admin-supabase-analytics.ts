@@ -8,6 +8,7 @@
 import { Hono } from 'hono';
 import { querySupabaseProxyEvents, querySupabaseProxySummary } from '../supabase/analytics';
 import { queryTimeseries } from '../analytics-timeseries';
+import { buildKeyIdFilter } from '../analytics-identifiers';
 import {
 	jsonError,
 	parseQueryParams,
@@ -110,8 +111,9 @@ adminSupabaseAnalyticsApp.get('/timeseries', async (c) => {
 		params.push(query.project_ref);
 	}
 	if (query.key_id) {
-		conditions.push('key_id = ?');
-		params.push(query.key_id);
+		const keyFilter = await buildKeyIdFilter(query.key_id);
+		conditions.push(keyFilter.condition);
+		params.push(...keyFilter.params);
 	}
 	if (query.category) {
 		conditions.push('category = ?');

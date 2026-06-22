@@ -12,6 +12,7 @@ import {
 	__testClearInflightCache,
 	waitForAnalytics,
 } from './helpers';
+import { makePreview } from '../src/crypto';
 
 // --- Setup ---
 
@@ -174,7 +175,8 @@ describe('Analytics — filtering', () => {
 		const data = await res.json<any>();
 		expect(data.result.length).toBeGreaterThanOrEqual(1);
 		for (const event of data.result) {
-			expect(event.key_id).toBe(keyId1);
+			expect(event.key_id).toBe(makePreview(keyId1));
+			expect(event.key_id).not.toBe(keyId1);
 		}
 	});
 

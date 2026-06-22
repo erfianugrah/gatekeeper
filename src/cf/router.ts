@@ -22,6 +22,7 @@
 
 import { Hono } from 'hono';
 import { extractRequestFields } from '../request-fields';
+import { makePreview } from '../crypto';
 import { isValidAccountId, isValidZoneId, extractBearerKey, cfJsonError } from './proxy-helpers';
 import { d1Routes } from './d1/routes';
 import { kvRoutes } from './kv/routes';
@@ -75,7 +76,7 @@ cfApp.use('/accounts/:accountId/*', async (c, next) => {
 	if (!keyId) {
 		return cfJsonError(401, 'Missing or invalid Authorization: Bearer <key>');
 	}
-	log.keyId = keyId.slice(0, 12) + '...';
+	log.keyId = makePreview(keyId);
 
 	// 2. Validate account ID
 	const accountId = c.req.param('accountId');
@@ -114,7 +115,7 @@ cfApp.use('/zones/:zoneId/*', async (c, next) => {
 	if (!keyId) {
 		return cfJsonError(401, 'Missing or invalid Authorization: Bearer <key>');
 	}
-	log.keyId = keyId.slice(0, 12) + '...';
+	log.keyId = makePreview(keyId);
 
 	// 2. Validate zone ID
 	const zoneId = c.req.param('zoneId');

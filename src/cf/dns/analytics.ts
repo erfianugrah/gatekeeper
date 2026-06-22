@@ -3,7 +3,21 @@
  * All writes are fire-and-forget via waitUntil() so they don't add latency.
  */
 
-import { DNS_EVENTS_TABLE_SQL, DNS_EVENTS_INDEX_KEY_SQL, DNS_EVENTS_INDEX_ZONE_SQL } from '../../schema';
+import {
+	buildKeyIdFilter,
+	KEY_PREVIEW_SQL_EXPR,
+	LEGACY_RAW_BEARER_KEY_SQL,
+	keyFingerprint,
+	sanitizeKeyIdRow,
+	toSafeKeyPreview,
+} from '../../analytics-identifiers';
+import {
+	DNS_EVENTS_ADD_KEY_FINGERPRINT_SQL,
+	DNS_EVENTS_INDEX_KEY_FINGERPRINT_SQL,
+	DNS_EVENTS_INDEX_KEY_SQL,
+	DNS_EVENTS_INDEX_ZONE_SQL,
+	DNS_EVENTS_TABLE_SQL,
+} from '../../schema';
 
 export interface DnsEvent {
 	key_id: string;
@@ -20,20 +34,34 @@ export interface DnsEvent {
 }
 
 async function ensureTables(db: D1Database): Promise<void> {
-	await db.batch([db.prepare(DNS_EVENTS_TABLE_SQL), db.prepare(DNS_EVENTS_INDEX_KEY_SQL), db.prepare(DNS_EVENTS_INDEX_ZONE_SQL)]);
+	await db.batch([
+		db.prepare(DNS_EVENTS_TABLE_SQL),
+		db.prepare(DNS_EVENTS_INDEX_KEY_SQL),
+		db.prepare(DNS_EVENTS_INDEX_ZONE_SQL),
+		db.prepare(DNS_EVENTS_INDEX_KEY_FINGERPRINT_SQL),
+	]);
+	try {
+		await db.prepare(DNS_EVENTS_ADD_KEY_FINGERPRINT_SQL).run();
+	} catch {
+		// Column already exists — expected after first migration run.
+	}
+	await db.prepare(`UPDATE dns_events SET key_id = ${KEY_PREVIEW_SQL_EXPR} WHERE ${LEGACY_RAW_BEARER_KEY_SQL}`).run();
 }
 
 /** Log a DNS event to D1. Call via waitUntil() for zero latency impact. */
 export async function logDnsEvent(db: D1Database, event: DnsEvent): Promise<void> {
 	try {
 		await ensureTables(db);
+		const preview = toSafeKeyPreview(event.key_id);
+		const fingerprint = await keyFingerprint(event.key_id);
 		await db
 			.prepare(
-				`INSERT INTO dns_events (key_id, zone_id, action, record_name, record_type, status, upstream_status, duration_ms, response_detail, created_by, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO dns_events (key_id, key_fingerprint, zone_id, action, record_name, record_type, status, upstream_status, duration_ms, response_detail, created_by, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
-				event.key_id,
+				preview,
+				fingerprint,
 				event.zone_id,
 				event.action,
 				event.record_name,
@@ -89,8 +117,9 @@ export async function queryDnsEvents(db: D1Database, query: DnsAnalyticsQuery): 
 		params.push(query.zone_id);
 	}
 	if (query.key_id) {
-		conditions.push('key_id = ?');
-		params.push(query.key_id);
+		const keyFilter = await buildKeyIdFilter(query.key_id);
+		conditions.push(keyFilter.condition);
+		params.push(...keyFilter.params);
 	}
 	if (query.action) {
 		conditions.push('action = ?');
@@ -118,7 +147,8 @@ export async function queryDnsEvents(db: D1Database, query: DnsAnalyticsQuery): 
 		.prepare(sql)
 		.bind(...params)
 		.all();
-	return result.results as Record<string, unknown>[];
+	const rows = result.results as Record<string, unknown>[];
+	return rows.map((row) => sanitizeKeyIdRow(row));
 }
 
 /** Get summary analytics for DNS operations. */
@@ -133,8 +163,9 @@ export async function queryDnsSummary(db: D1Database, query: DnsAnalyticsQuery):
 		params.push(query.zone_id);
 	}
 	if (query.key_id) {
-		conditions.push('key_id = ?');
-		params.push(query.key_id);
+		const keyFilter = await buildKeyIdFilter(query.key_id);
+		conditions.push(keyFilter.condition);
+		params.push(...keyFilter.params);
 	}
 	if (query.action) {
 		conditions.push('action = ?');

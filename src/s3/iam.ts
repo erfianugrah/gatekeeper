@@ -1,7 +1,7 @@
 import { CredentialManager } from '../credential-manager';
 import { queryAll } from '../sql';
 import { MS_PER_DAY } from '../constants';
-import { generateHexId } from '../crypto';
+import { generateHexId, makePreview } from '../crypto';
 import { POLICY_VERSION } from '../policy-types';
 import type { PolicyDocument, RequestContext } from '../policy-types';
 import type { S3Credential, CachedS3Credential, CreateS3CredentialRequest } from './types';
@@ -114,8 +114,8 @@ export class S3CredentialManager extends CredentialManager<S3Credential, CachedS
 		console.log(
 			JSON.stringify({
 				breadcrumb: 's3-rotate-credential',
-				oldAccessKeyId: accessKeyId,
-				newAccessKeyId: newCredential.access_key_id,
+				oldAccessKeyId: makePreview(accessKeyId),
+				newAccessKeyId: makePreview(newCredential.access_key_id),
 			}),
 		);
 
@@ -160,7 +160,7 @@ export class S3CredentialManager extends CredentialManager<S3Credential, CachedS
 		console.log(
 			JSON.stringify({
 				breadcrumb: 's3-update-credential',
-				accessKeyId,
+				accessKeyId: makePreview(accessKeyId),
 				updatedFields: Object.keys(updates).filter((k) => (updates as Record<string, unknown>)[k] !== undefined),
 			}),
 		);

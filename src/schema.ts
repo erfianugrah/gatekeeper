@@ -12,6 +12,7 @@ export const PURGE_EVENTS_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS purge_events (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	key_id TEXT NOT NULL,
+	key_fingerprint TEXT,
 	zone_id TEXT NOT NULL,
 	purge_type TEXT NOT NULL,
 	purge_target TEXT,
@@ -36,6 +37,13 @@ export const PURGE_EVENTS_INDEX_KEY_SQL = `
 CREATE INDEX IF NOT EXISTS idx_purge_events_key_created
 ON purge_events (key_id, created_at DESC);
 `;
+
+export const PURGE_EVENTS_INDEX_KEY_FINGERPRINT_SQL = `
+CREATE INDEX IF NOT EXISTS idx_purge_events_keyfp_created
+ON purge_events (key_fingerprint, created_at DESC);
+`;
+
+export const PURGE_EVENTS_ADD_KEY_FINGERPRINT_SQL = `ALTER TABLE purge_events ADD COLUMN key_fingerprint TEXT`;
 
 // ─── S3 events ──────────────────────────────────────────────────────────────
 
@@ -70,6 +78,7 @@ export const DNS_EVENTS_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS dns_events (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	key_id TEXT NOT NULL,
+	key_fingerprint TEXT,
 	zone_id TEXT NOT NULL,
 	action TEXT NOT NULL,
 	record_name TEXT,
@@ -93,12 +102,20 @@ CREATE INDEX IF NOT EXISTS idx_dns_events_zone_created
 ON dns_events (zone_id, created_at DESC);
 `;
 
+export const DNS_EVENTS_INDEX_KEY_FINGERPRINT_SQL = `
+CREATE INDEX IF NOT EXISTS idx_dns_events_keyfp_created
+ON dns_events (key_fingerprint, created_at DESC);
+`;
+
+export const DNS_EVENTS_ADD_KEY_FINGERPRINT_SQL = `ALTER TABLE dns_events ADD COLUMN key_fingerprint TEXT`;
+
 // ─── CF proxy events ────────────────────────────────────────────────────────
 
 export const CF_PROXY_EVENTS_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS cf_proxy_events (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	key_id TEXT NOT NULL,
+	key_fingerprint TEXT,
 	account_id TEXT NOT NULL,
 	service TEXT NOT NULL,
 	action TEXT NOT NULL,
@@ -117,10 +134,16 @@ CREATE TABLE IF NOT EXISTS cf_proxy_events (
 /** ALTER TABLE migration: add upstream_latency_ms + response_size to existing cf_proxy_events tables. */
 export const CF_PROXY_EVENTS_ADD_LATENCY_SQL = `ALTER TABLE cf_proxy_events ADD COLUMN upstream_latency_ms INTEGER`;
 export const CF_PROXY_EVENTS_ADD_RESPONSE_SIZE_SQL = `ALTER TABLE cf_proxy_events ADD COLUMN response_size INTEGER`;
+export const CF_PROXY_EVENTS_ADD_KEY_FINGERPRINT_SQL = `ALTER TABLE cf_proxy_events ADD COLUMN key_fingerprint TEXT`;
 
 export const CF_PROXY_EVENTS_INDEX_KEY_SQL = `
 CREATE INDEX IF NOT EXISTS idx_cf_proxy_key_created
 ON cf_proxy_events (key_id, created_at DESC);
+`;
+
+export const CF_PROXY_EVENTS_INDEX_KEY_FINGERPRINT_SQL = `
+CREATE INDEX IF NOT EXISTS idx_cf_proxy_keyfp_created
+ON cf_proxy_events (key_fingerprint, created_at DESC);
 `;
 
 export const CF_PROXY_EVENTS_INDEX_ACCOUNT_SQL = `
@@ -139,6 +162,7 @@ export const SUPABASE_PROXY_EVENTS_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS supabase_proxy_events (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	key_id TEXT NOT NULL,
+	key_fingerprint TEXT,
 	project_ref TEXT,
 	category TEXT NOT NULL,
 	action TEXT NOT NULL,
@@ -167,6 +191,13 @@ export const SUPABASE_PROXY_EVENTS_INDEX_ACTION_SQL = `
 CREATE INDEX IF NOT EXISTS idx_sb_proxy_action_created
 ON supabase_proxy_events (action, created_at DESC);
 `;
+
+export const SUPABASE_PROXY_EVENTS_INDEX_KEY_FINGERPRINT_SQL = `
+CREATE INDEX IF NOT EXISTS idx_sb_proxy_keyfp_created
+ON supabase_proxy_events (key_fingerprint, created_at DESC);
+`;
+
+export const SUPABASE_PROXY_EVENTS_ADD_KEY_FINGERPRINT_SQL = `ALTER TABLE supabase_proxy_events ADD COLUMN key_fingerprint TEXT`;
 
 // ─── Audit events ───────────────────────────────────────────────────────────
 

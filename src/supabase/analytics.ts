@@ -8,10 +8,20 @@
  */
 
 import {
-	SUPABASE_PROXY_EVENTS_TABLE_SQL,
+	buildKeyIdFilter,
+	KEY_PREVIEW_SQL_EXPR,
+	LEGACY_RAW_BEARER_KEY_SQL,
+	keyFingerprint,
+	sanitizeKeyIdRow,
+	toSafeKeyPreview,
+} from '../analytics-identifiers';
+import {
+	SUPABASE_PROXY_EVENTS_ADD_KEY_FINGERPRINT_SQL,
+	SUPABASE_PROXY_EVENTS_INDEX_ACTION_SQL,
+	SUPABASE_PROXY_EVENTS_INDEX_KEY_FINGERPRINT_SQL,
 	SUPABASE_PROXY_EVENTS_INDEX_KEY_SQL,
 	SUPABASE_PROXY_EVENTS_INDEX_REF_SQL,
-	SUPABASE_PROXY_EVENTS_INDEX_ACTION_SQL,
+	SUPABASE_PROXY_EVENTS_TABLE_SQL,
 } from '../schema';
 import type { SupabaseCategory } from './constants';
 
@@ -66,9 +76,16 @@ async function ensureTables(db: D1Database): Promise<void> {
 	await db.batch([
 		db.prepare(SUPABASE_PROXY_EVENTS_TABLE_SQL),
 		db.prepare(SUPABASE_PROXY_EVENTS_INDEX_KEY_SQL),
+		db.prepare(SUPABASE_PROXY_EVENTS_INDEX_KEY_FINGERPRINT_SQL),
 		db.prepare(SUPABASE_PROXY_EVENTS_INDEX_REF_SQL),
 		db.prepare(SUPABASE_PROXY_EVENTS_INDEX_ACTION_SQL),
 	]);
+	try {
+		await db.prepare(SUPABASE_PROXY_EVENTS_ADD_KEY_FINGERPRINT_SQL).run();
+	} catch {
+		// Column already exists — expected after first migration run.
+	}
+	await db.prepare(`UPDATE supabase_proxy_events SET key_id = ${KEY_PREVIEW_SQL_EXPR} WHERE ${LEGACY_RAW_BEARER_KEY_SQL}`).run();
 }
 
 // ─── Write ──────────────────────────────────────────────────────────────────
@@ -77,13 +94,16 @@ async function ensureTables(db: D1Database): Promise<void> {
 export async function logSupabaseProxyEvent(db: D1Database, event: SupabaseProxyEvent): Promise<void> {
 	try {
 		await ensureTables(db);
+		const preview = toSafeKeyPreview(event.key_id);
+		const fingerprint = await keyFingerprint(event.key_id);
 		await db
 			.prepare(
-				`INSERT INTO supabase_proxy_events (key_id, project_ref, category, action, status, upstream_status, duration_ms, upstream_latency_ms, response_size, response_detail, created_by, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO supabase_proxy_events (key_id, key_fingerprint, project_ref, category, action, status, upstream_status, duration_ms, upstream_latency_ms, response_size, response_detail, created_by, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
-				event.key_id,
+				preview,
+				fingerprint,
 				event.project_ref,
 				event.category,
 				event.action,
@@ -114,7 +134,7 @@ export async function deleteOldSupabaseProxyEvents(db: D1Database, retentionDays
 
 // ─── Query ──────────────────────────────────────────────────────────────────
 
-function buildWhere(query: SupabaseProxyAnalyticsQuery): { where: string; params: (string | number)[] } {
+async function buildWhere(query: SupabaseProxyAnalyticsQuery): Promise<{ where: string; params: (string | number)[] }> {
 	const conditions: string[] = [];
 	const params: (string | number)[] = [];
 	if (query.project_ref) {
@@ -122,8 +142,9 @@ function buildWhere(query: SupabaseProxyAnalyticsQuery): { where: string; params
 		params.push(query.project_ref);
 	}
 	if (query.key_id) {
-		conditions.push('key_id = ?');
-		params.push(query.key_id);
+		const keyFilter = await buildKeyIdFilter(query.key_id);
+		conditions.push(keyFilter.condition);
+		params.push(...keyFilter.params);
 	}
 	if (query.category) {
 		conditions.push('category = ?');
@@ -147,14 +168,15 @@ function buildWhere(query: SupabaseProxyAnalyticsQuery): { where: string; params
 /** Query recent Supabase proxy events. */
 export async function querySupabaseProxyEvents(db: D1Database, query: SupabaseProxyAnalyticsQuery): Promise<Record<string, unknown>[]> {
 	await ensureTables(db);
-	const { where, params } = buildWhere(query);
+	const { where, params } = await buildWhere(query);
 	const limit = Math.min(query.limit ?? 100, 1000);
 	const sql = `SELECT * FROM supabase_proxy_events ${where} ORDER BY created_at DESC LIMIT ?`;
 	const result = await db
 		.prepare(sql)
 		.bind(...params, limit)
 		.all();
-	return result.results as Record<string, unknown>[];
+	const rows = result.results as Record<string, unknown>[];
+	return rows.map((row) => sanitizeKeyIdRow(row));
 }
 
 /** Get summary analytics for Supabase proxy operations. */
@@ -163,7 +185,7 @@ export async function querySupabaseProxySummary(
 	query: SupabaseProxyAnalyticsQuery,
 ): Promise<SupabaseProxyAnalyticsSummary> {
 	await ensureTables(db);
-	const { where, params } = buildWhere(query);
+	const { where, params } = await buildWhere(query);
 
 	const [totalRow, statusRows, categoryRows, actionRows, avgRow, healthRow] = await db.batch([
 		db.prepare(`SELECT COUNT(*) as cnt FROM supabase_proxy_events ${where}`).bind(...params),

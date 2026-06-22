@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { validatePolicy } from '../policy-engine';
 import { getStub } from '../do-stub';
+import { makePreview } from '../crypto';
 import { resolveCreatedBy, emitAudit } from './admin-helpers';
 import { validateR2Binding } from './r2-binding';
 import {
@@ -93,7 +94,7 @@ adminS3App.post('/credentials', async (c) => {
 	const result = await stub.createS3Credential(req);
 
 	log.status = 200;
-	log.accessKeyId = result.credential.access_key_id;
+	log.accessKeyId = makePreview(result.credential.access_key_id);
 	console.log(JSON.stringify(log));
 
 	emitAudit(c, {
@@ -137,7 +138,7 @@ adminS3App.get('/credentials/:id', async (c) => {
 	const result = await stub.getS3Credential(params.id);
 
 	if (!result) {
-		console.log(JSON.stringify({ breadcrumb: 'admin-get-s3-credential-not-found', id: params.id }));
+		console.log(JSON.stringify({ breadcrumb: 'admin-get-s3-credential-not-found', id: makePreview(params.id) }));
 		return jsonError(c, 404, 'Credential not found');
 	}
 
@@ -172,8 +173,8 @@ adminS3App.post('/credentials/:id/rotate', async (c) => {
 	}
 
 	log.status = 200;
-	log.oldAccessKeyId = result.oldCredential.access_key_id;
-	log.newAccessKeyId = result.newCredential.access_key_id;
+	log.oldAccessKeyId = makePreview(result.oldCredential.access_key_id);
+	log.newAccessKeyId = makePreview(result.newCredential.access_key_id);
 	console.log(JSON.stringify(log));
 
 	emitAudit(c, {
@@ -224,7 +225,7 @@ adminS3App.patch('/credentials/:id', async (c) => {
 	}
 
 	log.status = 200;
-	log.accessKeyId = params.id;
+	log.accessKeyId = makePreview(params.id);
 	log.updatedFields = Object.keys(updates);
 	console.log(JSON.stringify(log));
 
@@ -261,7 +262,7 @@ adminS3App.delete('/credentials/:id', async (c) => {
 		console.log(
 			JSON.stringify({
 				route: 'admin.deleteS3Credential',
-				accessKeyId,
+				accessKeyId: makePreview(accessKeyId),
 				deleted,
 				ts: new Date().toISOString(),
 			}),
@@ -286,7 +287,7 @@ adminS3App.delete('/credentials/:id', async (c) => {
 	console.log(
 		JSON.stringify({
 			route: 'admin.revokeS3Credential',
-			accessKeyId,
+			accessKeyId: makePreview(accessKeyId),
 			revoked,
 			ts: new Date().toISOString(),
 		}),

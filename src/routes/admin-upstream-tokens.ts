@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { getStub } from '../do-stub';
+import { makePreview } from '../crypto';
 import { resolveCreatedBy, validateCfToken, validateSupabaseToken, emitAudit } from './admin-helpers';
 import {
 	createUpstreamTokenSchema,
@@ -109,7 +110,7 @@ adminUpstreamTokensApp.get('/:id', async (c) => {
 	const result = await stub.getUpstreamToken(params.id);
 
 	if (!result) {
-		console.log(JSON.stringify({ breadcrumb: 'admin-get-upstream-token-not-found', id: params.id }));
+		console.log(JSON.stringify({ breadcrumb: 'admin-get-upstream-token-not-found', id: makePreview(params.id) }));
 		return jsonError(c, 404, 'Upstream token not found');
 	}
 

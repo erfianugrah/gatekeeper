@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { queryEvents, querySummary } from '../analytics';
 import { queryTimeseries } from '../analytics-timeseries';
+import { buildKeyIdFilter } from '../analytics-identifiers';
 import {
 	purgeAnalyticsEventsQuerySchema,
 	purgeAnalyticsSummaryQuerySchema,
@@ -98,8 +99,9 @@ adminAnalyticsApp.get('/timeseries', async (c) => {
 		params.push(query.zone_id);
 	}
 	if (query.key_id) {
-		conditions.push('key_id = ?');
-		params.push(query.key_id);
+		const keyFilter = await buildKeyIdFilter(query.key_id);
+		conditions.push(keyFilter.condition);
+		params.push(...keyFilter.params);
 	}
 
 	const buckets = await queryTimeseries(

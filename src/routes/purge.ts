@@ -5,6 +5,7 @@ import { getStub } from '../do-stub';
 import { extractRequestFields } from '../request-fields';
 import { BEARER_PREFIX, MAX_LOG_VALUE_LENGTH, AUDIT_CREATED_BY_API_KEY } from '../constants';
 import { getCachedConfig, invalidateConfigCache } from '../config-cache';
+import { makePreview } from '../crypto';
 import { purgeBodySchema, zoneIdParamSchema, jsonError } from './admin-schemas';
 import type { PurgeEvent } from '../analytics';
 import type { PurgeBody, ParsedPurgeRequest, PurgeResult, HonoEnv } from '../types';
@@ -58,7 +59,7 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 			return jsonError(c, 401, 'Missing Authorization: Bearer <key>');
 		}
 		const keyId = authHeader.slice(BEARER_PREFIX.length).trim();
-		log.keyId = keyId.slice(0, 12) + '...';
+		log.keyId = makePreview(keyId);
 
 		// Parse and validate body via Zod
 		let bodyText: string;
@@ -174,7 +175,7 @@ purgeRoute.post('/v1/zones/:zoneId/purge_cache', async (c) => {
 		log.rateLimitAllowed = result.status !== 429 || !!collapseLevel;
 		log.rateLimitRemaining = result.rateLimitInfo.remaining;
 		log.status = result.status;
-		log.identity = keyId;
+		log.identity = makePreview(keyId);
 		log.durationMs = Date.now() - start;
 
 		if (result.status === 429) {

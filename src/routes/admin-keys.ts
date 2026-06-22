@@ -3,6 +3,7 @@ import { validatePolicy } from '../policy-engine';
 import { getStub } from '../do-stub';
 import { resolveCreatedBy, emitAudit } from './admin-helpers';
 import { validateTokenBinding } from './token-binding';
+import { makePreview } from '../crypto';
 import {
 	createKeySchema,
 	rotateKeySchema,
@@ -101,7 +102,7 @@ adminKeysApp.post('/', async (c) => {
 	const result = await stub.createKey(req);
 
 	log.status = 200;
-	log.keyId = result.key.id.slice(0, 12) + '...';
+	log.keyId = makePreview(result.key.id);
 	console.log(JSON.stringify(log));
 
 	emitAudit(c, {
@@ -147,7 +148,7 @@ adminKeysApp.get('/:id', async (c) => {
 	const result = await stub.getKey(params.id);
 
 	if (!result || (zoneId && result.key.zone_id !== zoneId)) {
-		console.log(JSON.stringify({ breadcrumb: 'admin-get-key-not-found', keyId: params.id }));
+		console.log(JSON.stringify({ breadcrumb: 'admin-get-key-not-found', keyId: makePreview(params.id) }));
 		return jsonError(c, 404, 'Key not found');
 	}
 
@@ -182,8 +183,8 @@ adminKeysApp.post('/:id/rotate', async (c) => {
 	}
 
 	log.status = 200;
-	log.oldKeyId = result.oldKey.id.slice(0, 12) + '...';
-	log.newKeyId = result.newKey.id.slice(0, 12) + '...';
+	log.oldKeyId = makePreview(result.oldKey.id);
+	log.newKeyId = makePreview(result.newKey.id);
 	console.log(JSON.stringify(log));
 
 	emitAudit(c, {
@@ -238,7 +239,7 @@ adminKeysApp.patch('/:id', async (c) => {
 	}
 
 	log.status = 200;
-	log.keyId = params.id.slice(0, 12) + '...';
+	log.keyId = makePreview(params.id);
 	log.updatedFields = Object.keys(updates);
 	console.log(JSON.stringify(log));
 
@@ -276,7 +277,7 @@ adminKeysApp.delete('/:id', async (c) => {
 			JSON.stringify({
 				route: 'admin.deleteKey',
 				zoneId: existing.key.zone_id,
-				keyId: keyId.slice(0, 12) + '...',
+				keyId: makePreview(keyId),
 				deleted,
 				ts: new Date().toISOString(),
 			}),
@@ -302,7 +303,7 @@ adminKeysApp.delete('/:id', async (c) => {
 		JSON.stringify({
 			route: 'admin.revokeKey',
 			zoneId: existing.key.zone_id,
-			keyId: keyId.slice(0, 12) + '...',
+			keyId: makePreview(keyId),
 			revoked,
 			ts: new Date().toISOString(),
 		}),
