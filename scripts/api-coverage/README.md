@@ -9,7 +9,7 @@ covering it with no error. This framework makes that drift loud.
 
 | Provider | Surface source | Coverage predicate | Live ops |
 |---|---|---|---|
-| `supabase` | live OpenAPI (`api.supabase.com/api/v1-json`) | `classifySupabaseRequest` ≠ null | 165 (158 covered, 7 allowlisted) |
+| `supabase` | live OpenAPI (`api.supabase.com/api/v1-json`) | `classifySupabaseRequest` ≠ null | 165 (all covered) |
 | `s3` | runtime enum `S3_OPERATIONS` (`src/s3/operations.ts`) | real `detectOperation` routes the probe back | 66 (all covered) |
 | `cloudflare` | live CF OpenAPI (filtered to proxied resources) | a real Hono route in the service sub-app matches | 128 (115 covered, 13 allowlisted) |
 
@@ -74,9 +74,7 @@ coverage predicate differ per upstream because the upstreams differ:
 - **Supabase Management API** (`providers/supabase.ts`) — has `https://api.supabase.com/api/v1-json`
   (165 ops) and ships changes frequently. The classifier (`src/supabase/classify.ts`) is a
   table-driven longest-prefix matcher, exactly the thing that lags when an endpoint moves. Coverage
-  = `classifySupabaseRequest` returns non-null. (Already paid off: caught
-  `GET /v1/oauth/authorize/project-claim` having changed method, and surfaced `/v1/snippets` as an
-  account-level gap a date-stamped manual review had missed.)
+  = `classifySupabaseRequest` returns non-null for the full current surface (no allowlist gap).
 - **S3 / R2** (`providers/s3.ts`) — no live AWS spec; the surface is a closed enum exported at
   runtime as `S3_OPERATIONS`. Coverage is exercised through the *real* `detectOperation` routing:
   each op carries a representative request (query/header discriminators) and `isCovered` asserts

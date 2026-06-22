@@ -101,9 +101,23 @@ describe('classifySupabaseRequest', () => {
 		expect(classifySupabaseRequest('GET', '/v1/projects/NOT_A_REF/database/query')).toBeNull();
 	});
 
-	it('returns null for out-of-scope groups so the proxy can deny-by-default', () => {
-		expect(classifySupabaseRequest('GET', '/v1/oauth/authorize')).toBeNull();
+	it('classifies account-level oauth/profile/snippets groups', () => {
+		expect(classifySupabaseRequest('GET', '/v1/oauth/authorize')).toEqual({
+			action: 'supabase:oauth:read',
+			category: 'oauth',
+			write: false,
+			projectRef: null,
+			resource: 'supabase:account',
+		});
+		expect(classifySupabaseRequest('POST', '/v1/oauth/token')?.action).toBe('supabase:oauth:write');
+		expect(classifySupabaseRequest('GET', '/v1/profile')?.action).toBe('supabase:profile:read');
+		expect(classifySupabaseRequest('GET', '/v1/snippets')?.action).toBe('supabase:snippets:read');
+		expect(classifySupabaseRequest('GET', '/v1/snippets/sn_123')?.resource).toBe('supabase:account');
+	});
+
+	it('returns null for still-out-of-scope groups so the proxy can deny-by-default', () => {
 		expect(classifySupabaseRequest('GET', '/v1/some/unmapped/route')).toBeNull();
+		expect(classifySupabaseRequest('GET', '/v1/billing/invoices')).toBeNull();
 		expect(classifySupabaseRequest('GET', '/health')).toBeNull();
 	});
 

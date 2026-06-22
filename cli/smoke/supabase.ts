@@ -19,7 +19,10 @@
  *     this tier additionally drives the REAL CLI through the proxy (profile file
  *     pointed at /supabase, sbp_ key as the access token).
  *
- *     SUPABASE_SMOKE_PAT   — a real Supabase Personal Access Token (sbp_...)
+ *     SUPABASE_SMOKE_PAT                — real Supabase Personal Access Token (sbp_...)
+ *     SUPABASE_SMOKE_METRICS_SECRET     — optional metrics secret (Basic auth)
+ *     SUPABASE_SMOKE_METRICS_REF        — optional metrics project ref (falls back to SUPABASE_SMOKE_REF)
+ *     SUPABASE_SMOKE_ENABLE_WRITE_PROBE — optional non-destructive write probe (set to '1' to enable)
  */
 
 import { execFileSync } from 'node:child_process';
@@ -41,6 +44,9 @@ const REF_B = 'bbbbbbbbbbbbbbbbbbbb';
 
 const SUPABASE_SMOKE_PAT = process.env['SUPABASE_SMOKE_PAT'];
 const SUPABASE_SMOKE_REF = process.env['SUPABASE_SMOKE_REF'];
+const SUPABASE_SMOKE_METRICS_SECRET = process.env['SUPABASE_SMOKE_METRICS_SECRET'];
+const SUPABASE_SMOKE_METRICS_REF = process.env['SUPABASE_SMOKE_METRICS_REF'] ?? SUPABASE_SMOKE_REF;
+const SUPABASE_SMOKE_ENABLE_WRITE_PROBE = process.env['SUPABASE_SMOKE_ENABLE_WRITE_PROBE'] === '1';
 // Alternative to SUPABASE_SMOKE_PAT: bind the live keys to an ALREADY-REGISTERED supabase
 // upstream token (the upt_… id). Lets the live tier run against a deployment that already
 // has a PAT on file without handing the raw token to the smoke runner. The pre-existing
@@ -77,6 +83,44 @@ function isJsonNotHtml(r: Resp): boolean {
  */
 function assertReached(name: string, r: Resp): void {
 	assertTruthy(`${name} (HTTP ${r.status}, not 401/403)`, r.status !== 401 && r.status !== 403);
+}
+
+/** Case-insensitive Unauthorized matcher for variable upstream payload shapes. */
+function hasUnauthorizedMarker(body: unknown): boolean {
+	if (!body || typeof body !== 'object') return false;
+	const b = body as Record<string, unknown>;
+	const parts: string[] = [];
+	if (typeof b['message'] === 'string') parts.push(b['message']);
+	if (typeof b['error'] === 'string') parts.push(b['error']);
+	const errorObj = b['error'];
+	if (errorObj && typeof errorObj === 'object' && typeof (errorObj as Record<string, unknown>)['message'] === 'string') {
+		parts.push((errorObj as Record<string, string>)['message']);
+	}
+	return parts.some((p) => /unauthorized/i.test(p));
+}
+
+function isTransientNetworkTimeoutError(error: unknown): boolean {
+	if (!error || typeof error !== 'object') return false;
+	const e = error as {
+		message?: unknown;
+		code?: unknown;
+		cause?: { code?: unknown; message?: unknown };
+	};
+	const bits = [e.message, e.code, e.cause?.code, e.cause?.message]
+		.filter((v): v is string => typeof v === 'string')
+		.join(' ')
+		.toLowerCase();
+	return bits.includes('etimedout') || bits.includes('fetch failed') || bits.includes('connect timeout');
+}
+
+/** Minimal Prometheus/OpenMetrics shape check. */
+function looksLikePrometheusText(raw: string): boolean {
+	const text = raw.trim();
+	if (!text) return false;
+	return (
+		/^# (HELP|TYPE)\s+[a-zA-Z_:][a-zA-Z0-9_:]*/m.test(text) ||
+		/^[a-zA-Z_:][a-zA-Z0-9_:]*(\{[^}\n]*\})?\s+[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/m.test(text)
+	);
 }
 
 const policy = (actions: string[], resources: string[]) => ({
@@ -258,15 +302,15 @@ export async function run(_ctx?: SmokeContext): Promise<void> {
 	const denyMetricsRef = await sb(METRICS_SCOPED_KEY, 'GET', `/metrics/${REF_B}`);
 	assertStatus('metrics key scoped to REF_A: GET /metrics/REF_B -> 403 (resource mismatch)', denyMetricsRef, 403);
 
-	// ─── Per-scope deny matrix (all 11 categories, network-free) ───
+	// ─── Per-scope deny matrix (all non-metrics categories, network-free) ───
 	// A single metrics-only key is denied on a representative path for every OTHER
 	// management category. Each 403 returns BEFORE any upstream call and proves the
 	// classifier mapped that path to a category-specific action (not metrics:read) and
 	// the policy engine denies it by default — end-to-end through the real worker.
-	// The 11th category, `metrics`, is the key's own scope and is exercised by the
-	// dedicated metrics sections (resource-mismatch deny above + live tier).
+	// The `metrics` category is the key's own scope and is exercised by the dedicated
+	// metrics sections (resource-mismatch deny above + live tier).
 
-	section('Supabase Proxy — Per-scope deny matrix (all categories)');
+	section('Supabase Proxy — Per-scope deny matrix (all non-metrics categories)');
 
 	const SCOPE_PATHS: Array<{ category: string; method: string; path: string }> = [
 		{ category: 'auth', method: 'GET', path: `/v1/projects/${REF_A}/config/auth` },
@@ -275,9 +319,12 @@ export async function run(_ctx?: SmokeContext): Promise<void> {
 		{ category: 'edge_functions', method: 'GET', path: `/v1/projects/${REF_A}/functions` },
 		{ category: 'environment', method: 'GET', path: `/v1/projects/${REF_A}/branches` },
 		{ category: 'organizations', method: 'GET', path: '/v1/organizations' },
+		{ category: 'oauth', method: 'GET', path: '/v1/oauth/authorize' },
+		{ category: 'profile', method: 'GET', path: '/v1/profile' },
 		{ category: 'projects', method: 'GET', path: `/v1/projects/${REF_A}/health` },
 		{ category: 'rest', method: 'GET', path: `/v1/projects/${REF_A}/postgrest` },
 		{ category: 'secrets', method: 'GET', path: `/v1/projects/${REF_A}/secrets` },
+		{ category: 'snippets', method: 'GET', path: '/v1/snippets' },
 		{ category: 'storage', method: 'GET', path: `/v1/projects/${REF_A}/storage/buckets` },
 	];
 
@@ -334,7 +381,7 @@ export async function run(_ctx?: SmokeContext): Promise<void> {
 	assertStatus('supabase analytics timeseries -> 200', ts, 200);
 	assertTruthy('timeseries result is an array', Array.isArray(ts.body?.result));
 
-	// ─── Live CLI-through-proxy (opt-in) ───────────────────────────
+	// ─── Live API-through-proxy (opt-in) ───────────────────────────
 
 	await runLiveApiTier();
 }
@@ -355,11 +402,11 @@ async function runLiveApiTier(): Promise<void> {
 	let liveId: string;
 	if (SUPABASE_SMOKE_TOKEN_ID) {
 		// Bind to an already-registered PAT — do NOT track it for deletion.
-		section('Supabase Proxy — Live API-through-proxy (existing token)');
+		section('Supabase Proxy — Live API-through-proxy (API-first, existing token)');
 		liveId = SUPABASE_SMOKE_TOKEN_ID;
 		console.log(`  ${dim(`binding live keys to existing upstream token ${liveId}`)}`);
 	} else {
-		section('Supabase Proxy — Live API-through-proxy');
+		section('Supabase Proxy — Live API-through-proxy (API-first)');
 		// Register the real PAT (validated) and a key that can list projects.
 		const realReg = await admin('POST', '/admin/upstream-tokens', {
 			name: 'smoke-sb-pat-live',
@@ -406,6 +453,9 @@ async function runLiveApiTier(): Promise<void> {
 
 	if (!liveRef) {
 		section('Supabase Proxy — Live all-scopes (skipped — no accessible project ref)');
+		if (SUPABASE_SMOKE_ENABLE_WRITE_PROBE) {
+			section('Supabase Proxy — Live write-classified probe (skipped — no accessible project ref)');
+		}
 	} else {
 		section('Supabase Proxy — Live all-scopes read coverage');
 		const { keyId: ALL_KEY } = await createSbKey(
@@ -422,10 +472,19 @@ async function runLiveApiTier(): Promise<void> {
 			{ category: 'storage', path: `/v1/projects/${liveRef}/storage/buckets` },
 			{ category: 'domains', path: `/v1/projects/${liveRef}/custom-hostname` },
 			{ category: 'environment', path: `/v1/projects/${liveRef}/branches` },
+			{ category: 'oauth', path: '/v1/oauth/authorize' },
+			{ category: 'profile', path: '/v1/profile' },
+			{ category: 'snippets', path: '/v1/snippets' },
 		];
 		for (const s of scopeReads) {
 			assertReached(`live: ${s.category} read reaches Supabase`, await sb(ALL_KEY, 'GET', s.path));
 		}
+		const v0Metrics = await sb(ALL_KEY, 'GET', `/v0/projects/${liveRef}/analytics/metrics`);
+		const v0Unauthorized = v0Metrics.status === 401 && hasUnauthorizedMarker(v0Metrics.body);
+		assertTruthy(
+			'live: raw /v0/projects/:ref/analytics/metrics reaches upstream (HTTP 200 or upstream 401 Unauthorized payload)',
+			v0Metrics.status === 200 || v0Unauthorized,
+		);
 
 		// ─── Live scope isolation (network-free 403s, no upstream call) ─
 		// Prove on the REAL deployment that a key can't reach a resource its policy omits.
@@ -444,6 +503,73 @@ async function runLiveApiTier(): Promise<void> {
 			await sb(ACCT_KEY, 'GET', `/v1/projects/${liveRef}/config/auth`),
 			403,
 		);
+
+		if (SUPABASE_SMOKE_ENABLE_WRITE_PROBE) {
+			section('Supabase Proxy — Live write-classified probe (opt-in)');
+			const { r: writeKeyCr, keyId: WRITE_KEY } = await createSbKey(
+				'smoke-sb-live-write-probe',
+				policy(['supabase:database:write'], [`project:${liveRef}`]),
+				liveId,
+			);
+			assertStatus('create live database-write key -> 200', writeKeyCr, 200);
+			if (WRITE_KEY) {
+				try {
+					const writeProbe = await sb(WRITE_KEY, 'POST', `/v1/projects/${liveRef}/database/query`, { query: 'select 1' });
+					assertTruthy(
+						`live write probe: not blocked by auth/policy (HTTP ${writeProbe.status}, not 401/403)`,
+						writeProbe.status !== 401 && writeProbe.status !== 403,
+					);
+					assertTruthy(
+						`live write probe: POST /v1/projects/:ref/database/query stayed mapped (HTTP ${writeProbe.status}, not 404)`,
+						writeProbe.status !== 404,
+					);
+				} catch (error) {
+					if (!isTransientNetworkTimeoutError(error)) throw error;
+					console.log(
+						`  ${dim('live write probe skipped after transient upstream timeout (ETIMEDOUT/fetch timeout) — auth/classifier checks still passed.')}`,
+					);
+				}
+			}
+		} else {
+			section('Supabase Proxy — Live write-classified probe (skipped — set SUPABASE_SMOKE_ENABLE_WRITE_PROBE=1)');
+		}
+	}
+
+	if (!SUPABASE_SMOKE_METRICS_SECRET || !SUPABASE_SMOKE_METRICS_REF) {
+		section('Supabase Proxy — Live Basic metrics via /metrics/:ref (skipped — missing metrics env vars)');
+		console.log(
+			`  ${dim(
+				'Set SUPABASE_SMOKE_METRICS_SECRET and SUPABASE_SMOKE_METRICS_REF (or SUPABASE_SMOKE_REF fallback) to run the live Basic metrics probe.',
+			)}`,
+		);
+	} else {
+		section('Supabase Proxy — Live Basic metrics via /metrics/:ref');
+		const liveMetReg = await admin('POST', '/admin/upstream-tokens', {
+			name: 'smoke-sb-metrics-live',
+			token: SUPABASE_SMOKE_METRICS_SECRET,
+			scope_type: 'supabase_metrics',
+			auth_type: 'basic',
+			username: 'service_role',
+			zone_ids: [SUPABASE_SMOKE_METRICS_REF],
+			validate: true,
+		});
+		assertStatus('register live supabase_metrics token (validated) -> 200', liveMetReg, 200);
+		const liveMetId = liveMetReg.body?.result?.id;
+		assertTruthy('live supabase_metrics token has id', liveMetId);
+		if (liveMetId) state.createdUpstreamTokens.push(liveMetId);
+		if (liveMetId) {
+			const { r: liveMetKeyCr, keyId: LIVE_METRICS_KEY } = await createSbKey(
+				'smoke-sb-live-metrics-basic',
+				policy(['supabase:metrics:read'], [`project:${SUPABASE_SMOKE_METRICS_REF}`]),
+				liveMetId,
+			);
+			assertStatus('create live metrics-read key -> 200', liveMetKeyCr, 200);
+			if (LIVE_METRICS_KEY) {
+				const liveMetrics = await sb(LIVE_METRICS_KEY, 'GET', `/metrics/${SUPABASE_SMOKE_METRICS_REF}`);
+				assertStatus('live metrics: GET /metrics/:ref through proxy -> 200', liveMetrics, 200);
+				assertTruthy('live metrics: response looks like Prometheus text', looksLikePrometheusText(liveMetrics.raw));
+			}
+		}
 	}
 
 	// Authorization still bites on the live path: this key has no secrets:read.
@@ -465,7 +591,10 @@ async function runLiveApiTier(): Promise<void> {
 	assertStatus('live: sbp_ key GET /v1/projects through proxy -> 200', sbpProjects, 200);
 	assertTruthy('live: sbp_ key returns a real project array', Array.isArray(sbpProjects.body));
 
-	// Real-life smoke: drive the actual `supabase` binary through the proxy.
+	section('Supabase Proxy — API-first checks complete');
+	console.log(`  ${dim('Running optional official `supabase` CLI compatibility check…')}`);
+
+	// Additional compatibility check: drive the actual `supabase` binary through the proxy.
 	await runOfficialCliTier(SBP_LIVE_KEY);
 }
 
@@ -488,28 +617,36 @@ function supabaseCliAvailable(): boolean {
  */
 async function runOfficialCliTier(sbpKey: string): Promise<void> {
 	if (!supabaseCliAvailable()) {
-		section('Supabase Proxy — Official `supabase` CLI (skipped — binary not on PATH)');
+		section('Supabase Proxy — Official `supabase` CLI compatibility (skipped — binary not on PATH)');
 		console.log(`  ${dim('Install the `supabase` CLI to exercise the real client through the proxy with an sbp_ key.')}`);
 		return;
 	}
 
-	section('Supabase Proxy — Official `supabase` CLI through proxy');
+	section('Supabase Proxy — Official `supabase` CLI compatibility (additional)');
 
 	const dir = mkdtempSync(join(tmpdir(), 'gk-sb-cli-'));
 	const profilePath = join(dir, 'gatekeeper.yaml');
 	writeFileSync(profilePath, `name: gatekeeper\napi_url: ${BASE}/supabase/\ndashboard_url: ${BASE}\nproject_host: supabase.co\n`);
 
 	try {
-		const out = execFileSync('supabase', ['projects', 'list'], {
-			env: { ...process.env, SUPABASE_PROFILE: profilePath, SUPABASE_ACCESS_TOKEN: sbpKey },
+		const out = execFileSync('supabase', ['projects', 'list', '--output-format', 'json'], {
+			env: {
+				...process.env,
+				SUPABASE_PROFILE: profilePath,
+				SUPABASE_ACCESS_TOKEN: sbpKey,
+				DO_NOT_TRACK: '1',
+			},
 			encoding: 'utf8',
 			stdio: ['ignore', 'pipe', 'pipe'],
 		});
-		assertTruthy('official CLI: `supabase projects list` succeeded through the proxy', typeof out === 'string');
+		const parsed = JSON.parse(out);
+		const projects = Array.isArray(parsed) ? parsed : parsed?.projects;
+		assertTruthy('official CLI: `supabase projects list` returned an array-like project list through the proxy', Array.isArray(projects));
 		console.log(`  ${dim('(real `supabase` CLI authenticated with sbp_ key -> proxy -> swapped PAT -> Supabase)')}`);
 	} catch (e: any) {
 		const stderr = (e?.stderr ?? e?.message ?? '').toString().trim().slice(0, 300);
-		assertTruthy(`official CLI: \`supabase projects list\` exit 0 (stderr: ${stderr})`, false);
+		const stdout = (e?.stdout ?? '').toString().trim().slice(0, 300);
+		assertTruthy(`official CLI: \`supabase projects list\` exit 0 (stderr: ${stderr}; stdout: ${stdout})`, false);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}

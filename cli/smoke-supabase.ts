@@ -5,7 +5,8 @@
  * Runs ONLY the Supabase proxy section (synthetic + opt-in live tiers) against a
  * deployment — no CF/zone/purge setup, so it needs no CF_API_TOKEN. Designed to run
  * post-deploy against staging in CI (the synthetic tier always runs; the live tier
- * runs when SUPABASE_SMOKE_PAT or SUPABASE_SMOKE_TOKEN_ID is set).
+ * runs API-first checks when SUPABASE_SMOKE_PAT or SUPABASE_SMOKE_TOKEN_ID is set,
+ * then optionally runs an additional official CLI compatibility check).
  *
  * Usage:
  *   GATEKEEPER_URL=https://gatekeeper-staging.anugrah.workers.dev \
@@ -27,7 +28,7 @@ if (!ADMIN_KEY) {
 
 async function main(): Promise<void> {
 	console.log('');
-	console.log(bold('Gatekeeper — Supabase Live Smoke'));
+	console.log(bold('Gatekeeper — Supabase Live Smoke (API-first)'));
 	console.log(`Base: ${BASE}`);
 	console.log(`Remote: ${IS_REMOTE}`);
 

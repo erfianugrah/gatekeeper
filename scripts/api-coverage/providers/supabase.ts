@@ -50,17 +50,7 @@ export const supabaseProvider: CoverageProvider = {
 		return classifySupabaseRequest(op.method, concretePath(op.path)) !== null;
 	},
 
-	// Account-level / out-of-RBAC-scope groups. Each Supabase op here is denied by default on
-	// purpose (the overlay scopes project/branch/org resources, not the PAT-owner's account surface).
-	allowlist: {
-		'GET /v1/oauth/authorize': 'OAuth app flow — account-level, out of RBAC scope',
-		'POST /v1/oauth/token': 'OAuth app flow — account-level, out of RBAC scope',
-		'POST /v1/oauth/revoke': 'OAuth app flow — account-level, out of RBAC scope',
-		'GET /v1/oauth/authorize/project-claim': 'OAuth app flow — account-level, out of RBAC scope',
-		'GET /v1/profile': 'PAT-owner profile — account-level, out of RBAC scope',
-		'GET /v1/snippets': 'SQL snippets owned by the PAT user — account-level, out of RBAC scope',
-		'GET /v1/snippets/{id}': 'SQL snippets owned by the PAT user — account-level, out of RBAC scope',
-	},
+	allowlist: {},
 };
 
 export { opKey };

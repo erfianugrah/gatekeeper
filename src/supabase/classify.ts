@@ -130,6 +130,18 @@ export function classifySupabaseRequest(method: string, path: string): SupabaseC
 		return mk('organizations', null, slug ? `org:${slug}` : 'supabase:account');
 	}
 
-	// oauth / profile / billing / advisors / analytics groups: out of scope for v1 → deny-by-default.
+	if (root === 'oauth') {
+		return mk('oauth', null, 'supabase:account');
+	}
+
+	if (root === 'profile') {
+		return mk('profile', null, 'supabase:account');
+	}
+
+	if (root === 'snippets') {
+		return mk('snippets', null, 'supabase:account');
+	}
+
+	// billing / advisors / analytics / realtime groups remain out of scope for v1 → deny-by-default.
 	return null;
 }
