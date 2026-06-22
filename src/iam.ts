@@ -1,7 +1,7 @@
 import { CredentialManager } from './credential-manager';
 import { queryAll } from './sql';
 import { MS_PER_DAY } from './constants';
-import { generateHexId } from './crypto';
+import { generateHexId, makePreview } from './crypto';
 import { evaluatePolicy } from './policy-engine';
 
 import type { ApiKey, CachedKey, CreateKeyRequest, AuthResult, PurgeBody } from './types';
@@ -168,8 +168,8 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 		console.log(
 			JSON.stringify({
 				breadcrumb: 'iam-rotate-key',
-				oldKeyId: id,
-				newKeyId: newKey.id,
+				oldKeyId: makePreview(id),
+				newKeyId: makePreview(newKey.id),
 			}),
 		);
 
@@ -244,7 +244,7 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 		console.log(
 			JSON.stringify({
 				breadcrumb: 'iam-update-key',
-				keyId: id,
+				keyId: makePreview(id),
 				updatedFields: Object.keys(updates).filter((k) => (updates as Record<string, unknown>)[k] !== undefined),
 			}),
 		);
@@ -319,26 +319,30 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 	authorize(keyId: string, zoneId: string, contexts: RequestContext[]): AuthResult {
 		// Zone-scoping check is IamManager-specific — must happen before generic auth
 		const cached = this.getCachedOrLoad(keyId);
+		const keyPreview = makePreview(keyId);
+
 		if (!cached) {
-			console.log(JSON.stringify({ breadcrumb: 'iam-authorize-not-found', keyId }));
+			console.log(JSON.stringify({ breadcrumb: 'iam-authorize-not-found', keyId: keyPreview }));
 			return { authorized: false, error: 'Invalid API key' };
 		}
 
 		const key = cached.key;
 
 		if (key.revoked) {
-			console.log(JSON.stringify({ breadcrumb: 'iam-authorize-revoked', keyId }));
+			console.log(JSON.stringify({ breadcrumb: 'iam-authorize-revoked', keyId: keyPreview }));
 			return { authorized: false, error: 'API key has been revoked' };
 		}
 
 		if (key.expires_at && key.expires_at < Date.now()) {
-			console.log(JSON.stringify({ breadcrumb: 'iam-authorize-expired', keyId, expiresAt: key.expires_at }));
+			console.log(JSON.stringify({ breadcrumb: 'iam-authorize-expired', keyId: keyPreview, expiresAt: key.expires_at }));
 			return { authorized: false, error: 'API key has expired' };
 		}
 
 		// If the key is scoped to a specific zone, enforce it
 		if (key.zone_id && key.zone_id !== zoneId) {
-			console.log(JSON.stringify({ breadcrumb: 'iam-authorize-zone-mismatch', keyId, keyZone: key.zone_id, requestZone: zoneId }));
+			console.log(
+				JSON.stringify({ breadcrumb: 'iam-authorize-zone-mismatch', keyId: keyPreview, keyZone: key.zone_id, requestZone: zoneId }),
+			);
 			return { authorized: false, error: 'API key is not authorized for this zone' };
 		}
 
@@ -349,7 +353,7 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 					denied.push(formatDeniedContext(ctx));
 				}
 			}
-			console.log(JSON.stringify({ breadcrumb: 'iam-authorize-policy-denied', keyId, zoneId, denied }));
+			console.log(JSON.stringify({ breadcrumb: 'iam-authorize-policy-denied', keyId: keyPreview, zoneId, denied }));
 			return {
 				authorized: false,
 				error: `Key does not have scope for: ${denied.join(', ')}`,
@@ -357,7 +361,7 @@ export class IamManager extends CredentialManager<ApiKey, CachedKey> {
 			};
 		}
 
-		console.log(JSON.stringify({ breadcrumb: 'iam-authorize-ok', keyId, zoneId, actions: contexts.map((c) => c.action) }));
+		console.log(JSON.stringify({ breadcrumb: 'iam-authorize-ok', keyId: keyPreview, zoneId, actions: contexts.map((c) => c.action) }));
 		return { authorized: true, keyName: key.name, upstreamTokenId: key.upstream_token_id ?? undefined };
 	}
 

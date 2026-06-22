@@ -12,6 +12,7 @@
 import { SELF, fetchMock } from 'cloudflare:test';
 import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
 import { adminHeaders, waitForAnalytics, registerSupabaseToken, createSupabaseKey, cleanupCreatedResources } from './helpers';
+import { makePreview } from '../src/crypto';
 import type { PolicyDocument } from '../src/policy-types';
 
 // Use a ref distinct from the other supabase test files to avoid cross-test pollution.
@@ -96,7 +97,8 @@ describe('supabase analytics — event logging', () => {
 		const data = await res.json<any>();
 		expect(data.result.length).toBeGreaterThanOrEqual(1);
 		const row = (data.result as any[])[0];
-		expect(row.key_id).toBeDefined();
+		expect(row.key_id).toBe(makePreview(sharedKey));
+		expect(row.key_id).not.toBe(sharedKey);
 		expect(row.project_ref).toBe(REF);
 		expect(row.category).toBe('database');
 		expect(row.action).toBe('supabase:database:read');
@@ -170,7 +172,8 @@ describe('supabase analytics — filtering', () => {
 		const data = await res.json<any>();
 		expect(data.result.length).toBeGreaterThanOrEqual(1);
 		for (const row of data.result as any[]) {
-			expect(row.key_id).toBe(key2);
+			expect(row.key_id).toBe(makePreview(key2));
+			expect(row.key_id).not.toBe(key2);
 		}
 	});
 

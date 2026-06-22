@@ -5,12 +5,22 @@
  */
 
 import {
-	CF_PROXY_EVENTS_TABLE_SQL,
-	CF_PROXY_EVENTS_INDEX_KEY_SQL,
-	CF_PROXY_EVENTS_INDEX_ACCOUNT_SQL,
-	CF_PROXY_EVENTS_INDEX_SERVICE_SQL,
+	buildKeyIdFilter,
+	KEY_PREVIEW_SQL_EXPR,
+	LEGACY_RAW_BEARER_KEY_SQL,
+	keyFingerprint,
+	sanitizeKeyIdRow,
+	toSafeKeyPreview,
+} from '../analytics-identifiers';
+import {
+	CF_PROXY_EVENTS_ADD_KEY_FINGERPRINT_SQL,
 	CF_PROXY_EVENTS_ADD_LATENCY_SQL,
 	CF_PROXY_EVENTS_ADD_RESPONSE_SIZE_SQL,
+	CF_PROXY_EVENTS_INDEX_ACCOUNT_SQL,
+	CF_PROXY_EVENTS_INDEX_KEY_FINGERPRINT_SQL,
+	CF_PROXY_EVENTS_INDEX_KEY_SQL,
+	CF_PROXY_EVENTS_INDEX_SERVICE_SQL,
+	CF_PROXY_EVENTS_TABLE_SQL,
 } from '../schema';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -62,18 +72,20 @@ async function ensureTables(db: D1Database): Promise<void> {
 	await db.batch([
 		db.prepare(CF_PROXY_EVENTS_TABLE_SQL),
 		db.prepare(CF_PROXY_EVENTS_INDEX_KEY_SQL),
+		db.prepare(CF_PROXY_EVENTS_INDEX_KEY_FINGERPRINT_SQL),
 		db.prepare(CF_PROXY_EVENTS_INDEX_ACCOUNT_SQL),
 		db.prepare(CF_PROXY_EVENTS_INDEX_SERVICE_SQL),
 	]);
-	// Migration: add columns to tables created before upstream_latency_ms / response_size existed.
+	// Migration: add columns to tables created before current schema.
 	// ALTER TABLE ... ADD COLUMN fails if the column already exists, so we catch and ignore.
-	for (const sql of [CF_PROXY_EVENTS_ADD_LATENCY_SQL, CF_PROXY_EVENTS_ADD_RESPONSE_SIZE_SQL]) {
+	for (const sql of [CF_PROXY_EVENTS_ADD_LATENCY_SQL, CF_PROXY_EVENTS_ADD_RESPONSE_SIZE_SQL, CF_PROXY_EVENTS_ADD_KEY_FINGERPRINT_SQL]) {
 		try {
 			await db.prepare(sql).run();
 		} catch {
 			// Column already exists — expected after first migration run.
 		}
 	}
+	await db.prepare(`UPDATE cf_proxy_events SET key_id = ${KEY_PREVIEW_SQL_EXPR} WHERE ${LEGACY_RAW_BEARER_KEY_SQL}`).run();
 }
 
 // ─── Write ──────────────────────────────────────────────────────────────────
@@ -82,13 +94,16 @@ async function ensureTables(db: D1Database): Promise<void> {
 export async function logCfProxyEvent(db: D1Database, event: CfProxyEvent): Promise<void> {
 	try {
 		await ensureTables(db);
+		const preview = toSafeKeyPreview(event.key_id);
+		const fingerprint = await keyFingerprint(event.key_id);
 		await db
 			.prepare(
-				`INSERT INTO cf_proxy_events (key_id, account_id, service, action, resource_id, status, upstream_status, duration_ms, upstream_latency_ms, response_size, response_detail, created_by, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO cf_proxy_events (key_id, key_fingerprint, account_id, service, action, resource_id, status, upstream_status, duration_ms, upstream_latency_ms, response_size, response_detail, created_by, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
-				event.key_id,
+				preview,
+				fingerprint,
 				event.account_id,
 				event.service,
 				event.action,
@@ -132,8 +147,9 @@ export async function queryCfProxyEvents(db: D1Database, query: CfProxyAnalytics
 		params.push(query.account_id);
 	}
 	if (query.key_id) {
-		conditions.push('key_id = ?');
-		params.push(query.key_id);
+		const keyFilter = await buildKeyIdFilter(query.key_id);
+		conditions.push(keyFilter.condition);
+		params.push(...keyFilter.params);
 	}
 	if (query.service) {
 		conditions.push('service = ?');
@@ -161,7 +177,8 @@ export async function queryCfProxyEvents(db: D1Database, query: CfProxyAnalytics
 		.prepare(sql)
 		.bind(...params)
 		.all();
-	return result.results as Record<string, unknown>[];
+	const rows = result.results as Record<string, unknown>[];
+	return rows.map((row) => sanitizeKeyIdRow(row));
 }
 
 /** Get summary analytics for CF proxy operations. */
@@ -176,8 +193,9 @@ export async function queryCfProxySummary(db: D1Database, query: CfProxyAnalytic
 		params.push(query.account_id);
 	}
 	if (query.key_id) {
-		conditions.push('key_id = ?');
-		params.push(query.key_id);
+		const keyFilter = await buildKeyIdFilter(query.key_id);
+		conditions.push(keyFilter.condition);
+		params.push(...keyFilter.params);
 	}
 	if (query.service) {
 		conditions.push('service = ?');
@@ -223,8 +241,8 @@ export async function queryCfProxySummary(db: D1Database, query: CfProxyAnalytic
 	for (const row of actionRows.results as any[]) {
 		byAction[row.action] = row.cnt;
 	}
-
 	const avg = avgRow.results[0] as any;
+
 	return {
 		total_requests: total?.cnt ?? 0,
 		by_status: byStatus,

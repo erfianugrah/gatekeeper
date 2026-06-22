@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { getStub } from '../do-stub';
+import { makePreview } from '../crypto';
 import { resolveCreatedBy, validateR2Credentials, emitAudit } from './admin-helpers';
 import {
 	createUpstreamR2Schema,
@@ -107,7 +108,7 @@ adminUpstreamR2App.get('/:id', async (c) => {
 	const result = await stub.getUpstreamR2(params.id);
 
 	if (!result) {
-		console.log(JSON.stringify({ breadcrumb: 'admin-get-upstream-r2-not-found', id: params.id }));
+		console.log(JSON.stringify({ breadcrumb: 'admin-get-upstream-r2-not-found', id: makePreview(params.id) }));
 		return jsonError(c, 404, 'Upstream R2 endpoint not found');
 	}
 

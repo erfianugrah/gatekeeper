@@ -8,6 +8,7 @@
 import { Hono } from 'hono';
 import { queryDnsEvents, queryDnsSummary } from '../cf/dns/analytics';
 import { queryTimeseries } from '../analytics-timeseries';
+import { buildKeyIdFilter } from '../analytics-identifiers';
 import {
 	jsonError,
 	parseQueryParams,
@@ -109,8 +110,9 @@ adminDnsAnalyticsApp.get('/timeseries', async (c) => {
 		params.push(query.zone_id);
 	}
 	if (query.key_id) {
-		conditions.push('key_id = ?');
-		params.push(query.key_id);
+		const keyFilter = await buildKeyIdFilter(query.key_id);
+		conditions.push(keyFilter.condition);
+		params.push(...keyFilter.params);
 	}
 	if (query.action) {
 		conditions.push('action = ?');

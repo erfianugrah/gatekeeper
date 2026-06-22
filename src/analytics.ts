@@ -5,8 +5,22 @@
  * Schema source of truth: schema.sql (project root).
  */
 
-import { PURGE_EVENTS_TABLE_SQL, PURGE_EVENTS_INDEX_ZONE_SQL, PURGE_EVENTS_INDEX_KEY_SQL } from './schema';
+import {
+	buildKeyIdFilter,
+	KEY_PREVIEW_SQL_EXPR,
+	LEGACY_RAW_BEARER_KEY_SQL,
+	keyFingerprint,
+	sanitizeKeyIdRow,
+	toSafeKeyPreview,
+} from './analytics-identifiers';
 import { DEFAULT_ANALYTICS_LIMIT, MAX_ANALYTICS_LIMIT } from './constants';
+import {
+	PURGE_EVENTS_ADD_KEY_FINGERPRINT_SQL,
+	PURGE_EVENTS_INDEX_KEY_FINGERPRINT_SQL,
+	PURGE_EVENTS_INDEX_KEY_SQL,
+	PURGE_EVENTS_INDEX_ZONE_SQL,
+	PURGE_EVENTS_TABLE_SQL,
+} from './schema';
 
 export interface PurgeEvent {
 	key_id: string;
@@ -30,7 +44,18 @@ export interface PurgeEvent {
 }
 
 async function ensureTables(db: D1Database): Promise<void> {
-	await db.batch([db.prepare(PURGE_EVENTS_TABLE_SQL), db.prepare(PURGE_EVENTS_INDEX_ZONE_SQL), db.prepare(PURGE_EVENTS_INDEX_KEY_SQL)]);
+	await db.batch([
+		db.prepare(PURGE_EVENTS_TABLE_SQL),
+		db.prepare(PURGE_EVENTS_INDEX_ZONE_SQL),
+		db.prepare(PURGE_EVENTS_INDEX_KEY_SQL),
+		db.prepare(PURGE_EVENTS_INDEX_KEY_FINGERPRINT_SQL),
+	]);
+	try {
+		await db.prepare(PURGE_EVENTS_ADD_KEY_FINGERPRINT_SQL).run();
+	} catch {
+		// Column already exists — expected after first migration run.
+	}
+	await db.prepare(`UPDATE purge_events SET key_id = ${KEY_PREVIEW_SQL_EXPR} WHERE ${LEGACY_RAW_BEARER_KEY_SQL}`).run();
 }
 
 /**
@@ -39,13 +64,16 @@ async function ensureTables(db: D1Database): Promise<void> {
 export async function logPurgeEvent(db: D1Database, event: PurgeEvent): Promise<void> {
 	try {
 		await ensureTables(db);
+		const preview = toSafeKeyPreview(event.key_id);
+		const fingerprint = await keyFingerprint(event.key_id);
 		await db
 			.prepare(
-				`INSERT INTO purge_events (key_id, zone_id, purge_type, purge_target, tokens, status, collapsed, upstream_status, duration_ms, response_detail, created_by, flight_id, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO purge_events (key_id, key_fingerprint, zone_id, purge_type, purge_target, tokens, status, collapsed, upstream_status, duration_ms, response_detail, created_by, flight_id, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.bind(
-				event.key_id,
+				preview,
+				fingerprint,
 				event.zone_id,
 				event.purge_type,
 				event.purge_target,
@@ -105,8 +133,9 @@ export async function queryEvents(db: D1Database, query: AnalyticsQuery): Promis
 		params.push(query.zone_id);
 	}
 	if (query.key_id) {
-		conditions.push('key_id = ?');
-		params.push(query.key_id);
+		const keyFilter = await buildKeyIdFilter(query.key_id);
+		conditions.push(keyFilter.condition);
+		params.push(...keyFilter.params);
 	}
 	if (query.since) {
 		conditions.push('created_at >= ?');
@@ -126,7 +155,8 @@ export async function queryEvents(db: D1Database, query: AnalyticsQuery): Promis
 		.prepare(sql)
 		.bind(...params)
 		.all();
-	return result.results as Record<string, unknown>[];
+	const rows = result.results as Record<string, unknown>[];
+	return rows.map((row) => sanitizeKeyIdRow(row));
 }
 
 /**
@@ -143,8 +173,9 @@ export async function querySummary(db: D1Database, query: AnalyticsQuery): Promi
 		params.push(query.zone_id);
 	}
 	if (query.key_id) {
-		conditions.push('key_id = ?');
-		params.push(query.key_id);
+		const keyFilter = await buildKeyIdFilter(query.key_id);
+		conditions.push(keyFilter.condition);
+		params.push(...keyFilter.params);
 	}
 	if (query.since) {
 		conditions.push('created_at >= ?');

@@ -8,7 +8,7 @@ import { UpstreamR2Manager } from './s3/upstream-r2';
 import { ConfigManager } from './config-registry';
 import { UserManager } from './user-manager';
 import { SessionManager } from './session-manager';
-import { generateFlightId } from './crypto';
+import { generateFlightId, makePreview } from './crypto';
 import { CF_API_BASE, DEFAULT_RETRY_AFTER_SEC } from './constants';
 import type {
 	PurgeBody,
@@ -255,7 +255,7 @@ export class Gatekeeper extends DurableObject<Env> {
 			console.log(
 				JSON.stringify({
 					breadcrumb: 'do-per-key-rate-limited',
-					keyId,
+					keyId: makePreview(keyId),
 					rateClass,
 					tokens,
 					remaining: result.remaining,

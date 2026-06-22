@@ -16,7 +16,7 @@
 
 import type { Context, Next } from 'hono';
 import { validateAccessJwt } from './auth-access';
-import { timingSafeEqual } from './crypto';
+import { makePreview, timingSafeEqual } from './crypto';
 import { getStub } from './do-stub';
 import { ADMIN_KEY_HEADER } from './constants';
 import { SESSION_COOKIE } from './session-manager';
@@ -25,6 +25,14 @@ import type { HonoEnv, AdminRole } from './types';
 // ─── Role hierarchy ─────────────────────────────────────────────────────────
 
 const ROLE_LEVELS: Record<AdminRole, number> = { viewer: 0, operator: 1, admin: 2 };
+
+function redactAdminPath(path: string): string {
+	return path
+		.replace(/(\/admin\/keys\/)([^/?]+)/g, (_, prefix: string, id: string) => `${prefix}${makePreview(id)}`)
+		.replace(/(\/admin\/s3\/credentials\/)([^/?]+)/g, (_, prefix: string, id: string) => `${prefix}${makePreview(id)}`)
+		.replace(/(\/admin\/upstream-tokens\/)([^/?]+)/g, (_, prefix: string, id: string) => `${prefix}${makePreview(id)}`)
+		.replace(/(\/admin\/upstream-r2\/)([^/?]+)/g, (_, prefix: string, id: string) => `${prefix}${makePreview(id)}`);
+}
 
 /** Parse comma-separated values from an env var. Returns empty array if unset. */
 function parseList(envVar?: string): string[] {
@@ -124,7 +132,7 @@ export async function adminAuth(c: Context<HonoEnv>, next: Next): Promise<Respon
 						builtInUserId: builtInUser.id,
 						role,
 						method: c.req.method,
-						path: c.req.path,
+						path: redactAdminPath(c.req.path),
 					}),
 				);
 			} else {
@@ -136,7 +144,7 @@ export async function adminAuth(c: Context<HonoEnv>, next: Next): Promise<Respon
 						groups: identity.groups,
 						role,
 						method: c.req.method,
-						path: c.req.path,
+						path: redactAdminPath(c.req.path),
 					}),
 				);
 			}
@@ -167,7 +175,7 @@ export async function adminAuth(c: Context<HonoEnv>, next: Next): Promise<Respon
 	const configuredKey = c.env.ADMIN_KEY;
 	const adminKey = c.req.header(ADMIN_KEY_HEADER);
 	if (configuredKey && configuredKey.length >= 16 && adminKey && (await timingSafeEqual(adminKey, configuredKey))) {
-		console.log(JSON.stringify({ breadcrumb: 'admin-auth-key', method: c.req.method, path: c.req.path }));
+		console.log(JSON.stringify({ breadcrumb: 'admin-auth-key', method: c.req.method, path: redactAdminPath(c.req.path) }));
 		c.set('adminRole', 'admin');
 		await next();
 		return;
@@ -185,7 +193,7 @@ export async function adminAuth(c: Context<HonoEnv>, next: Next): Promise<Respon
 					email: session.email,
 					role: session.role,
 					method: c.req.method,
-					path: c.req.path,
+					path: redactAdminPath(c.req.path),
 				}),
 			);
 			c.set('accessIdentity', { email: session.email, groups: [], sub: session.user_id, type: 'session' } as any);
@@ -195,7 +203,7 @@ export async function adminAuth(c: Context<HonoEnv>, next: Next): Promise<Respon
 		}
 	}
 
-	console.log(JSON.stringify({ breadcrumb: 'admin-auth-rejected', method: c.req.method, path: c.req.path }));
+	console.log(JSON.stringify({ breadcrumb: 'admin-auth-rejected', method: c.req.method, path: redactAdminPath(c.req.path) }));
 	return c.json({ success: false, errors: [{ code: 401, message: 'Unauthorized' }] }, 401);
 }
 
@@ -232,7 +240,7 @@ export function requireRole(minRole: AdminRole) {
 					required: minRole,
 					actual: role,
 					method: c.req.method,
-					path: c.req.path,
+					path: redactAdminPath(c.req.path),
 				}),
 			);
 			return c.json({ success: false, errors: [{ code: 403, message: `Forbidden — requires ${minRole} role, you have ${role}` }] }, 403);
@@ -267,7 +275,7 @@ export function requireRoleByMethod(readRole: AdminRole, writeRole: AdminRole) {
 					required: requiredRole,
 					actual: role,
 					method: c.req.method,
-					path: c.req.path,
+					path: redactAdminPath(c.req.path),
 				}),
 			);
 			return c.json(

@@ -9,6 +9,7 @@ DROP TABLE IF EXISTS purge_events;
 CREATE TABLE purge_events (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	key_id TEXT NOT NULL,
+	key_fingerprint TEXT,
 	zone_id TEXT NOT NULL,
 	purge_type TEXT NOT NULL,
 	purge_target TEXT,
@@ -25,6 +26,7 @@ CREATE TABLE purge_events (
 
 CREATE INDEX idx_purge_events_zone_created ON purge_events (zone_id, created_at DESC);
 CREATE INDEX idx_purge_events_key_created ON purge_events (key_id, created_at DESC);
+CREATE INDEX idx_purge_events_keyfp_created ON purge_events (key_fingerprint, created_at DESC);
 
 -- ─── S3 events ──────────────────────────────────────────────────────────────
 
@@ -53,6 +55,7 @@ DROP TABLE IF EXISTS dns_events;
 CREATE TABLE dns_events (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	key_id TEXT NOT NULL,
+	key_fingerprint TEXT,
 	zone_id TEXT NOT NULL,
 	action TEXT NOT NULL,
 	record_name TEXT,
@@ -66,6 +69,7 @@ CREATE TABLE dns_events (
 );
 
 CREATE INDEX idx_dns_events_key_created ON dns_events (key_id, created_at DESC);
+CREATE INDEX idx_dns_events_keyfp_created ON dns_events (key_fingerprint, created_at DESC);
 CREATE INDEX idx_dns_events_zone_created ON dns_events (zone_id, created_at DESC);
 
 -- ─── CF proxy events ────────────────────────────────────────────────────────
@@ -75,6 +79,7 @@ DROP TABLE IF EXISTS cf_proxy_events;
 CREATE TABLE cf_proxy_events (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	key_id TEXT NOT NULL,
+	key_fingerprint TEXT,
 	account_id TEXT NOT NULL,
 	service TEXT NOT NULL,
 	action TEXT NOT NULL,
@@ -90,5 +95,6 @@ CREATE TABLE cf_proxy_events (
 );
 
 CREATE INDEX idx_cf_proxy_key_created ON cf_proxy_events (key_id, created_at DESC);
+CREATE INDEX idx_cf_proxy_keyfp_created ON cf_proxy_events (key_fingerprint, created_at DESC);
 CREATE INDEX idx_cf_proxy_account_created ON cf_proxy_events (account_id, created_at DESC);
 CREATE INDEX idx_cf_proxy_service_created ON cf_proxy_events (service, created_at DESC);

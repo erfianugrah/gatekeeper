@@ -1,6 +1,7 @@
 import { SELF, fetchMock } from 'cloudflare:test';
 import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
 import { adminHeaders, waitForAnalytics, registerSupabaseToken, createSupabaseKey, cleanupCreatedResources } from './helpers';
+import { makePreview } from '../src/crypto';
 import type { PolicyDocument } from '../src/policy-types';
 
 const REF = 'dewddkcmwrzbpynylyhg';
@@ -370,7 +371,8 @@ describe('supabase management proxy — analytics', () => {
 		expect(Array.isArray(data.result)).toBe(true);
 		expect(data.result.length).toBeGreaterThanOrEqual(1);
 		const row = (data.result as any[])[0];
-		expect(row.key_id).toBe(key);
+		expect(row.key_id).toBe(makePreview(key));
+		expect(row.key_id).not.toBe(key);
 		expect(row.project_ref).toBe(REF);
 		expect(row.category).toBe('database');
 		expect(row.action).toBe('supabase:database:read');
