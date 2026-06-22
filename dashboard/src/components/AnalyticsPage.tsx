@@ -27,6 +27,8 @@ import { EventsTableSkeleton } from './analytics/EventsTableSkeleton';
 import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent } from '@/lib/api';
 import type { UnifiedEvent, FlightGroup, SortField, SortDir, TabFilter, StatusFilter } from './analytics/analytics-types';
 
+type SupabaseQuickFilter = 'all' | 'unauthorized' | 'timeout' | 'upstream_5xx';
+
 // ─── Analytics Page ─────────────────────────────────────────────────
 
 export function AnalyticsPage() {
@@ -38,6 +40,7 @@ export function AnalyticsPage() {
 	const [limit, setLimit] = useState<number>(100);
 	const [tab, setTab] = useState<TabFilter>('all');
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+	const [supabaseQuickFilter, setSupabaseQuickFilter] = useState<SupabaseQuickFilter>('all');
 	const [search, setSearch] = useState('');
 	const [sortField, setSortField] = useState<SortField>('created_at');
 	const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -106,6 +109,12 @@ export function AnalyticsPage() {
 		fetchData(limit);
 	}, [fetchData, limit]);
 
+	useEffect(() => {
+		if (tab !== 'all' && tab !== 'supabase' && supabaseQuickFilter !== 'all') {
+			setSupabaseQuickFilter('all');
+		}
+	}, [tab, supabaseQuickFilter]);
+
 	// ── Sorting ─────────────────────────────────────────────────
 
 	const toggleSort = (field: SortField) => {
@@ -148,30 +157,55 @@ export function AnalyticsPage() {
 		[purgeEvents, s3Events, dnsEvents, cfEvents, supabaseEvents],
 	);
 
+	const applyBaseFilters = useCallback(
+		(events: UnifiedEvent[]) => {
+			let result = events;
+			if (tab !== 'all') result = result.filter((e) => e.source === tab);
+			if (statusFilter !== 'all') {
+				result = result.filter((e) => {
+					if (statusFilter === '2xx') return e.status >= 200 && e.status < 300;
+					if (statusFilter === '4xx') return e.status >= 400 && e.status < 500;
+					if (statusFilter === '5xx') return e.status >= 500;
+					return true;
+				});
+			}
+			if (search.trim()) {
+				const q = search.toLowerCase();
+				result = result.filter((e) => eventSearchText(e).includes(q));
+			}
+			return result;
+		},
+		[tab, statusFilter, search],
+	);
+
+	const supabaseQuickCounts = useMemo(() => {
+		const base = applyBaseFilters(allEvents).filter((e) => e.source === 'supabase');
+		const hasText = (ev: UnifiedEvent) => (((ev.raw as SupabaseProxyEvent).response_detail ?? '') as string).toLowerCase();
+		const upstreamStatus = (ev: UnifiedEvent) => (ev.upstream_status ?? (ev.raw as SupabaseProxyEvent).upstream_status ?? ev.status ?? 0);
+		return {
+			all: base.length,
+			unauthorized: base.filter((ev) => hasText(ev).includes('unauthorized') || upstreamStatus(ev) === 401).length,
+			timeout: base.filter((ev) => hasText(ev).includes('timeout')).length,
+			upstream_5xx: base.filter((ev) => upstreamStatus(ev) >= 500).length,
+		};
+	}, [allEvents, applyBaseFilters]);
+
 	const filteredEvents = useMemo(() => {
-		let result = allEvents;
-
-		// Source tab
-		if (tab !== 'all') result = result.filter((e) => e.source === tab);
-
-		// Status filter
-		if (statusFilter !== 'all') {
-			result = result.filter((e) => {
-				if (statusFilter === '2xx') return e.status >= 200 && e.status < 300;
-				if (statusFilter === '4xx') return e.status >= 400 && e.status < 500;
-				if (statusFilter === '5xx') return e.status >= 500;
+		let result = applyBaseFilters(allEvents);
+		if (supabaseQuickFilter !== 'all') {
+			result = result.filter((ev) => {
+				if (ev.source !== 'supabase') return false;
+				const raw = ev.raw as SupabaseProxyEvent;
+				const detail = (raw.response_detail ?? '').toLowerCase();
+				const upstream = ev.upstream_status ?? raw.upstream_status ?? ev.status;
+				if (supabaseQuickFilter === 'unauthorized') return upstream === 401 || detail.includes('unauthorized');
+				if (supabaseQuickFilter === 'timeout') return detail.includes('timeout');
+				if (supabaseQuickFilter === 'upstream_5xx') return upstream >= 500;
 				return true;
 			});
 		}
-
-		// Text search
-		if (search.trim()) {
-			const q = search.toLowerCase();
-			result = result.filter((e) => eventSearchText(e).includes(q));
-		}
-
 		return result;
-	}, [allEvents, tab, statusFilter, search]);
+	}, [allEvents, applyBaseFilters, supabaseQuickFilter]);
 
 	/** Events grouped by flight_id, sorted by the chosen field. */
 	const flightGroups = useMemo(() => {
@@ -291,6 +325,34 @@ export function AnalyticsPage() {
 						))}
 					</div>
 
+					{/* Supabase quick filters */}
+					{(tab === 'supabase' || tab === 'all') && supabaseQuickCounts.all > 0 && (
+						<div className="flex rounded-md border border-border" aria-label="Supabase quick filters">
+							{(
+								[
+									['all', 'Supabase any', supabaseQuickCounts.all],
+									['unauthorized', '401', supabaseQuickCounts.unauthorized],
+									['timeout', 'Timeout', supabaseQuickCounts.timeout],
+									['upstream_5xx', 'Upstream 5xx', supabaseQuickCounts.upstream_5xx],
+								] as Array<[SupabaseQuickFilter, string, number]>
+							).map(([value, label, count], idx) => (
+								<button
+									key={value}
+									onClick={() => setSupabaseQuickFilter(value)}
+									className={cn(
+										'px-3 py-1 text-xs font-data transition-colors',
+										supabaseQuickFilter === value
+											? 'bg-lv-green/20 text-lv-green'
+											: 'text-muted-foreground hover:text-foreground hover:bg-muted',
+										idx > 0 && 'border-l border-border',
+									)}
+								>
+									{label} ({count})
+								</button>
+							))}
+						</div>
+					)}
+
 					{/* Export controls */}
 					{filteredEvents.length > 0 && (
 						<div className="flex items-center gap-1">
@@ -345,7 +407,7 @@ export function AnalyticsPage() {
 							className="pl-8 h-8 text-xs font-data"
 						/>
 					</div>
-					{(search || statusFilter !== 'all' || tab !== 'all') && (
+					{(search || statusFilter !== 'all' || tab !== 'all' || supabaseQuickFilter !== 'all') && (
 						<span className="text-xs text-muted-foreground font-data">
 							{filteredEvents.length} of {totalCount} events
 						</span>

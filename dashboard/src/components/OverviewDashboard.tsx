@@ -579,6 +579,15 @@ export function OverviewDashboard() {
 	const collapsedPct = purgeTotal > 0 ? (((purgeSummary?.collapsed_count ?? 0) / purgeTotal) * 100).toFixed(1) : '0';
 	const supabaseTimeouts = supabaseSummary?.timeout_count ?? 0;
 	const supabaseUnauthorized = supabaseSummary?.unauthorized_count ?? 0;
+	const supabaseUpstream5xx = supabaseSummary?.upstream_5xx_count ?? 0;
+	const supabaseTimeoutRate = supaTotal > 0 ? (supabaseTimeouts / supaTotal) * 100 : 0;
+	const supabaseUnauthorizedRate = supaTotal > 0 ? (supabaseUnauthorized / supaTotal) * 100 : 0;
+	const supabaseAlerts: string[] = [];
+	if (supaTotal > 0) {
+		if (supabaseTimeoutRate >= 2) supabaseAlerts.push(`Timeouts ${supabaseTimeoutRate.toFixed(1)}%`);
+		if (supabaseUnauthorizedRate >= 5) supabaseAlerts.push(`401 ${supabaseUnauthorizedRate.toFixed(1)}%`);
+		if (supabaseUpstream5xx > 0) supabaseAlerts.push(`Upstream 5xx ${supabaseUpstream5xx}`);
+	}
 
 	return (
 		<TooltipProvider delayDuration={200}>
@@ -597,6 +606,23 @@ export function OverviewDashboard() {
 
 				{/* ── Error ──────────────────────────────────────────────── */}
 				{error && <div className="rounded-lg border border-lv-red/30 bg-lv-red/10 px-4 py-3 text-sm text-lv-red">{error}</div>}
+
+				{/* ── Supabase health alerts ─────────────────────────────── */}
+				{!error && supabaseAlerts.length > 0 && (
+					<div className="rounded-lg border border-lv-peach/30 bg-lv-peach/10 px-4 py-3">
+						<div className="mb-2 flex items-center gap-2 text-sm text-lv-peach">
+							<AlertTriangle className="h-4 w-4" />
+							<span className="font-medium">Supabase upstream health signals</span>
+						</div>
+						<div className="flex flex-wrap gap-2">
+							{supabaseAlerts.map((msg) => (
+								<Badge key={msg} className="bg-lv-peach/20 text-lv-peach border-lv-peach/30">
+									{msg}
+								</Badge>
+							))}
+						</div>
+					</div>
+				)}
 
 				{/* ── Loading ────────────────────────────────────────────── */}
 				{loading && <LoadingSkeleton />}
