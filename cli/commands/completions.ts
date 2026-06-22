@@ -33,7 +33,7 @@ const COMMANDS: Record<string, string[]> = {
 	's3-analytics': ['events', 'summary'],
 	'dns-analytics': ['events', 'summary'],
 	'cf-analytics': ['events', 'summary'],
-	'supabase-analytics': ['events', 'summary'],
+	'supabase-analytics': ['events', 'summary', 'timeseries'],
 	config: ['get', 'set', 'reset'],
 	audit: ['events'],
 };
