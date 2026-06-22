@@ -25,10 +25,15 @@ async function getStoredProfiles(page: import('@playwright/test').Page) {
 	}, STORAGE_KEY);
 }
 
-/** Wait for the React purge page to hydrate. */
+/** Wait for the React purge page to hydrate. The <select> and other markup are
+ *  server-rendered and visible before the island hydrates, so waiting on
+ *  visibility alone races React wiring up its event handlers. Astro removes the
+ *  `ssr` attribute from <astro-island> once the component has mounted — that is
+ *  the canonical hydration-complete signal, so gate on it here. */
 async function waitForPurgePage(page: import('@playwright/test').Page) {
 	await page.goto(PURGE_URL);
 	await expect(page.locator('select')).toBeVisible({ timeout: 10000 });
+	await page.locator('astro-island:not([ssr])').first().waitFor({ state: 'attached', timeout: 10000 });
 }
 
 /** Type a zone ID into the pill input and commit it with Enter. */
@@ -55,6 +60,24 @@ async function addPurgeValue(page: import('@playwright/test').Page, value: strin
 		await page.waitForTimeout(120);
 	}
 	await expect(pillRemove).toBeVisible({ timeout: 5000 });
+}
+
+/** Open the profile dropdown, retrying the toggle until the given option is
+ *  visible. The trigger is server-rendered and clickable before the React
+ *  island hydrates, so an early click is a no-op and the option never appears. */
+async function openProfileDropdown(page: import('@playwright/test').Page, optionText: string) {
+	const trigger = page.locator('text=Select a profile...');
+	const option = page.locator(`text=${optionText}`);
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		await trigger.click();
+		try {
+			await option.waitFor({ state: 'visible', timeout: 1500 });
+			return;
+		} catch {
+			// Not hydrated yet (click was a no-op) — loop and click again to open.
+		}
+	}
+	await expect(option).toBeVisible({ timeout: 5000 });
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -121,7 +144,7 @@ test.describe('Purge Profiles', () => {
 		await waitForPurgePage(page);
 
 		// Open dropdown and click profile
-		await page.locator('text=Select a profile...').click();
+		await openProfileDropdown(page, 'Staging CDN');
 		await page.locator('text=Staging CDN').click();
 
 		// Verify zone ID pill appears
@@ -176,7 +199,7 @@ test.describe('Purge Profiles', () => {
 		await waitForPurgePage(page);
 
 		// Open dropdown, hover to reveal trash, click it
-		await page.locator('text=Select a profile...').click();
+		await openProfileDropdown(page, 'Delete Me');
 		const deleteRow = page.locator('.group:has-text("Delete Me")');
 		await deleteRow.hover();
 		await deleteRow.locator('button[title="Delete profile"]').click();
@@ -318,8 +341,7 @@ test.describe('Purge Form', () => {
 	});
 
 	test('submit button is disabled without zone ID and API key', async ({ page }) => {
-		await page.goto(PURGE_URL);
-		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+		await waitForPurgePage(page);
 
 		// Switch to hosts (PillInput-based) so we can test the full enable flow
 		await page.locator('select').selectOption('hosts');
@@ -345,19 +367,25 @@ test.describe('Purge Form', () => {
 		await waitForPurgePage(page);
 
 		const purgeType = page.locator('label:has-text("Purge Type") + select');
-		await purgeType.selectOption('everything');
-		await expect(purgeType).toHaveValue('everything', { timeout: 10000 });
-
 		const warning = page.locator('text=This will purge all cached content for the zone');
-		await expect.poll(async () => warning.isVisible(), { timeout: 10000 }).toBe(true);
+
+		// The <select> is server-rendered and visible before the React island hydrates,
+		// so an early selectOption can set the native value without firing React's
+		// onChange. Retry until the dependent UI (the warning banner) actually reacts.
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			await purgeType.selectOption('everything');
+			if (await warning.isVisible()) break;
+			await page.waitForTimeout(120);
+		}
+		await expect(purgeType).toHaveValue('everything');
+		await expect(warning).toBeVisible({ timeout: 10000 });
 
 		// Values pill input should be hidden
 		await expect(page.locator('input[aria-label="Purge values"]')).not.toBeVisible();
 	});
 
 	test('pill input: add multiple values via comma-separated paste', async ({ page }) => {
-		await page.goto(PURGE_URL);
-		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+		await waitForPurgePage(page);
 
 		// Switch to tags (PillInput-based) for pill tests
 		await page.locator('select').selectOption('tags');
@@ -384,8 +412,7 @@ test.describe('Purge Form', () => {
 	});
 
 	test('pill input: remove a value by clicking X', async ({ page }) => {
-		await page.goto(PURGE_URL);
-		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+		await waitForPurgePage(page);
 
 		// Switch to tags for pill tests
 		await page.locator('select').selectOption('tags');
@@ -425,8 +452,7 @@ test.describe('Purge Form', () => {
 	});
 
 	test('pill input: duplicates are ignored', async ({ page }) => {
-		await page.goto(PURGE_URL);
-		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+		await waitForPurgePage(page);
 
 		// Switch to tags for pill tests
 		await page.locator('select').selectOption('tags');
@@ -441,8 +467,7 @@ test.describe('Purge Form', () => {
 	});
 
 	test('zone ID max=1: input hides after one pill', async ({ page }) => {
-		await page.goto(PURGE_URL);
-		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+		await waitForPurgePage(page);
 
 		await addZoneId(page, 'aabbccdd11223344aabbccdd11223344');
 
@@ -455,8 +480,7 @@ test.describe('Purge Form', () => {
 	});
 
 	test('changing purge type clears values', async ({ page }) => {
-		await page.goto(PURGE_URL);
-		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+		await waitForPurgePage(page);
 
 		// Start with tags (PillInput-based), add a value
 		await page.locator('select').selectOption('tags');
@@ -472,8 +496,7 @@ test.describe('Purge Form', () => {
 	});
 
 	test('hosts purge type shows host-specific placeholder', async ({ page }) => {
-		await page.goto(PURGE_URL);
-		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+		await waitForPurgePage(page);
 
 		// Switch to hosts type
 		await page.locator('select').selectOption('hosts');
@@ -484,8 +507,7 @@ test.describe('Purge Form', () => {
 	});
 
 	test('tags purge type accepts tag values', async ({ page }) => {
-		await page.goto(PURGE_URL);
-		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+		await waitForPurgePage(page);
 
 		await page.locator('select').selectOption('tags');
 		await addPurgeValue(page, 'release-v1');
@@ -496,8 +518,7 @@ test.describe('Purge Form', () => {
 	});
 
 	test('prefixes purge type accepts prefix values', async ({ page }) => {
-		await page.goto(PURGE_URL);
-		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+		await waitForPurgePage(page);
 
 		await page.locator('select').selectOption('prefixes');
 		await addPurgeValue(page, 'example.com/assets');
@@ -517,11 +538,10 @@ test.describe('Purge Form', () => {
 			},
 			[STORAGE_KEY],
 		);
-		await page.goto(PURGE_URL);
-		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+		await waitForPurgePage(page);
 
 		// Open dropdown, hover to reveal trash, click it
-		await page.locator('text=Select a profile...').click();
+		await openProfileDropdown(page, 'My Profile');
 		const deleteRow = page.locator('.group:has-text("My Profile")');
 		await deleteRow.hover();
 		await deleteRow.locator('button[title="Delete profile"]').click();
