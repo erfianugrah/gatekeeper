@@ -117,13 +117,13 @@
 		"method": "GET",
 		"path": "/v1/oauth/authorize",
 		"summary": "[Beta] Authorize user through oauth",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/v1/oauth/authorize/project-claim",
 		"summary": "Authorize user through oauth and claim a project",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "GET",
@@ -165,7 +165,7 @@
 		"method": "GET",
 		"path": "/v1/profile",
 		"summary": "Gets the user's profile",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "GET",
@@ -543,13 +543,13 @@
 		"method": "GET",
 		"path": "/v1/snippets",
 		"summary": "Lists SQL snippets for the logged in user",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/v1/snippets/{id}",
 		"summary": "Gets a specific SQL snippet",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "HEAD",
@@ -681,13 +681,13 @@
 		"method": "POST",
 		"path": "/v1/oauth/revoke",
 		"summary": "[Beta] Revoke oauth app authorization and it's corresponding tokens",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/v1/oauth/token",
 		"summary": "[Beta] Exchange auth code for user's access and refresh token",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "POST",

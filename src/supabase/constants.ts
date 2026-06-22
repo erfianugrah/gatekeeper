@@ -23,8 +23,11 @@ export type SupabaseCategory =
 	| 'edge_functions'
 	| 'environment'
 	| 'organizations'
+	| 'oauth'
+	| 'profile'
 	| 'projects'
 	| 'rest'
 	| 'secrets'
+	| 'snippets'
 	| 'storage'
 	| 'metrics';

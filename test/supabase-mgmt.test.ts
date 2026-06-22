@@ -472,6 +472,30 @@ describe('supabase management proxy — per-category scope coverage', () => {
 			resources: ['supabase:account'],
 			wildcard: true,
 		},
+		{
+			category: 'oauth',
+			action: 'supabase:oauth:read',
+			method: 'GET',
+			path: '/v1/oauth/authorize',
+			resources: ['supabase:account'],
+			wildcard: true,
+		},
+		{
+			category: 'profile',
+			action: 'supabase:profile:read',
+			method: 'GET',
+			path: '/v1/profile',
+			resources: ['supabase:account'],
+			wildcard: true,
+		},
+		{
+			category: 'snippets',
+			action: 'supabase:snippets:read',
+			method: 'GET',
+			path: '/v1/snippets',
+			resources: ['supabase:account'],
+			wildcard: true,
+		},
 	];
 
 	for (const c of CASES) {

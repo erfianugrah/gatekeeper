@@ -36,6 +36,7 @@ describe('supabase metrics proxy — auth and validation', () => {
 
 		const res = await SELF.fetch(`https://gk/supabase/metrics/${REF}`, { headers: { Authorization: `Bearer ${key}` } });
 		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toContain('text/plain');
 		expect(await res.text()).toContain('pg_stat_database_blks_hit');
 	});
 
