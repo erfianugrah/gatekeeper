@@ -258,6 +258,8 @@ Auth is the scoped `CLOUDFLARE_API_TOKEN` repo secret (Workers Scripts + D1 on t
 
 **`live-smoke`** (`needs: deploy`, push-to-`main` only) runs `cli/smoke-supabase.ts` against the freshly deployed staging worker — API-first checks with a synthetic tier always, plus a real PAT-swap live tier when the `SUPABASE_SMOKE_PAT` repo secret is set. Optional live metrics checks run when both `SUPABASE_SMOKE_METRICS_SECRET` and `SUPABASE_SMOKE_METRICS_REF` are set. CI also enables a non-destructive write-classified probe with `SUPABASE_SMOKE_ENABLE_WRITE_PROBE=1`. Missing optional vars emit notices and self-skip only those subtiers. It targets staging via the `STAGING_ADMIN_KEY` repo secret and self-skips when that is unset (so it never blocks a deploy before secrets exist). It is intentionally **not** run on `workflow_dispatch` (which can target prod) because it mints real resources via the admin key. The full multi-surface `npm run smoke` is deliberately **not** in CI — it needs the complete upstream credential set (CF API token, R2/DNS creds) and is run manually.
 
+A separate scheduled workflow (`.github/workflows/supabase-live-smoke-scheduled.yml`) runs weekly against staging for regression detection between deploys. It requires `STAGING_ADMIN_KEY` and `SUPABASE_SMOKE_PAT`; metrics secrets stay optional and self-skip when unset.
+
 Secrets are per-environment: `wrangler secret put <NAME> --env staging`. Staging has its own `ADMIN_KEY`; the other secrets (`CF_ACCESS_*`, `RBAC_*`) are unset on staging until needed.
 
 ---
