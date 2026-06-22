@@ -34,17 +34,13 @@ export interface DnsEvent {
 }
 
 async function ensureTables(db: D1Database): Promise<void> {
-	await db.batch([
-		db.prepare(DNS_EVENTS_TABLE_SQL),
-		db.prepare(DNS_EVENTS_INDEX_KEY_SQL),
-		db.prepare(DNS_EVENTS_INDEX_ZONE_SQL),
-		db.prepare(DNS_EVENTS_INDEX_KEY_FINGERPRINT_SQL),
-	]);
+	await db.batch([db.prepare(DNS_EVENTS_TABLE_SQL), db.prepare(DNS_EVENTS_INDEX_KEY_SQL), db.prepare(DNS_EVENTS_INDEX_ZONE_SQL)]);
 	try {
 		await db.prepare(DNS_EVENTS_ADD_KEY_FINGERPRINT_SQL).run();
 	} catch {
 		// Column already exists — expected after first migration run.
 	}
+	await db.prepare(DNS_EVENTS_INDEX_KEY_FINGERPRINT_SQL).run();
 	await db.prepare(`UPDATE dns_events SET key_id = ${KEY_PREVIEW_SQL_EXPR} WHERE ${LEGACY_RAW_BEARER_KEY_SQL}`).run();
 }
 

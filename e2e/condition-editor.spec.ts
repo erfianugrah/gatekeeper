@@ -26,11 +26,16 @@ async function ensureUpstreamToken(request: import('@playwright/test').APIReques
 
 /** Open Create Key dialog and select the upstream token to reveal the policy builder. */
 async function openPolicyBuilder(page: import('@playwright/test').Page) {
-	// Open dialog
 	const createBtn = page.locator('button:has-text("Create Key")');
+	const createDialogTitle = page.getByRole('heading', { name: 'Create API Key' });
+
 	await expect(createBtn).toBeVisible({ timeout: 10000 });
-	await createBtn.click();
-	await expect(page.getByRole('heading', { name: 'Create API Key' })).toBeVisible({ timeout: 10000 });
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		if (await createDialogTitle.isVisible()) break;
+		await createBtn.click({ force: true });
+		await page.waitForTimeout(120);
+	}
+	await expect(createDialogTitle).toBeVisible({ timeout: 10000 });
 
 	// Select upstream token -- click the token dropdown and pick the first option
 	await page.locator('button[role="combobox"]:has-text("Select upstream token")').click();

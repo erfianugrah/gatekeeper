@@ -76,7 +76,6 @@ async function ensureTables(db: D1Database): Promise<void> {
 	await db.batch([
 		db.prepare(SUPABASE_PROXY_EVENTS_TABLE_SQL),
 		db.prepare(SUPABASE_PROXY_EVENTS_INDEX_KEY_SQL),
-		db.prepare(SUPABASE_PROXY_EVENTS_INDEX_KEY_FINGERPRINT_SQL),
 		db.prepare(SUPABASE_PROXY_EVENTS_INDEX_REF_SQL),
 		db.prepare(SUPABASE_PROXY_EVENTS_INDEX_ACTION_SQL),
 	]);
@@ -85,6 +84,7 @@ async function ensureTables(db: D1Database): Promise<void> {
 	} catch {
 		// Column already exists — expected after first migration run.
 	}
+	await db.prepare(SUPABASE_PROXY_EVENTS_INDEX_KEY_FINGERPRINT_SQL).run();
 	await db.prepare(`UPDATE supabase_proxy_events SET key_id = ${KEY_PREVIEW_SQL_EXPR} WHERE ${LEGACY_RAW_BEARER_KEY_SQL}`).run();
 }
 
