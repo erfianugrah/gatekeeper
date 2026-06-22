@@ -1,8 +1,10 @@
+import { JsonHighlight } from '@/components/JsonHighlight';
 import { TableRow, TableCell } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent } from '@/lib/api';
 import { formatTimeISO } from './analytics-helpers';
 import { isCfProxySource } from './analytics-types';
 import type { UnifiedEvent } from './analytics-types';
-import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent } from '@/lib/api';
 
 // ─── Detail row (expanded) ──────────────────────────────────────────
 
@@ -12,6 +14,89 @@ interface DetailField {
 	key: string;
 	value: string | number | null | undefined;
 	type: FieldType;
+}
+
+function parseJsonLike(value: string | number | null | undefined): { parsed: unknown; raw: string } | null {
+	if (typeof value !== 'string') return null;
+	const raw = value.trim();
+	if (!raw) return null;
+	if (!raw.startsWith('{') && !raw.startsWith('[')) return null;
+	try {
+		return { parsed: JSON.parse(raw), raw };
+	} catch {
+		return null;
+	}
+}
+
+function renderStructuredJson(data: unknown): React.ReactNode {
+	if (Array.isArray(data)) {
+		if (data.length === 0) return <span className="text-[11px] font-data text-muted-foreground">Empty array</span>;
+		const allObjects = data.every((item) => item && typeof item === 'object' && !Array.isArray(item));
+		if (!allObjects) {
+			return <JsonHighlight data={data} />;
+		}
+		return (
+			<div className="space-y-2 max-h-56 overflow-auto pr-1">
+				{data.map((item, idx) => {
+					const entries = Object.entries(item as Record<string, unknown>);
+					return (
+						<div key={idx} className="rounded border border-border/60 bg-background/40 p-2">
+							<div className="mb-1 text-[10px] font-data uppercase tracking-wide text-muted-foreground">Object {idx + 1}</div>
+							<div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+								{entries.map(([k, v]) => (
+									<div key={k} className="contents">
+										<span className="text-[10px] font-data text-muted-foreground/70">{k}</span>
+										<span className="text-[10px] font-data break-all">{String(v)}</span>
+									</div>
+								))}
+							</div>
+						</div>
+					);
+				})}
+			</div>
+		);
+	}
+
+	if (data && typeof data === 'object') {
+		const entries = Object.entries(data as Record<string, unknown>);
+		if (entries.length === 0) return <span className="text-[11px] font-data text-muted-foreground">Empty object</span>;
+		return (
+			<div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 max-h-56 overflow-auto pr-1">
+				{entries.map(([k, v]) => (
+					<div key={k} className="contents">
+						<span className="text-[10px] font-data text-muted-foreground/70">{k}</span>
+						<span className="text-[10px] font-data break-all">{String(v)}</span>
+					</div>
+				))}
+			</div>
+		);
+	}
+
+	return <span className="text-[11px] font-data break-all">{String(data)}</span>;
+}
+
+function renderResponseDetailField(value: string | number | null | undefined): React.ReactNode {
+	const parsed = parseJsonLike(value);
+	if (!parsed) {
+		return <span className="text-[11px] font-data break-all">{String(value ?? 'null')}</span>;
+	}
+
+	return (
+		<Tabs defaultValue="structured" className="w-full">
+			<TabsList className="h-7">
+				<TabsTrigger value="structured" className="px-2 text-[10px]">
+					Structured
+				</TabsTrigger>
+				<TabsTrigger value="raw" className="px-2 text-[10px]">
+					Raw JSON
+				</TabsTrigger>
+			</TabsList>
+			<TabsContent value="structured">{renderStructuredJson(parsed.parsed)}</TabsContent>
+			<TabsContent value="raw">
+				<JsonHighlight data={parsed.parsed} />
+			</TabsContent>
+		</Tabs>
+	);
 }
 
 function coloredValue(field: DetailField): React.ReactNode {
@@ -145,7 +230,9 @@ export function EventDetailRow({ event }: { event: UnifiedEvent }) {
 					{fields.map((field) => (
 						<div key={field.key} className="contents">
 							<span className="text-[11px] font-data text-muted-foreground/70 select-none">{field.key}</span>
-							<span className="text-[11px] font-data break-all select-all">{coloredValue(field)}</span>
+							<span className="text-[11px] font-data break-all select-all">
+								{field.key === 'response_detail' ? renderResponseDetailField(field.value) : coloredValue(field)}
+							</span>
 						</div>
 					))}
 				</div>

@@ -577,6 +577,8 @@ export function OverviewDashboard() {
 	const errorPct = totalRequests > 0 ? ((errorCount / totalRequests) * 100).toFixed(1) : '0';
 
 	const collapsedPct = purgeTotal > 0 ? (((purgeSummary?.collapsed_count ?? 0) / purgeTotal) * 100).toFixed(1) : '0';
+	const supabaseTimeouts = supabaseSummary?.timeout_count ?? 0;
+	const supabaseUnauthorized = supabaseSummary?.unauthorized_count ?? 0;
 
 	return (
 		<TooltipProvider delayDuration={200}>
@@ -655,6 +657,24 @@ export function OverviewDashboard() {
 									icon={<Database className="h-5 w-5 text-lv-peach" />}
 									iconBg="bg-lv-peach/15"
 									delay={172}
+								/>
+							)}
+							{supaTotal > 0 && (
+								<StatCard
+									label="Supabase 401"
+									value={formatNumber(supabaseUnauthorized)}
+									icon={<AlertTriangle className="h-5 w-5 text-lv-peach" />}
+									iconBg="bg-lv-peach/15"
+									delay={176}
+								/>
+							)}
+							{supaTotal > 0 && (
+								<StatCard
+									label="Supabase Timeouts"
+									value={formatNumber(supabaseTimeouts)}
+									icon={<Timer className="h-5 w-5 text-lv-red" />}
+									iconBg="bg-lv-red/15"
+									delay={178}
 								/>
 							)}
 							<StatCard

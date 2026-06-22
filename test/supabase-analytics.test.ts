@@ -56,6 +56,11 @@ describe('supabase analytics — endpoint availability', () => {
 		expect(typeof data.result.by_status).toBe('object');
 		expect(typeof data.result.by_category).toBe('object');
 		expect(typeof data.result.avg_duration_ms).toBe('number');
+		expect(typeof data.result.total_errors).toBe('number');
+		expect(typeof data.result.error_rate_pct).toBe('number');
+		expect(typeof data.result.unauthorized_count).toBe('number');
+		expect(typeof data.result.timeout_count).toBe('number');
+		expect(typeof data.result.upstream_5xx_count).toBe('number');
 	});
 
 	it('G38: all three analytics endpoints require admin key → 401 without it', async () => {
