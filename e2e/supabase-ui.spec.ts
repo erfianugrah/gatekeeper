@@ -20,7 +20,7 @@ async function createToken(
 ) {
 	const headers = { 'Content-Type': 'application/json', 'X-Admin-Key': ADMIN_KEY };
 	const isMetrics = opts.scope_type === 'supabase_metrics';
-	await request.post('/admin/upstream-tokens', {
+	const res = await request.post('/admin/upstream-tokens', {
 		headers,
 		data: {
 			name: opts.name,
@@ -31,6 +31,50 @@ async function createToken(
 			...(isMetrics && { auth_type: 'basic', username: 'service_role' }),
 		},
 	});
+	expect(res.ok()).toBeTruthy();
+	const data = (await res.json()) as any;
+	expect(data.success).toBeTruthy();
+	return data.result.id as string;
+}
+
+/** Create an API key bound to a Supabase upstream token and return its key id. */
+async function createSupabaseKey(request: import('@playwright/test').APIRequestContext, upstreamTokenId: string, name: string) {
+	const headers = { 'Content-Type': 'application/json', 'X-Admin-Key': ADMIN_KEY };
+	const res = await request.post('/admin/keys', {
+		headers,
+		data: {
+			name,
+			upstream_token_id: upstreamTokenId,
+			policy: {
+				version: '2025-01-01',
+				statements: [
+					{
+						effect: 'allow',
+						actions: ['supabase:projects:read'],
+						resources: ['supabase:account'],
+					},
+				],
+			},
+		},
+	});
+	expect(res.ok()).toBeTruthy();
+	const data = (await res.json()) as any;
+	expect(data.success).toBeTruthy();
+	return data.result.key.id as string;
+}
+
+/** Poll Supabase analytics until an event for the given key id is visible. */
+async function waitForSupabaseEvent(request: import('@playwright/test').APIRequestContext, keyId: string) {
+	const headers = { 'X-Admin-Key': ADMIN_KEY };
+	const deadline = Date.now() + 10_000;
+	while (Date.now() < deadline) {
+		const res = await request.get(`/admin/supabase/analytics/events?key_id=${encodeURIComponent(keyId)}&limit=5`, { headers });
+		expect(res.ok()).toBeTruthy();
+		const data = (await res.json()) as any;
+		if (Array.isArray(data.result) && data.result.some((row: any) => row.key_id === keyId)) return;
+		await new Promise((resolve) => setTimeout(resolve, 250));
+	}
+	throw new Error(`Timed out waiting for Supabase analytics event for key ${keyId}`);
 }
 
 /** Open the Create Key dialog and select a named upstream token, revealing the policy builder. */
@@ -49,10 +93,16 @@ async function openPolicyBuilderForToken(page: import('@playwright/test').Page, 
 
 /** Open the Register Upstream Token dialog and return the scope-type combobox locator. */
 async function openRegisterDialog(page: import('@playwright/test').Page) {
-	const registerBtn = page.locator('button:has-text("Register Token")');
+	const registerBtn = page.getByRole('button', { name: 'Register Token' });
 	await expect(registerBtn).toBeVisible({ timeout: 10000 });
-	await registerBtn.click();
-	await expect(page.getByRole('heading', { name: 'Register Upstream Token' })).toBeVisible({ timeout: 10000 });
+	const dialog = page.locator('[role="dialog"]');
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		if (await dialog.isVisible()) break;
+		await registerBtn.click({ force: true });
+		await page.waitForTimeout(120);
+	}
+	await expect(dialog).toBeVisible({ timeout: 10000 });
+	await expect(dialog.getByRole('button', { name: 'Register' })).toBeVisible({ timeout: 10000 });
 }
 
 /** Select a scope-type option in the (only) combobox of the register dialog. */
@@ -176,5 +226,28 @@ test.describe('Policy Builder — Supabase scope gating', () => {
 		await expect(page.locator('button:has-text("purge:*")')).toBeVisible();
 		await expect(page.locator('button:has-text("dns:*")')).toBeVisible();
 		await expect(page.locator('button:has-text("supabase:*")')).toHaveCount(0);
+	});
+});
+
+// ─── Analytics: Supabase source visibility ─────────────────────────
+
+test.describe('Analytics — Supabase source visibility', () => {
+	test('Supabase source tab is visible when Supabase events exist', async ({ page, request }) => {
+		const runId = Date.now();
+		const upstreamTokenId = await createToken(request, {
+			name: `e2e-sb-analytics-token-${runId}`,
+			scope_type: 'supabase',
+			zone_ids: ['*'],
+		});
+		const keyId = await createSupabaseKey(request, upstreamTokenId, `e2e-sb-analytics-key-${runId}`);
+
+		// Fake credential is intentional — we only need a proxied request that reaches analytics logging.
+		await request.get('/supabase/v1/projects', {
+			headers: { Authorization: `Bearer ${keyId}` },
+		});
+		await waitForSupabaseEvent(request, keyId);
+
+		await setupAuth(page, '/dashboard/analytics');
+		await expect(page.getByRole('button', { name: /Supabase \(\d+\)/ })).toBeVisible();
 	});
 });

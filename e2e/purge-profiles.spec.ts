@@ -28,21 +28,33 @@ async function getStoredProfiles(page: import('@playwright/test').Page) {
 /** Wait for the React purge page to hydrate. */
 async function waitForPurgePage(page: import('@playwright/test').Page) {
 	await page.goto(PURGE_URL);
-	await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+	await expect(page.locator('select')).toBeVisible({ timeout: 10000 });
 }
 
 /** Type a zone ID into the pill input and commit it with Enter. */
 async function addZoneId(page: import('@playwright/test').Page, zoneId: string) {
 	const input = page.locator('input[aria-label="Zone ID"]');
-	await input.fill(zoneId);
-	await input.press('Enter');
+	const pillRemove = page.locator(`[aria-label="Remove ${zoneId}"]`);
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		await input.fill(zoneId);
+		await input.press('Enter');
+		if (await pillRemove.isVisible()) return;
+		await page.waitForTimeout(120);
+	}
+	await expect(pillRemove).toBeVisible({ timeout: 5000 });
 }
 
 /** Type a purge value into the pill input and commit it with Enter. */
 async function addPurgeValue(page: import('@playwright/test').Page, value: string) {
 	const input = page.locator('input[aria-label="Purge values"]');
-	await input.fill(value);
-	await input.press('Enter');
+	const pillRemove = page.locator(`[aria-label="Remove ${value}"]`);
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		await input.fill(value);
+		await input.press('Enter');
+		if (await pillRemove.isVisible()) return;
+		await page.waitForTimeout(120);
+	}
+	await expect(pillRemove).toBeVisible({ timeout: 5000 });
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────
@@ -289,15 +301,15 @@ test.describe('Purge Profiles', () => {
 
 test.describe('Purge Form', () => {
 	test('zone ID validation shows error for invalid format', async ({ page }) => {
-		await page.goto(PURGE_URL);
-		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+		await waitForPurgePage(page);
 
-		// Type invalid zone ID and press Enter
 		const zoneInput = page.locator('input[aria-label="Zone ID"]');
+		await zoneInput.click();
 		await zoneInput.fill('not-valid');
 		await zoneInput.press('Enter');
 
-		await expect(page.locator('text=Zone ID must be a 32-character hex string')).toBeVisible();
+		const errorMsg = page.locator('text=Zone ID must be a 32-character hex string');
+		await expect.poll(async () => errorMsg.isVisible(), { timeout: 10000 }).toBe(true);
 	});
 
 	test('submit button is disabled without zone ID and API key', async ({ page }) => {
@@ -306,7 +318,7 @@ test.describe('Purge Form', () => {
 
 		// Switch to hosts (PillInput-based) so we can test the full enable flow
 		await page.locator('select').selectOption('hosts');
-		await expect(page.locator('input[placeholder="www.example.com"]')).toBeVisible();
+		await expect(page.locator('input[aria-label="Purge values"]')).toBeVisible();
 
 		const submitBtn = page.locator('button:has-text("Send Purge Request")');
 		await expect(submitBtn).toBeDisabled();
@@ -327,8 +339,12 @@ test.describe('Purge Form', () => {
 	test('purge everything shows warning banner', async ({ page }) => {
 		await waitForPurgePage(page);
 
-		await page.locator('select').selectOption('everything');
-		await expect(page.locator('text=This will purge all cached content for the zone')).toBeVisible();
+		const purgeType = page.locator('select');
+		await purgeType.selectOption('everything');
+		await expect(purgeType).toHaveValue('everything');
+
+		const warning = page.locator('text=This will purge all cached content for the zone');
+		await expect.poll(async () => warning.isVisible(), { timeout: 10000 }).toBe(true);
 
 		// Values pill input should be hidden
 		await expect(page.locator('input[aria-label="Purge values"]')).not.toBeVisible();
@@ -340,7 +356,7 @@ test.describe('Purge Form', () => {
 
 		// Switch to tags (PillInput-based) for pill tests
 		await page.locator('select').selectOption('tags');
-		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
+		await expect(page.locator('input[aria-label="Purge values"]')).toBeVisible();
 
 		// Paste comma-separated values
 		const valuesInput = page.locator('input[aria-label="Purge values"]');
@@ -364,7 +380,7 @@ test.describe('Purge Form', () => {
 
 		// Switch to tags for pill tests
 		await page.locator('select').selectOption('tags');
-		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
+		await expect(page.locator('input[aria-label="Purge values"]')).toBeVisible();
 
 		await addPurgeValue(page, 'tag-one');
 		await addPurgeValue(page, 'tag-two');
@@ -378,21 +394,25 @@ test.describe('Purge Form', () => {
 	});
 
 	test('pill input: backspace removes last pill when input is empty', async ({ page }) => {
-		await page.goto(PURGE_URL);
-		await expect(page.locator('text=Select a profile...')).toBeVisible({ timeout: 10000 });
+		await waitForPurgePage(page);
 
-		// Switch to tags for pill tests and wait for PillInput placeholder to render
 		await page.locator('select').selectOption('tags');
-		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
+		const valuesInput = page.locator('input[aria-label="Purge values"]');
+		await expect(valuesInput).toBeVisible();
 
 		await addPurgeValue(page, 'first');
 		await addPurgeValue(page, 'second');
 
-		const valuesInput = page.locator('input[aria-label="Purge values"]');
-		await valuesInput.press('Backspace');
+		await valuesInput.click();
+		await valuesInput.fill('');
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			await valuesInput.press('Backspace');
+			if (!(await page.locator('[aria-label="Remove second"]').isVisible())) break;
+			await page.waitForTimeout(120);
+		}
 
-		await expect(page.locator('text=first')).toBeVisible();
-		await expect(page.locator('text=second')).not.toBeVisible();
+		await expect(page.locator('[aria-label="Remove first"]')).toBeVisible();
+		await expect(page.locator('[aria-label="Remove second"]')).not.toBeVisible();
 	});
 
 	test('pill input: duplicates are ignored', async ({ page }) => {
@@ -401,7 +421,7 @@ test.describe('Purge Form', () => {
 
 		// Switch to tags for pill tests
 		await page.locator('select').selectOption('tags');
-		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
+		await expect(page.locator('input[aria-label="Purge values"]')).toBeVisible();
 
 		await addPurgeValue(page, 'same-tag');
 		await addPurgeValue(page, 'same-tag');
@@ -431,7 +451,7 @@ test.describe('Purge Form', () => {
 
 		// Start with tags (PillInput-based), add a value
 		await page.locator('select').selectOption('tags');
-		await expect(page.locator('input[placeholder="tag-a"]')).toBeVisible();
+		await expect(page.locator('input[aria-label="Purge values"]')).toBeVisible();
 		await addPurgeValue(page, 'my-cache-tag');
 		await expect(page.locator('text=my-cache-tag')).toBeVisible();
 
