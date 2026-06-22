@@ -156,6 +156,9 @@ jobs:
           GATEKEEPER_URL: https://gatekeeper-staging.anugrah.workers.dev
           GATEKEEPER_ADMIN_KEY: ${{ secrets.STAGING_ADMIN_KEY }}
           SUPABASE_SMOKE_PAT: ${{ secrets.SUPABASE_SMOKE_PAT }}
+          SUPABASE_SMOKE_METRICS_SECRET: ${{ secrets.SUPABASE_SMOKE_METRICS_SECRET }}
+          SUPABASE_SMOKE_METRICS_REF: ${{ secrets.SUPABASE_SMOKE_METRICS_REF }}
+          SUPABASE_SMOKE_ENABLE_WRITE_PROBE: "1"
         run: |
           if [ -z "$GATEKEEPER_ADMIN_KEY" ]; then
             echo "::notice::STAGING_ADMIN_KEY not set — skipping live Supabase smoke (synthetic + live)."
@@ -163,5 +166,8 @@ jobs:
           fi
           if [ -z "$SUPABASE_SMOKE_PAT" ]; then
             echo "::notice::SUPABASE_SMOKE_PAT not set — running synthetic tier only (live tier will self-skip)."
+          fi
+          if [ -z "$SUPABASE_SMOKE_METRICS_SECRET" ] || [ -z "$SUPABASE_SMOKE_METRICS_REF" ]; then
+            echo "::notice::SUPABASE_SMOKE_METRICS_SECRET and/or SUPABASE_SMOKE_METRICS_REF not set — metrics live tier will self-skip."
           fi
           bunx tsx cli/smoke-supabase.ts

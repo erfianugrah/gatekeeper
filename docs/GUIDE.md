@@ -595,6 +595,16 @@ supabase projects list
 
 The CLI's commands still go through the same classify -> policy pipeline, so the scoped key only permits the `supabase:<category>:<read|write>` actions its policy allows -- a read-only CLI key cannot run `supabase db push`, etc.
 
+#### Verifying the Supabase surface (API-first smoke)
+
+`npm run smoke:supabase` is API-first: it validates raw proxy HTTP paths before any CLI compatibility check.
+
+- Always-on synthetic tier: auth ordering, classifier wiring, policy deny-by-default, key-shape behavior.
+- Live PAT tier (optional): set `SUPABASE_SMOKE_PAT` to validate real Management API pass-through (`/supabase/v1/*`) and the `/supabase/v0/projects/:ref/analytics/metrics` reachability path.
+- Live metrics tier (optional): set `SUPABASE_SMOKE_METRICS_SECRET` and `SUPABASE_SMOKE_METRICS_REF` to validate `/supabase/metrics/:ref` (Basic secret swap).
+- Write-classified probe (optional): set `SUPABASE_SMOKE_ENABLE_WRITE_PROBE=1` to run a non-destructive `POST /v1/projects/:ref/database/query` probe (`select 1`).
+- Official CLI compatibility is additive: when `supabase` is on PATH, the suite also checks `supabase projects list` through the proxy using an `sbp_`-shaped Gatekeeper key.
+
 ---
 
 ## 3. Creating API Keys
@@ -2653,9 +2663,9 @@ The current and only supported policy version is `"2025-01-01"`.
 
 ### Supabase actions
 
-Management API actions follow `supabase:<category>:<read|write>` across the eleven categories. Read/write is derived from the HTTP method (with an explicit read-override set for the POST-but-read endpoints):
+Management API actions follow `supabase:<category>:<read|write>` across project and account-level categories. Read/write is derived from the HTTP method (with an explicit read-override set for the POST-but-read endpoints):
 
-`supabase:auth:read`, `supabase:auth:write`, `supabase:database:read`, `supabase:database:write`, `supabase:domains:read`, `supabase:domains:write`, `supabase:edge_functions:read`, `supabase:edge_functions:write`, `supabase:environment:read`, `supabase:environment:write`, `supabase:organizations:read`, `supabase:organizations:write`, `supabase:projects:read`, `supabase:projects:write`, `supabase:rest:read`, `supabase:rest:write`, `supabase:secrets:read`, `supabase:secrets:write`, `supabase:storage:read`, `supabase:storage:write`, `supabase:metrics:read`, `supabase:*`
+`supabase:auth:read`, `supabase:auth:write`, `supabase:database:read`, `supabase:database:write`, `supabase:domains:read`, `supabase:domains:write`, `supabase:edge_functions:read`, `supabase:edge_functions:write`, `supabase:environment:read`, `supabase:environment:write`, `supabase:organizations:read`, `supabase:organizations:write`, `supabase:oauth:read`, `supabase:oauth:write`, `supabase:profile:read`, `supabase:projects:read`, `supabase:projects:write`, `supabase:rest:read`, `supabase:rest:write`, `supabase:secrets:read`, `supabase:secrets:write`, `supabase:snippets:read`, `supabase:snippets:write`, `supabase:storage:read`, `supabase:storage:write`, `supabase:metrics:read`, `supabase:*`
 
 Resources are `project:<ref>` (20-char project ref), `project:*`, `org:<slug>`, `branch:<id>`, or `supabase:account` (account-wide endpoints). Because `supabase:account` and `project:*` both grant account-wide reach, both require a `supabase` upstream token that covers all projects (`zone_ids: ["*"]`) when the key is created. The credential is resolved at request time by the key's bound `upstream_token_id` (never a scope/ref match), so a key always uses exactly the credential it was bound to.
 

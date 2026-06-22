@@ -222,13 +222,13 @@ Logs CF proxy events to D1 (`cf_proxy_events` table). Each event records the ser
 
 **Files:** `src/supabase/classify.ts`, `src/supabase/router.ts`, `src/supabase/proxy-helpers.ts`, `src/supabase/constants.ts`
 
-Fronts a stored Supabase credential (Management API PAT or per-project metrics secret) with the IAM + policy engine, so a coarse account-level Supabase credential is handed out only as narrowly-scoped Gatekeeper keys. Two surfaces, both authorizing **before** resolving the upstream credential (so unauthenticated callers can't probe which refs have a credential via 502-vs-401): `ALL /supabase/v1/*` + `ALL /supabase/v0/*` (Management API, Bearer PAT swap) and `GET /supabase/metrics/:ref` (per-project Prometheus over HTTP Basic). The table-driven classifier (`classifySupabaseRequest`) maps each `(method, path)` to a `supabase:<category>:<read|write>` action across eleven categories via longest-prefix matching; unmapped paths **deny by default** (404). Condition fields: `supabase.project_ref`, `supabase.category`, `supabase.method`, `supabase.write`. Credentials are stored in the existing upstream-token store with `scope_type` `supabase` / `supabase_metrics`.
+Fronts a stored Supabase credential (Management API PAT or per-project metrics secret) with the IAM + policy engine, so a coarse account-level Supabase credential is handed out only as narrowly-scoped Gatekeeper keys. Two surfaces, both authorizing **before** resolving the upstream credential (so unauthenticated callers can't probe which refs have a credential via 502-vs-401): `ALL /supabase/v1/*` + `ALL /supabase/v0/*` (Management API, Bearer PAT swap) and `GET /supabase/metrics/:ref` (per-project Prometheus over HTTP Basic). The table-driven classifier (`classifySupabaseRequest`) maps each `(method, path)` to a `supabase:<category>:<read|write>` action across project and account-level categories via longest-prefix matching; unmapped paths **deny by default** (404). Condition fields: `supabase.project_ref`, `supabase.category`, `supabase.method`, `supabase.write`. Credentials are stored in the existing upstream-token store with `scope_type` `supabase` / `supabase_metrics`.
 
 ### 14. Supabase Analytics
 
 **Files:** `src/supabase/analytics.ts`, `src/routes/admin-supabase-analytics.ts`
 
-Logs Supabase proxy events to D1 (`supabase_proxy_events` table) recording project ref, category, action, status, and latency. Query endpoints: `events`, `summary`, `timeseries` (the table is in the `ALLOWED_TABLES` safelist in `src/analytics-timeseries.ts`). A CLI command (`gk supabase-analytics`) wraps events + summary. Shares the retention cron with the other analytics surfaces.
+Logs Supabase proxy events to D1 (`supabase_proxy_events` table) recording project ref, category, action, status, and latency. Query endpoints: `events`, `summary`, `timeseries` (the table is in the `ALLOWED_TABLES` safelist in `src/analytics-timeseries.ts`). A CLI command (`gk supabase-analytics`) wraps events + summary + timeseries. Shares the retention cron with the other analytics surfaces.
 
 ### 15. API Coverage & Drift Detection
 
