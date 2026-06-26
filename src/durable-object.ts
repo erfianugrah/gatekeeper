@@ -148,7 +148,8 @@ export class Gatekeeper extends DurableObject<Env> {
 		const singleChanged = this.singleBucket.rate !== rlConfig.single.rate || this.singleBucket.bucketSize !== rlConfig.single.bucketSize;
 		const s3Changed = this.s3Bucket.rate !== gwConfig.s3_rps || this.s3Bucket.bucketSize !== gwConfig.s3_burst;
 		const cfProxyChanged = this.cfProxyBucket.rate !== gwConfig.cf_proxy_rps || this.cfProxyBucket.bucketSize !== gwConfig.cf_proxy_burst;
-		const supabaseChanged = this.supabaseBucket.rate !== gwConfig.supabase_rps || this.supabaseBucket.bucketSize !== gwConfig.supabase_burst;
+		const supabaseChanged =
+			this.supabaseBucket.rate !== gwConfig.supabase_rps || this.supabaseBucket.bucketSize !== gwConfig.supabase_burst;
 
 		if (bulkChanged) {
 			this.bulkBucket = new TokenBucket(rlConfig.bulk.rate, rlConfig.bulk.bucketSize);
