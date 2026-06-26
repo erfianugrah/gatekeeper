@@ -27,8 +27,8 @@ export function extractBearerKey(authHeader: string | undefined): string | null 
 // ─── Response helpers ───────────────────────────────────────────────────────
 
 /** Plain JSON error (Supabase Management API uses `{ message }`, not the CF envelope). */
-export function sbJsonError(status: number, message: string): Response {
-	return new Response(JSON.stringify({ message }), { status, headers: { 'Content-Type': 'application/json' } });
+export function sbJsonError(status: number, message: string, extraHeaders?: Record<string, string>): Response {
+	return new Response(JSON.stringify({ message }), { status, headers: { 'Content-Type': 'application/json', ...extraHeaders } });
 }
 
 /** Headers from the upstream response that should be forwarded to the client. */

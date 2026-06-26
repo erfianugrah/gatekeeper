@@ -71,6 +71,17 @@ supabaseApp.get('/metrics/:ref', async (c) => {
 		return sbJsonError(status, auth.error ?? 'Forbidden');
 	}
 
+	// Account-level Supabase rate limit — shared across all management proxy calls.
+	const rlResultMetrics = await stub.consumeSupabaseRateLimit();
+	if (!rlResultMetrics.allowed) {
+		log.breadcrumb = 'supabase-metrics-rate-limited';
+		log.status = 429;
+		log.error = 'rate_limited';
+		log.durationMs = Date.now() - start;
+		console.log(JSON.stringify(log));
+		return sbJsonError(429, 'Rate limit exceeded', { 'Retry-After': String(rlResultMetrics.retryAfterSec) });
+	}
+
 	// Binding wins: a key pinned to a metrics credential uses that exact secret, never a ref match.
 	const cred = auth.upstreamTokenId
 		? await stub.resolveSupabaseMetricsCredentialById(auth.upstreamTokenId)
@@ -169,6 +180,17 @@ const managementApiHandler = async (c: Context<SupabaseEnv>) => {
 		log.authError = auth.error;
 		console.log(JSON.stringify(log));
 		return sbJsonError(status, auth.error ?? 'Forbidden');
+	}
+
+	// Account-level Supabase rate limit — shared across all management proxy calls.
+	const rlResult = await stub.consumeSupabaseRateLimit();
+	if (!rlResult.allowed) {
+		log.breadcrumb = 'supabase-mgmt-rate-limited';
+		log.status = 429;
+		log.error = 'rate_limited';
+		log.durationMs = Date.now() - start;
+		console.log(JSON.stringify(log));
+		return sbJsonError(429, 'Rate limit exceeded', { 'Retry-After': String(rlResult.retryAfterSec) });
 	}
 
 	// Resolve the PAT. A key bound to a specific upstream token (the normal case) MUST use that
