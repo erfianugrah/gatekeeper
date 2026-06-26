@@ -39,13 +39,16 @@ describe('classifySupabaseRequest', () => {
 		expect(r?.category).toBe('database');
 	});
 
-	it('classifies network-bans/retrieve as networking:read despite being POST', () => {
+	it('classifies network-bans/retrieve + enriched as networking:read despite being POST', () => {
+		expect(classifySupabaseRequest('POST', `/v1/projects/${REF}/network-bans/retrieve`)?.category).toBe('networking');
 		expect(classifySupabaseRequest('POST', `/v1/projects/${REF}/network-bans/retrieve`)?.write).toBe(false);
 		expect(classifySupabaseRequest('POST', `/v1/projects/${REF}/network-bans/retrieve/enriched`)?.write).toBe(false);
 	});
 
 	it('classifies a destructive network-ban delete as networking:write', () => {
-		expect(classifySupabaseRequest('DELETE', `/v1/projects/${REF}/network-bans`)?.action).toBe('supabase:networking:write');
+		const r = classifySupabaseRequest('DELETE', `/v1/projects/${REF}/network-bans`);
+		expect(r?.category).toBe('networking');
+		expect(r?.action).toBe('supabase:networking:write');
 	});
 
 	it('classifies edge function body fetch (6 segments) as edge_functions:read', () => {
@@ -277,17 +280,6 @@ describe('classifySupabaseRequest', () => {
 		const r = classifySupabaseRequest('GET', `/v1/projects/${REF}/analytics/endpoints/usage.api-counts`);
 		expect(r?.category).toBe('analytics');
 		expect(r?.action).toBe('supabase:analytics:read');
-	});
-
-	it('classifies network-bans/retrieve as networking:read despite being POST', () => {
-		expect(classifySupabaseRequest('POST', `/v1/projects/${REF}/network-bans/retrieve`)?.category).toBe('networking');
-		expect(classifySupabaseRequest('POST', `/v1/projects/${REF}/network-bans/retrieve`)?.write).toBe(false);
-	});
-
-	it('classifies DELETE network-bans as networking:write', () => {
-		const r = classifySupabaseRequest('DELETE', `/v1/projects/${REF}/network-bans`);
-		expect(r?.category).toBe('networking');
-		expect(r?.action).toBe('supabase:networking:write');
 	});
 
 	it('classifies GET network-restrictions as networking:read', () => {
