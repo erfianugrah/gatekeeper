@@ -7887,6 +7887,12 @@
           },
           "cf_proxy_burst": {
             "type": "number"
+          },
+          "supabase_rps": {
+            "type": "number"
+          },
+          "supabase_burst": {
+            "type": "number"
           }
         },
         "required": [
@@ -7901,7 +7907,9 @@
           "s3_rps",
           "s3_burst",
           "cf_proxy_rps",
-          "cf_proxy_burst"
+          "cf_proxy_burst",
+          "supabase_rps",
+          "supabase_burst"
         ],
         "additionalProperties": false,
         "description": "Resolved gateway configuration"
