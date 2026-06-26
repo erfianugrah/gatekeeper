@@ -2220,6 +2220,8 @@ All gateway settings live in the config registry -- a SQLite table inside the Du
 | `s3_burst`           | `200`   | S3 proxy burst capacity                                         |
 | `cf_proxy_rps`       | `200`   | CF API proxy requests per second                                |
 | `cf_proxy_burst`     | `400`   | CF API proxy burst capacity                                     |
+| `supabase_rps`       | `200`   | Supabase Management API proxy requests per second               |
+| `supabase_burst`     | `400`   | Supabase Management API proxy burst capacity                    |
 
 ### 8.1 Viewing config
 
@@ -2665,7 +2667,7 @@ The current and only supported policy version is `"2025-01-01"`.
 
 Management API actions follow `supabase:<category>:<read|write>` across project and account-level categories. Read/write is derived from the HTTP method (with an explicit read-override set for the POST-but-read endpoints):
 
-`supabase:auth:read`, `supabase:auth:write`, `supabase:database:read`, `supabase:database:write`, `supabase:domains:read`, `supabase:domains:write`, `supabase:edge_functions:read`, `supabase:edge_functions:write`, `supabase:environment:read`, `supabase:environment:write`, `supabase:organizations:read`, `supabase:organizations:write`, `supabase:oauth:read`, `supabase:oauth:write`, `supabase:profile:read`, `supabase:projects:read`, `supabase:projects:write`, `supabase:rest:read`, `supabase:rest:write`, `supabase:secrets:read`, `supabase:secrets:write`, `supabase:snippets:read`, `supabase:snippets:write`, `supabase:storage:read`, `supabase:storage:write`, `supabase:metrics:read`, `supabase:*`
+`supabase:analytics:read`, `supabase:auth:read`, `supabase:auth:write`, `supabase:billing:read`, `supabase:billing:write`, `supabase:database:read`, `supabase:database:write`, `supabase:disk:read`, `supabase:disk:write`, `supabase:domains:read`, `supabase:domains:write`, `supabase:edge_functions:read`, `supabase:edge_functions:write`, `supabase:environment:read`, `supabase:environment:write`, `supabase:networking:read`, `supabase:networking:write`, `supabase:organizations:read`, `supabase:organizations:write`, `supabase:oauth:read`, `supabase:oauth:write`, `supabase:profile:read`, `supabase:projects:read`, `supabase:projects:write`, `supabase:realtime:read`, `supabase:realtime:write`, `supabase:rest:read`, `supabase:rest:write`, `supabase:secrets:read`, `supabase:secrets:write`, `supabase:snippets:read`, `supabase:snippets:write`, `supabase:storage:read`, `supabase:storage:write`, `supabase:metrics:read`, `supabase:*`
 
 Resources are `project:<ref>` (20-char project ref), `project:*`, `org:<slug>`, `branch:<id>`, or `supabase:account` (account-wide endpoints). Because `supabase:account` and `project:*` both grant account-wide reach, both require a `supabase` upstream token that covers all projects (`zone_ids: ["*"]`) when the key is created. The credential is resolved at request time by the key's bound `upstream_token_id` (never a scope/ref match), so a key always uses exactly the credential it was bound to.
 
