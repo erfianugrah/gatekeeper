@@ -17,17 +17,22 @@ export const SUPABASE_REF_RE = /^[a-z0-9]{20}$/;
 export const PROJECT_REF_LITERALS = new Set(['available-regions']);
 
 export type SupabaseCategory =
+	| 'analytics'
 	| 'auth'
+	| 'billing'
 	| 'database'
+	| 'disk'
 	| 'domains'
 	| 'edge_functions'
 	| 'environment'
-	| 'organizations'
+	| 'metrics'
+	| 'networking'
 	| 'oauth'
+	| 'organizations'
 	| 'profile'
 	| 'projects'
+	| 'realtime'
 	| 'rest'
 	| 'secrets'
 	| 'snippets'
-	| 'storage'
-	| 'metrics';
+	| 'storage';

@@ -31,6 +31,9 @@ export interface SupabaseClassification {
 const PROJECT_TAIL_CATEGORIES: Array<[string, SupabaseCategory]> = [
 	['config/auth', 'auth'],
 	['config/database', 'database'],
+	['config/disk', 'disk'],
+	['config/realtime', 'realtime'],
+	['config/storage', 'storage'],
 	['database', 'database'],
 	['postgrest', 'rest'],
 	['secrets', 'secrets'],
@@ -42,8 +45,13 @@ const PROJECT_TAIL_CATEGORIES: Array<[string, SupabaseCategory]> = [
 	['vanity-subdomain', 'domains'],
 	['branches', 'environment'],
 	['actions', 'environment'],
-	// everything else under a ref (health, upgrade, pause, restart, restore,
-	// config/disk, network-bans, network-restrictions, claim-token) falls back to `projects`.
+	['billing', 'billing'],
+	['analytics', 'analytics'],
+	['network-bans', 'networking'],
+	['network-restrictions', 'networking'],
+	// Remaining projects catch-all: health, upgrade, pause, restart, restore,
+	// readonly, read-replicas, ssl-enforcement, jit-access, claim-token,
+	// cli/login-role, advisors, types/typescript.
 ];
 
 // POST/PATCH/PUT/DELETE endpoints that are semantically READS. Keyed by `${method} ${tail-prefix}`.

@@ -198,7 +198,7 @@ describe('supabase management proxy — classifier edge cases', () => {
 
 	it('G29: POST network-bans/retrieve (read-override) allowed by read-only key → 200', async () => {
 		const tid = await registerSupabaseToken([REF]);
-		const key = await createSupabaseKey(policy(['supabase:projects:read']), tid);
+		const key = await createSupabaseKey(policy(['supabase:networking:read']), tid);
 
 		fetchMock
 			.get(SB_API)
@@ -497,6 +497,48 @@ describe('supabase management proxy — per-category scope coverage', () => {
 			path: '/v1/snippets',
 			resources: ['supabase:account'],
 			wildcard: true,
+		},
+		{
+			category: 'billing',
+			action: 'supabase:billing:read',
+			method: 'GET',
+			path: `/v1/projects/${REF}/billing/addons`,
+			resources: [`project:${REF}`],
+		},
+		{
+			category: 'disk',
+			action: 'supabase:disk:read',
+			method: 'GET',
+			path: `/v1/projects/${REF}/config/disk`,
+			resources: [`project:${REF}`],
+		},
+		{
+			category: 'realtime',
+			action: 'supabase:realtime:read',
+			method: 'GET',
+			path: `/v1/projects/${REF}/config/realtime`,
+			resources: [`project:${REF}`],
+		},
+		{
+			category: 'analytics',
+			action: 'supabase:analytics:read',
+			method: 'GET',
+			path: `/v1/projects/${REF}/analytics/endpoints/usage.api-counts`,
+			resources: [`project:${REF}`],
+		},
+		{
+			category: 'networking',
+			action: 'supabase:networking:read',
+			method: 'GET',
+			path: `/v1/projects/${REF}/network-restrictions`,
+			resources: [`project:${REF}`],
+		},
+		{
+			category: 'storage',
+			action: 'supabase:storage:read',
+			method: 'GET',
+			path: `/v1/projects/${REF}/config/storage`,
+			resources: [`project:${REF}`],
 		},
 	];
 

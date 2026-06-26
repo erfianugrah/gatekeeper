@@ -39,13 +39,13 @@ describe('classifySupabaseRequest', () => {
 		expect(r?.category).toBe('database');
 	});
 
-	it('classifies network-bans/retrieve as projects:READ despite being POST', () => {
+	it('classifies network-bans/retrieve as networking:read despite being POST', () => {
 		expect(classifySupabaseRequest('POST', `/v1/projects/${REF}/network-bans/retrieve`)?.write).toBe(false);
 		expect(classifySupabaseRequest('POST', `/v1/projects/${REF}/network-bans/retrieve/enriched`)?.write).toBe(false);
 	});
 
-	it('classifies a destructive network-ban delete as projects:write', () => {
-		expect(classifySupabaseRequest('DELETE', `/v1/projects/${REF}/network-bans`)?.action).toBe('supabase:projects:write');
+	it('classifies a destructive network-ban delete as networking:write', () => {
+		expect(classifySupabaseRequest('DELETE', `/v1/projects/${REF}/network-bans`)?.action).toBe('supabase:networking:write');
 	});
 
 	it('classifies edge function body fetch (6 segments) as edge_functions:read', () => {
@@ -222,5 +222,92 @@ describe('classifySupabaseRequest', () => {
 
 	it('G14: 21-char ref (too long) → null', () => {
 		expect(classifySupabaseRequest('GET', '/v1/projects/abcdefghijklmnopqrstu/database/query')).toBeNull();
+	});
+
+	// --- scope decomposition ---
+
+	it('classifies billing/addons as billing:read', () => {
+		const r = classifySupabaseRequest('GET', `/v1/projects/${REF}/billing/addons`);
+		expect(r?.category).toBe('billing');
+		expect(r?.action).toBe('supabase:billing:read');
+	});
+
+	it('classifies PATCH billing/addons as billing:write', () => {
+		const r = classifySupabaseRequest('PATCH', `/v1/projects/${REF}/billing/addons`);
+		expect(r?.category).toBe('billing');
+		expect(r?.action).toBe('supabase:billing:write');
+	});
+
+	it('classifies config/disk as disk:read', () => {
+		const r = classifySupabaseRequest('GET', `/v1/projects/${REF}/config/disk`);
+		expect(r?.category).toBe('disk');
+		expect(r?.action).toBe('supabase:disk:read');
+	});
+
+	it('classifies POST config/disk (resize) as disk:write', () => {
+		const r = classifySupabaseRequest('POST', `/v1/projects/${REF}/config/disk`);
+		expect(r?.category).toBe('disk');
+		expect(r?.action).toBe('supabase:disk:write');
+	});
+
+	it('classifies config/disk/util as disk:read', () => {
+		const r = classifySupabaseRequest('GET', `/v1/projects/${REF}/config/disk/util`);
+		expect(r?.category).toBe('disk');
+	});
+
+	it('classifies config/realtime as realtime:read', () => {
+		const r = classifySupabaseRequest('GET', `/v1/projects/${REF}/config/realtime`);
+		expect(r?.category).toBe('realtime');
+		expect(r?.action).toBe('supabase:realtime:read');
+	});
+
+	it('classifies PATCH config/realtime as realtime:write', () => {
+		const r = classifySupabaseRequest('PATCH', `/v1/projects/${REF}/config/realtime`);
+		expect(r?.category).toBe('realtime');
+		expect(r?.action).toBe('supabase:realtime:write');
+	});
+
+	it('classifies POST config/realtime/shutdown as realtime:write', () => {
+		const r = classifySupabaseRequest('POST', `/v1/projects/${REF}/config/realtime/shutdown`);
+		expect(r?.category).toBe('realtime');
+		expect(r?.action).toBe('supabase:realtime:write');
+	});
+
+	it('classifies analytics/endpoints/usage.api-counts as analytics:read', () => {
+		const r = classifySupabaseRequest('GET', `/v1/projects/${REF}/analytics/endpoints/usage.api-counts`);
+		expect(r?.category).toBe('analytics');
+		expect(r?.action).toBe('supabase:analytics:read');
+	});
+
+	it('classifies network-bans/retrieve as networking:read despite being POST', () => {
+		expect(classifySupabaseRequest('POST', `/v1/projects/${REF}/network-bans/retrieve`)?.category).toBe('networking');
+		expect(classifySupabaseRequest('POST', `/v1/projects/${REF}/network-bans/retrieve`)?.write).toBe(false);
+	});
+
+	it('classifies DELETE network-bans as networking:write', () => {
+		const r = classifySupabaseRequest('DELETE', `/v1/projects/${REF}/network-bans`);
+		expect(r?.category).toBe('networking');
+		expect(r?.action).toBe('supabase:networking:write');
+	});
+
+	it('classifies GET network-restrictions as networking:read', () => {
+		expect(classifySupabaseRequest('GET', `/v1/projects/${REF}/network-restrictions`)?.category).toBe('networking');
+	});
+
+	it('classifies PATCH network-restrictions as networking:write', () => {
+		expect(classifySupabaseRequest('PATCH', `/v1/projects/${REF}/network-restrictions`)?.category).toBe('networking');
+	});
+
+	// config/storage fix: must join storage/buckets under 'storage', not fall to 'projects'
+	it('classifies GET config/storage as storage (not projects)', () => {
+		const r = classifySupabaseRequest('GET', `/v1/projects/${REF}/config/storage`);
+		expect(r?.category).toBe('storage');
+		expect(r?.action).toBe('supabase:storage:read');
+	});
+
+	it('classifies PATCH config/storage as storage:write', () => {
+		const r = classifySupabaseRequest('PATCH', `/v1/projects/${REF}/config/storage`);
+		expect(r?.category).toBe('storage');
+		expect(r?.action).toBe('supabase:storage:write');
 	});
 });
