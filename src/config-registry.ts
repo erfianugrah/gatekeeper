@@ -18,6 +18,10 @@ export const CONFIG_DEFAULTS: Record<string, number> = {
 	cf_proxy_rps: 200,
 	/** CF API proxy: account-level burst capacity. */
 	cf_proxy_burst: 400,
+	/** Supabase Management API proxy: account-level requests per second. */
+	supabase_rps: 200,
+	/** Supabase Management API proxy: account-level burst capacity. */
+	supabase_burst: 400,
 };
 
 /** The full resolved config object. */
@@ -38,6 +42,10 @@ export interface GatewayConfig {
 	cf_proxy_rps: number;
 	/** CF API proxy: account-level burst capacity. */
 	cf_proxy_burst: number;
+	/** Supabase Management API proxy: account-level requests per second. */
+	supabase_rps: number;
+	/** Supabase Management API proxy: account-level burst capacity. */
+	supabase_burst: number;
 }
 
 /** A single override entry from the registry (for admin display). */
@@ -62,6 +70,8 @@ const ENV_TO_CONFIG: Record<string, string> = {
 	S3_BURST: 's3_burst',
 	CF_PROXY_RPS: 'cf_proxy_rps',
 	CF_PROXY_BURST: 'cf_proxy_burst',
+	SUPABASE_RPS: 'supabase_rps',
+	SUPABASE_BURST: 'supabase_burst',
 };
 
 // ─── ConfigManager ──────────────────────────────────────────────────────────

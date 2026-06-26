@@ -841,6 +841,8 @@ export const gatewayConfigSchema = z
 		s3_burst: z.number(),
 		cf_proxy_rps: z.number(),
 		cf_proxy_burst: z.number(),
+		supabase_rps: z.number(),
+		supabase_burst: z.number(),
 	})
 	.meta({ id: 'GatewayConfig', description: 'Resolved gateway configuration' });
 

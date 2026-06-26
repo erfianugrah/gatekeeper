@@ -566,3 +566,42 @@ describe('supabase management proxy — scope isolation', () => {
 		expect(res.status).toBe(403);
 	});
 });
+
+describe('supabase management proxy — rate limiting', () => {
+	it('returns 429 with Retry-After when the account bucket is exhausted', async () => {
+		// Drain the bucket first via the admin config endpoint
+		await SELF.fetch('http://localhost/admin/config', {
+			method: 'PUT',
+			headers: { 'X-Admin-Key': 'test-admin-secret-key-12345', 'Content-Type': 'application/json' },
+			body: JSON.stringify({ supabase_rps: 1, supabase_burst: 1 }),
+		});
+
+		const tid = await registerSupabaseToken(['*'], 'sbp_test_rate_limit_pat');
+		const key = await createSupabaseKey(policy(['supabase:projects:read'], ['supabase:account']), tid);
+
+		fetchMock
+			.get('https://api.supabase.com')
+			.intercept({ path: '/v1/projects' })
+			.reply(200, JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json' } });
+
+		// First request: drains the 1-token bucket
+		const first = await SELF.fetch(`http://localhost/supabase/v1/projects`, {
+			headers: { Authorization: `Bearer ${key}` },
+		});
+		expect(first.status).toBe(200);
+
+		// Second request: bucket empty → 429
+		const second = await SELF.fetch(`http://localhost/supabase/v1/projects`, {
+			headers: { Authorization: `Bearer ${key}` },
+		});
+		expect(second.status).toBe(429);
+		expect(second.headers.get('Retry-After')).toBeTruthy();
+
+		// Reset to a permissive rate
+		await SELF.fetch('http://localhost/admin/config', {
+			method: 'PUT',
+			headers: { 'X-Admin-Key': 'test-admin-secret-key-12345', 'Content-Type': 'application/json' },
+			body: JSON.stringify({ supabase_rps: 200, supabase_burst: 400 }),
+		});
+	});
+});

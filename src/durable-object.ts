@@ -67,6 +67,7 @@ export class Gatekeeper extends DurableObject<Env> {
 	private singleBucket!: TokenBucket;
 	private s3Bucket!: TokenBucket;
 	private cfProxyBucket!: TokenBucket;
+	private supabaseBucket!: TokenBucket;
 	private iam!: IamManager;
 	private s3Iam!: S3CredentialManager;
 	private upstreamTokens!: UpstreamTokenManager;
@@ -96,6 +97,7 @@ export class Gatekeeper extends DurableObject<Env> {
 			this.singleBucket = new TokenBucket(rlConfig.single.rate, rlConfig.single.bucketSize);
 			this.s3Bucket = new TokenBucket(gwConfig.s3_rps, gwConfig.s3_burst);
 			this.cfProxyBucket = new TokenBucket(gwConfig.cf_proxy_rps, gwConfig.cf_proxy_burst);
+			this.supabaseBucket = new TokenBucket(gwConfig.supabase_rps, gwConfig.supabase_burst);
 
 			const cacheTtl = gwConfig.key_cache_ttl_ms;
 
@@ -128,6 +130,8 @@ export class Gatekeeper extends DurableObject<Env> {
 					s3Burst: gwConfig.s3_burst,
 					cfProxyRps: gwConfig.cf_proxy_rps,
 					cfProxyBurst: gwConfig.cf_proxy_burst,
+					supabaseRps: gwConfig.supabase_rps,
+					supabaseBurst: gwConfig.supabase_burst,
 					cacheTtlMs: cacheTtl,
 				}),
 			);
@@ -144,6 +148,7 @@ export class Gatekeeper extends DurableObject<Env> {
 		const singleChanged = this.singleBucket.rate !== rlConfig.single.rate || this.singleBucket.bucketSize !== rlConfig.single.bucketSize;
 		const s3Changed = this.s3Bucket.rate !== gwConfig.s3_rps || this.s3Bucket.bucketSize !== gwConfig.s3_burst;
 		const cfProxyChanged = this.cfProxyBucket.rate !== gwConfig.cf_proxy_rps || this.cfProxyBucket.bucketSize !== gwConfig.cf_proxy_burst;
+		const supabaseChanged = this.supabaseBucket.rate !== gwConfig.supabase_rps || this.supabaseBucket.bucketSize !== gwConfig.supabase_burst;
 
 		if (bulkChanged) {
 			this.bulkBucket = new TokenBucket(rlConfig.bulk.rate, rlConfig.bulk.bucketSize);
@@ -157,12 +162,15 @@ export class Gatekeeper extends DurableObject<Env> {
 		if (cfProxyChanged) {
 			this.cfProxyBucket = new TokenBucket(gwConfig.cf_proxy_rps, gwConfig.cf_proxy_burst);
 		}
+		if (supabaseChanged) {
+			this.supabaseBucket = new TokenBucket(gwConfig.supabase_rps, gwConfig.supabase_burst);
+		}
 		if (bulkChanged || singleChanged) {
 			// Clear per-key buckets so they pick up new account defaults
 			this.keyBuckets.clear();
 		}
 
-		if (bulkChanged || singleChanged || s3Changed || cfProxyChanged) {
+		if (bulkChanged || singleChanged || s3Changed || cfProxyChanged || supabaseChanged) {
 			console.log(
 				JSON.stringify({
 					breadcrumb: 'do-rebuild-buckets',
@@ -170,6 +178,7 @@ export class Gatekeeper extends DurableObject<Env> {
 					singleChanged,
 					s3Changed,
 					cfProxyChanged,
+					supabaseChanged,
 					keyBucketsCleared: bulkChanged || singleChanged,
 				}),
 			);
@@ -594,6 +603,11 @@ export class Gatekeeper extends DurableObject<Env> {
 	/** Consume one CF proxy rate-limit token. Returns allowed/retry info for the account-level CF proxy bucket. */
 	async consumeCfProxyRateLimit(): Promise<ConsumeResult> {
 		return this.cfProxyBucket.consume(1);
+	}
+
+	/** Consume one Supabase proxy rate-limit token. Returns allowed/retry info for the account-level Supabase bucket. */
+	async consumeSupabaseRateLimit(): Promise<ConsumeResult> {
+		return this.supabaseBucket.consume(1);
 	}
 
 	/** Drain the CF proxy bucket (call when upstream returns 429). */
