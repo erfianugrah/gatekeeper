@@ -326,6 +326,11 @@ export async function run(_ctx?: SmokeContext): Promise<void> {
 		{ category: 'secrets', method: 'GET', path: `/v1/projects/${REF_A}/secrets` },
 		{ category: 'snippets', method: 'GET', path: '/v1/snippets' },
 		{ category: 'storage', method: 'GET', path: `/v1/projects/${REF_A}/storage/buckets` },
+		{ category: 'billing', method: 'GET', path: `/v1/projects/${REF_A}/billing/addons` },
+		{ category: 'disk', method: 'GET', path: `/v1/projects/${REF_A}/config/disk` },
+		{ category: 'realtime', method: 'GET', path: `/v1/projects/${REF_A}/config/realtime` },
+		{ category: 'analytics', method: 'GET', path: `/v1/projects/${REF_A}/analytics/endpoints/usage.api-counts` },
+		{ category: 'networking', method: 'GET', path: `/v1/projects/${REF_A}/network-restrictions` },
 	];
 
 	for (const c of SCOPE_PATHS) {
@@ -487,6 +492,11 @@ async function runLiveApiTier(): Promise<void> {
 			{ category: 'oauth', path: '/v1/oauth/authorize' },
 			{ category: 'profile', path: '/v1/profile' },
 			{ category: 'snippets', path: '/v1/snippets' },
+			{ category: 'billing', path: `/v1/projects/${liveRef}/billing/addons` },
+			{ category: 'disk', path: `/v1/projects/${liveRef}/config/disk` },
+			{ category: 'realtime', path: `/v1/projects/${liveRef}/config/realtime` },
+			{ category: 'analytics', path: `/v1/projects/${liveRef}/analytics/endpoints/usage.api-counts?interval=1day` },
+			{ category: 'networking', path: `/v1/projects/${liveRef}/network-restrictions` },
 		];
 		for (const s of scopeReads) {
 			assertReached(`live: ${s.category} read reaches Supabase`, await sb(ALL_KEY, 'GET', s.path));
