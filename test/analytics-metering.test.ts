@@ -247,3 +247,18 @@ describe('per-surface /metering routes', () => {
 		expect(res.status).toBe(200);
 	});
 });
+
+describe('unified /admin/metering route', () => {
+	it('GET /admin/metering → 200 success + array', async () => {
+		const res = await SELF.fetch('https://gk/admin/metering', { headers: adminHeaders() });
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(Array.isArray(data.result)).toBe(true);
+	});
+
+	it('GET /admin/metering requires auth → 401 without admin headers', async () => {
+		const res = await SELF.fetch('https://gk/admin/metering');
+		expect(res.status).toBe(401);
+	});
+});
