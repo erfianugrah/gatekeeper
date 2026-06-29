@@ -21,6 +21,7 @@ const main = defineCommand({
 		'dns-analytics': () => import('./commands/dns-analytics.js').then((m) => m.default),
 		'cf-analytics': () => import('./commands/cf-analytics.js').then((m) => m.default),
 		'supabase-analytics': () => import('./commands/supabase-analytics.js').then((m) => m.default),
+		metering: () => import('./commands/metering.js').then((m) => m.default),
 		'upstream-tokens': () => import('./commands/upstream-tokens.js').then((m) => m.default),
 		'upstream-r2': () => import('./commands/upstream-r2.js').then((m) => m.default),
 		config: () => import('./commands/config.js').then((m) => m.default),

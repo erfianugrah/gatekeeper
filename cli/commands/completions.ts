@@ -17,6 +17,7 @@ const COMMANDS: Record<string, string[]> = {
 		'dns-analytics',
 		'cf-analytics',
 		'supabase-analytics',
+		'metering',
 		'upstream-tokens',
 		'upstream-r2',
 		'config',
