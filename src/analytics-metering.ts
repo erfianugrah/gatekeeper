@@ -183,3 +183,60 @@ export async function queryMetering(db: D1Database, table: string, query: Meteri
 		};
 	});
 }
+
+// ─── Cross-surface aggregation ────────────────────────────────────────────────
+
+export interface CrossSurfaceSurfaceTotals {
+	total_requests: number;
+	write_requests: number | null;
+	error_count: number;
+	egress_bytes: number | null;
+}
+
+export interface CrossSurfaceTenantRow {
+	tenant: string | null;
+	surfaces: Record<string, CrossSurfaceSurfaceTotals>;
+	total_requests: number;
+	total_errors: number;
+	total_egress_bytes: number;
+}
+
+export interface CrossSurfaceMeteringQuery {
+	since?: number;
+	until?: number;
+	limit?: number;
+}
+
+/** Fan out over every surface, grouping each by created_by, and merge into one row per tenant. */
+export async function queryMeteringAcrossSurfaces(db: D1Database, query: CrossSurfaceMeteringQuery): Promise<CrossSurfaceTenantRow[]> {
+	const byTenant = new Map<string, CrossSurfaceTenantRow>();
+	for (const table of Object.keys(METERING_DESCRIPTORS)) {
+		const rows = await queryMetering(db, table, {
+			group_by: 'tenant',
+			since: query.since,
+			until: query.until,
+			limit: 1000,
+		});
+		for (const r of rows) {
+			const tenantKey = r.group_key ?? '(none)';
+			let agg = byTenant.get(tenantKey);
+			if (!agg) {
+				agg = { tenant: r.group_key, surfaces: {}, total_requests: 0, total_errors: 0, total_egress_bytes: 0 };
+				byTenant.set(tenantKey, agg);
+			}
+			agg.surfaces[table] = {
+				total_requests: r.total_requests,
+				write_requests: r.write_requests,
+				error_count: r.error_count,
+				egress_bytes: r.egress_bytes,
+			};
+			agg.total_requests += r.total_requests;
+			agg.total_errors += r.error_count;
+			agg.total_egress_bytes += r.egress_bytes ?? 0;
+		}
+	}
+	const limit = Math.min(query.limit ?? 100, 1000);
+	return Array.from(byTenant.values())
+		.sort((a, b) => b.total_requests - a.total_requests)
+		.slice(0, limit);
+}

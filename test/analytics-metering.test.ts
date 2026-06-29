@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { queryMetering, METERING_DESCRIPTORS } from '../src/analytics-metering';
+import { queryMetering, METERING_DESCRIPTORS, queryMeteringAcrossSurfaces } from '../src/analytics-metering';
 
 // Direct D1 inserts — exercises the engine without driving the proxy for all 5 surfaces.
 async function seedSupabase(
@@ -142,5 +142,69 @@ describe('queryMetering — supabase surface', () => {
 		for (const d of Object.values(METERING_DESCRIPTORS)) {
 			expect(d.groupable.tenant).toBe('created_by');
 		}
+	});
+});
+
+async function seedCf(
+	rows: Array<{ key_fingerprint: string; action: string; status: number; response_size: number; created_by: string; created_at: number }>,
+) {
+	const db = env.ANALYTICS_DB;
+	await db.batch([
+		db.prepare(`CREATE TABLE IF NOT EXISTS cf_proxy_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, key_id TEXT NOT NULL, key_fingerprint TEXT, action TEXT NOT NULL,
+		status INTEGER NOT NULL, upstream_status INTEGER, duration_ms INTEGER NOT NULL, response_size INTEGER,
+		created_by TEXT, created_at INTEGER NOT NULL)`),
+	]);
+	for (const r of rows) {
+		await db
+			.prepare(
+				`INSERT INTO cf_proxy_events (key_id, key_fingerprint, action, status, duration_ms, response_size, created_by, created_at)
+			VALUES ('gw_x...y', ?, ?, ?, 5, ?, ?, ?)`,
+			)
+			.bind(r.key_fingerprint, r.action, r.status, r.response_size, r.created_by, r.created_at)
+			.run();
+	}
+}
+
+describe('queryMeteringAcrossSurfaces', () => {
+	beforeEach(async () => {
+		await env.ANALYTICS_DB.prepare('DROP TABLE IF EXISTS supabase_proxy_events').run();
+		await env.ANALYTICS_DB.prepare('DROP TABLE IF EXISTS cf_proxy_events').run();
+	});
+
+	it('unifies a tenant across surfaces on created_by', async () => {
+		await seedSupabase([
+			{
+				key_id: 'gw_a...b',
+				key_fingerprint: 'fp1',
+				project_ref: 'projA',
+				action: 'supabase:database:write',
+				status: 200,
+				response_size: 100,
+				created_by: 'user-1',
+				created_at: 1,
+			},
+		]);
+		await seedCf([
+			{ key_fingerprint: 'fp9', action: 'cf:dns:read', status: 200, response_size: 20, created_by: 'user-1', created_at: 2 },
+			{ key_fingerprint: 'fp9', action: 'cf:dns:read', status: 503, response_size: 0, created_by: 'user-2', created_at: 3 },
+		]);
+
+		const rows = await queryMeteringAcrossSurfaces(env.ANALYTICS_DB, {});
+		const u1 = rows.find((r) => r.tenant === 'user-1')!;
+		expect(u1.total_requests).toBe(2);
+		expect(u1.surfaces.supabase_proxy_events.total_requests).toBe(1);
+		expect(u1.surfaces.cf_proxy_events.total_requests).toBe(1);
+		expect(u1.total_egress_bytes).toBe(120);
+		const u2 = rows.find((r) => r.tenant === 'user-2')!;
+		expect(u2.total_requests).toBe(1);
+		expect(u2.total_errors).toBe(1);
+		// Sorted by total_requests desc — user-1 first.
+		expect(rows[0].tenant).toBe('user-1');
+	});
+
+	it('returns [] when no tables exist', async () => {
+		const rows = await queryMeteringAcrossSurfaces(env.ANALYTICS_DB, {});
+		expect(rows).toEqual([]);
 	});
 });
