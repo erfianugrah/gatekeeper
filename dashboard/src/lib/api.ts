@@ -812,6 +812,65 @@ export async function getCfProxyTimeseries(query: { since?: number; until?: numb
 	return apiFetch<TimeseriesBucket[]>(`/admin/cf/analytics/timeseries${qs ? `?${qs}` : ''}`);
 }
 
+// ─── Metering ────────────────────────────────────────────────────────
+
+/** One per-dimension metering row from a surface's /metering endpoint. */
+export interface MeteringRow {
+	group_key: string | null;
+	label: string | null;
+	total_requests: number;
+	read_requests: number | null;
+	write_requests: number | null;
+	error_count: number;
+	error_rate_pct: number;
+	/** Best-effort — excludes streamed responses. Null when the surface does not track egress. */
+	egress_bytes: number | null;
+	first_seen: number;
+	last_seen: number;
+}
+
+/** One per-tenant row from the cross-surface /admin/metering endpoint. */
+export interface CrossSurfaceTenantRow {
+	tenant: string | null;
+	surfaces: Record<string, { total_requests: number; write_requests: number | null; error_count: number; egress_bytes: number | null }>;
+	total_requests: number;
+	total_errors: number;
+	total_egress_bytes: number;
+}
+
+export async function getCrossSurfaceMetering(query: { since?: number; until?: number; limit?: number } = {}): Promise<CrossSurfaceTenantRow[]> {
+	const params = new URLSearchParams();
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	if (query.limit) params.set('limit', String(query.limit));
+	const qs = params.toString();
+	return apiFetch<CrossSurfaceTenantRow[]>(`/admin/metering${qs ? `?${qs}` : ''}`);
+}
+
+/** Per-surface metering paths keyed by short surface id. */
+const SURFACE_METERING_PATHS: Record<string, string> = {
+	supabase: '/admin/supabase/analytics/metering',
+	cf: '/admin/cf/analytics/metering',
+	dns: '/admin/dns/analytics/metering',
+	purge: '/admin/analytics/metering',
+	s3: '/admin/s3/analytics/metering',
+};
+
+export async function getSurfaceMetering(
+	surface: string,
+	query: { group_by?: string; since?: number; until?: number; limit?: number } = {},
+): Promise<MeteringRow[]> {
+	const base = SURFACE_METERING_PATHS[surface];
+	if (!base) throw new Error(`Unknown metering surface: ${surface}`);
+	const params = new URLSearchParams();
+	if (query.group_by) params.set('group_by', query.group_by);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	if (query.limit) params.set('limit', String(query.limit));
+	const qs = params.toString();
+	return apiFetch<MeteringRow[]>(`${base}${qs ? `?${qs}` : ''}`);
+}
+
 // ─── Audit Log ───────────────────────────────────────────────────────
 
 export interface AuditEvent {

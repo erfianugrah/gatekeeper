@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronRight, ChevronsDownUp, Clock, Copy, Download, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
+import { ChevronRight, ChevronsDownUp, Clock, Copy, Download, Search, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, Gauge, ListOrdered } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,10 +24,12 @@ import {
 } from './analytics/analytics-badges';
 import { EventDetailRow } from './analytics/EventDetailRow';
 import { EventsTableSkeleton } from './analytics/EventsTableSkeleton';
+import { MeteringPanel } from './analytics/MeteringPanel';
 import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent } from '@/lib/api';
 import type { UnifiedEvent, FlightGroup, SortField, SortDir, TabFilter, StatusFilter } from './analytics/analytics-types';
 
 type SupabaseQuickFilter = 'all' | 'unauthorized' | 'timeout' | 'upstream_5xx';
+type AnalyticsView = 'events' | 'metering';
 
 // ─── Analytics Page ─────────────────────────────────────────────────
 
@@ -46,6 +48,7 @@ export function AnalyticsPage() {
 	const [sortDir, setSortDir] = useState<SortDir>('desc');
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [view, setView] = useState<AnalyticsView>('events');
 	const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 	const [copied, setCopied] = useState(false);
 
@@ -280,6 +283,34 @@ export function AnalyticsPage() {
 	return (
 		<TooltipProvider delayDuration={200}>
 			<div className="space-y-6">
+				{/* ── View switcher: events log vs metering rollups ── */}
+				<div className="flex rounded-md border border-border w-fit">
+					<button
+						onClick={() => setView('events')}
+						className={cn(
+							'inline-flex items-center gap-1.5 px-3 py-1 text-xs font-data transition-colors',
+							view === 'events' ? 'bg-lv-purple/20 text-lv-purple' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+						)}
+					>
+						<ListOrdered className="h-3.5 w-3.5" />
+						Events
+					</button>
+					<button
+						onClick={() => setView('metering')}
+						className={cn(
+							'inline-flex items-center gap-1.5 px-3 py-1 text-xs font-data transition-colors border-l border-border',
+							view === 'metering' ? 'bg-lv-purple/20 text-lv-purple' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+						)}
+					>
+						<Gauge className="h-3.5 w-3.5" />
+						Metering
+					</button>
+				</div>
+
+				{view === 'metering' && <MeteringPanel />}
+
+				{view === 'events' && (
+				<>
 				{/* ── Controls row 1: source tabs + status filter + export ── */}
 				<div className="flex flex-wrap items-center gap-3">
 					{/* Source tabs — dynamically generated from the data */}
@@ -700,6 +731,8 @@ export function AnalyticsPage() {
 							/>
 						</CardContent>
 					</Card>
+				)}
+				</>
 				)}
 			</div>
 		</TooltipProvider>

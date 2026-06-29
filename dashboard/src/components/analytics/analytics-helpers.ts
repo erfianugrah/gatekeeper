@@ -22,6 +22,14 @@ export function truncateId(id: string, len = 10): string {
 	return id.length > len ? `${id.slice(0, len)}...` : id;
 }
 
+/** Human-readable byte size (B / KB / MB / GB). */
+export function formatBytes(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+	return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 // ─── Export helpers ──────────────────────────────────────────────────
 
 export function exportToJson(events: UnifiedEvent[], filename: string): void {
