@@ -8,10 +8,12 @@
 import { Hono } from 'hono';
 import { querySupabaseProxyEvents, querySupabaseProxySummary } from '../supabase/analytics';
 import { queryTimeseries } from '../analytics-timeseries';
+import { queryMetering } from '../analytics-metering';
 import { buildKeyIdFilter } from '../analytics-identifiers';
 import {
 	jsonError,
 	parseQueryParams,
+	meteringQuerySchema,
 	supabaseProxyAnalyticsEventsQuerySchema,
 	supabaseProxyAnalyticsSummaryQuerySchema,
 	supabaseProxyTimeseriesQuerySchema,
@@ -132,4 +134,21 @@ adminSupabaseAnalyticsApp.get('/timeseries', async (c) => {
 	);
 
 	return c.json({ success: true, result: buckets });
+});
+
+// ─── Metering ─────────────────────────────────────────────────────────────────
+
+adminSupabaseAnalyticsApp.get('/metering', async (c) => {
+	if (!c.env.ANALYTICS_DB) {
+		console.log(JSON.stringify({ breadcrumb: 'analytics-not-configured', route: 'supabase-proxy-metering' }));
+		return jsonError(c, 503, 'Analytics not configured');
+	}
+	const query = parseQueryParams(c, meteringQuerySchema);
+	if (query instanceof Response) return query;
+	try {
+		const rows = await queryMetering(c.env.ANALYTICS_DB, 'supabase_proxy_events', query);
+		return c.json({ success: true, result: rows });
+	} catch (e: any) {
+		return jsonError(c, 400, e.message);
+	}
 });

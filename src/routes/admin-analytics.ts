@@ -1,11 +1,13 @@
 import { Hono } from 'hono';
 import { queryEvents, querySummary } from '../analytics';
 import { queryTimeseries } from '../analytics-timeseries';
+import { queryMetering } from '../analytics-metering';
 import { buildKeyIdFilter } from '../analytics-identifiers';
 import {
 	purgeAnalyticsEventsQuerySchema,
 	purgeAnalyticsSummaryQuerySchema,
 	purgeTimeseriesQuerySchema,
+	meteringQuerySchema,
 	jsonError,
 	parseQueryParams,
 } from './admin-schemas';
@@ -112,4 +114,21 @@ adminAnalyticsApp.get('/timeseries', async (c) => {
 	);
 
 	return c.json({ success: true, result: buckets });
+});
+
+// ─── Metering ─────────────────────────────────────────────────────────────────
+
+adminAnalyticsApp.get('/metering', async (c) => {
+	if (!c.env.ANALYTICS_DB) {
+		console.log(JSON.stringify({ breadcrumb: 'analytics-not-configured', route: 'purge-metering' }));
+		return jsonError(c, 503, 'Analytics not configured');
+	}
+	const query = parseQueryParams(c, meteringQuerySchema);
+	if (query instanceof Response) return query;
+	try {
+		const rows = await queryMetering(c.env.ANALYTICS_DB, 'purge_events', query);
+		return c.json({ success: true, result: rows });
+	} catch (e: any) {
+		return jsonError(c, 400, e.message);
+	}
 });

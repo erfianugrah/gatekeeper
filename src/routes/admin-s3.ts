@@ -14,6 +14,7 @@ import {
 	s3AnalyticsEventsQuerySchema,
 	s3AnalyticsSummaryQuerySchema,
 	s3TimeseriesQuerySchema,
+	meteringQuerySchema,
 	jsonError,
 	parseJsonBody,
 	parseQueryParams,
@@ -26,6 +27,7 @@ import type { CreateS3CredentialRequest } from '../s3/types';
 import type { S3AnalyticsQuery } from '../s3/analytics';
 import { queryS3Events, queryS3Summary } from '../s3/analytics';
 import { queryTimeseries } from '../analytics-timeseries';
+import { queryMetering } from '../analytics-metering';
 
 // ─── Admin: S3 Credential Management ────────────────────────────────────────
 
@@ -476,4 +478,21 @@ adminS3App.get('/analytics/timeseries', async (c) => {
 	);
 
 	return c.json({ success: true, result: buckets });
+});
+
+// ─── S3 Analytics: metering ─────────────────────────────────────────────────────
+
+adminS3App.get('/analytics/metering', async (c) => {
+	if (!c.env.ANALYTICS_DB) {
+		console.log(JSON.stringify({ breadcrumb: 'analytics-not-configured', route: 's3-metering' }));
+		return jsonError(c, 503, 'Analytics not configured');
+	}
+	const query = parseQueryParams(c, meteringQuerySchema);
+	if (query instanceof Response) return query;
+	try {
+		const rows = await queryMetering(c.env.ANALYTICS_DB, 's3_events', query);
+		return c.json({ success: true, result: rows });
+	} catch (e: any) {
+		return jsonError(c, 400, e.message);
+	}
 });

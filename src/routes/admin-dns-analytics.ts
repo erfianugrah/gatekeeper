@@ -8,10 +8,12 @@
 import { Hono } from 'hono';
 import { queryDnsEvents, queryDnsSummary } from '../cf/dns/analytics';
 import { queryTimeseries } from '../analytics-timeseries';
+import { queryMetering } from '../analytics-metering';
 import { buildKeyIdFilter } from '../analytics-identifiers';
 import {
 	jsonError,
 	parseQueryParams,
+	meteringQuerySchema,
 	dnsAnalyticsEventsQuerySchema,
 	dnsAnalyticsSummaryQuerySchema,
 	dnsTimeseriesQuerySchema,
@@ -131,4 +133,21 @@ adminDnsAnalyticsApp.get('/timeseries', async (c) => {
 	);
 
 	return c.json({ success: true, result: buckets });
+});
+
+// ─── Metering ─────────────────────────────────────────────────────────────────
+
+adminDnsAnalyticsApp.get('/metering', async (c) => {
+	if (!c.env.ANALYTICS_DB) {
+		console.log(JSON.stringify({ breadcrumb: 'analytics-not-configured', route: 'dns-metering' }));
+		return jsonError(c, 503, 'Analytics not configured');
+	}
+	const query = parseQueryParams(c, meteringQuerySchema);
+	if (query instanceof Response) return query;
+	try {
+		const rows = await queryMetering(c.env.ANALYTICS_DB, 'dns_events', query);
+		return c.json({ success: true, result: rows });
+	} catch (e: any) {
+		return jsonError(c, 400, e.message);
+	}
 });

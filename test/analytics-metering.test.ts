@@ -1,7 +1,8 @@
-import { env } from 'cloudflare:test';
+import { env, SELF } from 'cloudflare:test';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { queryMetering, METERING_DESCRIPTORS, queryMeteringAcrossSurfaces } from '../src/analytics-metering';
 import { meteringQuerySchema, crossSurfaceMeteringQuerySchema } from '../src/routes/admin-schemas';
+import { adminHeaders } from './helpers';
 
 // Direct D1 inserts — exercises the engine without driving the proxy for all 5 surfaces.
 async function seedSupabase(
@@ -224,5 +225,25 @@ describe('metering query schemas', () => {
 		const parsed = crossSurfaceMeteringQuerySchema.parse({ since: '1' });
 		expect(parsed.since).toBe(1);
 		expect('group_by' in parsed).toBe(false);
+	});
+});
+
+describe('per-surface /metering routes', () => {
+	it('GET /admin/supabase/analytics/metering → 200 success + array', async () => {
+		const res = await SELF.fetch('https://gk/admin/supabase/analytics/metering?group_by=project', { headers: adminHeaders() });
+		expect(res.status).toBe(200);
+		const data = await res.json<any>();
+		expect(data.success).toBe(true);
+		expect(Array.isArray(data.result)).toBe(true);
+	});
+
+	it('GET /admin/supabase/analytics/metering?group_by=bucket → 400 (invalid dim)', async () => {
+		const res = await SELF.fetch('https://gk/admin/supabase/analytics/metering?group_by=bucket', { headers: adminHeaders() });
+		expect(res.status).toBe(400);
+	});
+
+	it('GET /admin/cf/analytics/metering → 200', async () => {
+		const res = await SELF.fetch('https://gk/admin/cf/analytics/metering', { headers: adminHeaders() });
+		expect(res.status).toBe(200);
 	});
 });
