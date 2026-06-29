@@ -937,6 +937,25 @@ export const supabaseProxyTimeseriesQuerySchema = z.object({
 
 export type SupabaseProxyTimeseriesQuery = z.infer<typeof supabaseProxyTimeseriesQuerySchema>;
 
+/** Generic metering: GET /admin/<surface>/analytics/metering */
+export const meteringQuerySchema = z.object({
+	group_by: z.string().optional(),
+	since: z.coerce.number().optional(),
+	until: z.coerce.number().optional(),
+	limit: z.coerce.number().int().min(1).max(MAX_ANALYTICS_LIMIT).optional().default(DEFAULT_ANALYTICS_LIMIT),
+});
+
+export type MeteringQueryParams = z.infer<typeof meteringQuerySchema>;
+
+/** Cross-surface metering: GET /admin/metering */
+export const crossSurfaceMeteringQuerySchema = z.object({
+	since: z.coerce.number().optional(),
+	until: z.coerce.number().optional(),
+	limit: z.coerce.number().int().min(1).max(MAX_ANALYTICS_LIMIT).optional().default(DEFAULT_ANALYTICS_LIMIT),
+});
+
+export type CrossSurfaceMeteringQueryParams = z.infer<typeof crossSurfaceMeteringQuerySchema>;
+
 /** DNS analytics: GET /admin/dns/analytics/events */
 export const dnsAnalyticsEventsQuerySchema = z.object({
 	zone_id: z.string().optional(),

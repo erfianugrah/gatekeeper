@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { queryMetering, METERING_DESCRIPTORS, queryMeteringAcrossSurfaces } from '../src/analytics-metering';
+import { meteringQuerySchema, crossSurfaceMeteringQuerySchema } from '../src/routes/admin-schemas';
 
 // Direct D1 inserts — exercises the engine without driving the proxy for all 5 surfaces.
 async function seedSupabase(
@@ -206,5 +207,22 @@ describe('queryMeteringAcrossSurfaces', () => {
 	it('returns [] when no tables exist', async () => {
 		const rows = await queryMeteringAcrossSurfaces(env.ANALYTICS_DB, {});
 		expect(rows).toEqual([]);
+	});
+});
+
+describe('metering query schemas', () => {
+	it('meteringQuerySchema coerces since/until/limit and passes group_by through', () => {
+		const parsed = meteringQuerySchema.parse({ group_by: 'project', since: '1000', until: '2000', limit: '5' });
+		expect(parsed).toEqual({ group_by: 'project', since: 1000, until: 2000, limit: 5 });
+	});
+	it('meteringQuerySchema defaults limit', () => {
+		const parsed = meteringQuerySchema.parse({});
+		expect(parsed.limit).toBeGreaterThan(0);
+		expect(parsed.group_by).toBeUndefined();
+	});
+	it('crossSurfaceMeteringQuerySchema has no group_by field', () => {
+		const parsed = crossSurfaceMeteringQuerySchema.parse({ since: '1' });
+		expect(parsed.since).toBe(1);
+		expect('group_by' in parsed).toBe(false);
 	});
 });
