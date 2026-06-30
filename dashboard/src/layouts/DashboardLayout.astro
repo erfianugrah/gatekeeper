@@ -16,6 +16,7 @@ const navLinks = [
   { id: "upstream-tokens", label: "Upstream Tokens", href: "/dashboard/upstream-tokens", icon: "token", section: "Upstream" },
   { id: "upstream-r2", label: "Upstream R2", href: "/dashboard/upstream-r2", icon: "bucket", section: "Upstream" },
   { id: "analytics", label: "Analytics", href: "/dashboard/analytics", icon: "list", section: "Observability" },
+  { id: "metering", label: "Metering", href: "/dashboard/metering", icon: "gauge", section: "Observability" },
   { id: "settings", label: "Settings", href: "/dashboard/settings", icon: "settings", section: "System" },
 ];
 
@@ -142,6 +143,13 @@ for (const link of navLinks) {
                             <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" />
                             <line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" />
                             <line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+                          </svg>
+                        )}
+                        {link.icon === "gauge" && (
+                          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+                            <path d="M13.4 12.6 19 7" />
+                            <path d="M4 20a8 8 0 1 1 16 0" />
                           </svg>
                         )}
                         {link.icon === "zap" && (
