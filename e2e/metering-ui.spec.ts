@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-const ANALYTICS_URL = '/dashboard/analytics';
+const METERING_URL = '/dashboard/metering';
 const ADMIN_KEY = 'test-admin-secret-key-12345';
 
 /** Set admin key in localStorage and reload onto the given page. */
@@ -34,14 +34,11 @@ test.describe('Metering — admin API smoke', () => {
 	});
 });
 
-// ─── Metering UI: view switcher mounts the panel ────────────────────
+// ─── Metering UI: standalone page mounts the panel ──────────────────
 
-test.describe('Metering — dashboard panel', () => {
-	test('clicking the Metering view switcher mounts the MeteringPanel', async ({ page }) => {
-		await setupAuth(page, ANALYTICS_URL);
-
-		// View switcher is a <button>Metering</button> (with a Gauge icon) in AnalyticsPage.tsx.
-		await page.getByRole('button', { name: 'Metering' }).click();
+test.describe('Metering - dashboard page', () => {
+	test('the /dashboard/metering page mounts the MeteringPanel', async ({ page }) => {
+		await setupAuth(page, METERING_URL);
 
 		// MeteringPanel always renders its surface selector, regardless of data:
 		// the first surface button is "All (cross-surface)".
