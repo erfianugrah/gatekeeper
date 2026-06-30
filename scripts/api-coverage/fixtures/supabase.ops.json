@@ -73,6 +73,12 @@
 	},
 	{
 		"method": "DELETE",
+		"path": "/v1/projects/{ref}/database/jit/invite/{invite_id}",
+		"summary": "Deletes the invite for an external user to a database for JIT access",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
 		"path": "/v1/projects/{ref}/database/migrations",
 		"summary": "Rollback database migrations and remove them from history table",
 		"covered": true
@@ -213,6 +219,12 @@
 		"method": "GET",
 		"path": "/v1/projects/{ref}/analytics/endpoints/functions.combined-stats",
 		"summary": "Gets a project's function combined statistics",
+		"covered": true
+	},
+	{
+		"method": "GET",
+		"path": "/v1/projects/{ref}/analytics/endpoints/logs",
+		"summary": "Gets all project's logs in a single log stream",
 		"covered": true
 	},
 	{
@@ -813,6 +825,18 @@
 		"method": "POST",
 		"path": "/v1/projects/{ref}/database/jit",
 		"summary": "Authorize user-id to role mappings for JIT access",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/v1/projects/{ref}/database/jit/invite",
+		"summary": "Invites an external user to a database for JIT access",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/v1/projects/{ref}/database/jit/invite/accept",
+		"summary": "Accepts invitation for JIT database access",
 		"covered": true
 	},
 	{
