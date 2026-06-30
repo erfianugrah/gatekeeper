@@ -2200,6 +2200,64 @@ Summary returns: `total_requests`, `by_status`, `by_category`, `by_action`, `avg
 
 ---
 
+### 7.5 Per-tenant metering
+
+Gatekeeper rolls up per-tenant cost across every proxy surface from the events it
+already logs -- no extra instrumentation.
+
+- **Per-surface:** `GET /admin/<surface>/analytics/metering?group_by=<dim>` and
+  `gk metering --surface <surface> --group-by <dim>`. Valid `group_by` dims per surface:
+  - supabase: `tenant` (created_by), `key`, `project`
+  - cf: `tenant`, `key`
+  - dns / purge: `tenant`, `key`, `zone`
+  - s3: `tenant`, `credential`, `bucket`
+- **Cross-surface:** `GET /admin/metering` and `gk metering` (no `--surface`). Aggregates
+  every surface into one row per tenant, unified on `created_by` -- the only identity
+  column present in all five event tables. A tenant holding multiple keys across
+  surfaces is summed correctly; per-key grouping is a per-surface view only.
+
+Metrics returned: `total_requests`, `read_requests` / `write_requests` (null on surfaces
+with no read/write split -- e.g. purge), `error_count` / `error_rate_pct`, and `egress_bytes`.
+
+**Egress is best-effort.** `egress_bytes` sums the `response_size` Gatekeeper buffered, and
+is `null` for streamed passthrough (Prometheus metrics scrapes and any streamed body) and on
+surfaces with no `response_size` column (purge / dns / s3). Request-count metering is
+authoritative (every call is logged); byte/compute metering is not. For true egress GB,
+storage GB, function compute, and active compute-hours, query Supabase's own usage endpoints
+(classified as `supabase:analytics:read`) -- noting that active compute-hours are not
+self-serve upstream.
+
+Both `events` and `summary` filters (`--since`, `--until`, `--limit`) apply; the per-surface
+route also accepts `group_by`, while the cross-surface route always groups by tenant.
+
+**CLI:**
+
+```bash
+# Cross-surface rollup, one row per tenant
+gk metering
+
+# Single surface, grouped by a surface-specific dimension
+gk metering --surface s3 --group-by bucket
+gk metering --surface supabase --group-by project
+
+# Windowed + JSON
+gk metering --since "2025-01-01T00:00:00Z" --until "2025-01-31T23:59:59Z" --json
+```
+
+**API:**
+
+```bash
+# Cross-surface
+curl -H "X-Admin-Key: $ADMIN_KEY" \
+  "$GATEKEEPER_URL/admin/metering"
+
+# Per-surface, grouped
+curl -H "X-Admin-Key: $ADMIN_KEY" \
+  "$GATEKEEPER_URL/admin/s3/analytics/metering?group_by=bucket"
+```
+
+---
+
 ## 8. Configuration
 
 All gateway settings live in the config registry -- a SQLite table inside the Durable Object. Resolution order: registry override (highest priority), then env var fallback (e.g. `BULK_RATE`, `SINGLE_RATE`), then hardcoded default. Registry changes take effect immediately without redeployment.
