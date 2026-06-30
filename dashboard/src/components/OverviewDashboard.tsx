@@ -661,14 +661,14 @@ export function OverviewDashboard() {
 									</CardTitle>
 								</CardHeader>
 								<CardContent className="p-0">
-									<Table>
+									<Table className="w-auto">
 										<TableHeader>
 											<TableRow>
-												<TableHead className={T.sectionLabel}>Surface</TableHead>
+												<TableHead className={cn(T.sectionLabel, 'w-40')}>Surface</TableHead>
 												<TableHead className={cn(T.sectionLabel, 'text-right')}>Requests</TableHead>
 												<TableHead className={cn(T.sectionLabel, 'text-right')}>Error %</TableHead>
 												<TableHead className={cn(T.sectionLabel, 'text-right')}>5xx</TableHead>
-												<TableHead className={T.sectionLabel}>Signals</TableHead>
+												<TableHead className={cn(T.sectionLabel, 'pl-8')}>Signals</TableHead>
 											</TableRow>
 										</TableHeader>
 										<TableBody>
@@ -685,7 +685,7 @@ export function OverviewDashboard() {
 														{h.errorRate.toFixed(1)}%
 													</TableCell>
 													<TableCell className={cn(T.tableCellNumeric, h.count5xx > 0 && 'text-lv-red')}>{h.count5xx}</TableCell>
-													<TableCell>
+													<TableCell className="pl-8">
 														{h.signals.length === 0 ? (
 															<span className="text-muted-foreground/40">{'\u2014'}</span>
 														) : (
@@ -706,8 +706,8 @@ export function OverviewDashboard() {
 							</Card>
 						)}
 
-						{/* Row 1: Traffic stat cards */}
-						<div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
+						{/* Row 1: Aggregate stat cards (per-surface counts live in the Health table) */}
+						<div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
 							<StatCard
 								label="Total Requests"
 								value={formatNumber(totalRequests)}
@@ -715,36 +715,6 @@ export function OverviewDashboard() {
 								iconBg="bg-lv-green/15"
 								delay={0}
 							/>
-							<StatCard
-								label="Purge Requests"
-								value={formatNumber(purgeTotal)}
-								icon={<Cloud className="h-5 w-5 text-lv-purple" />}
-								iconBg="bg-lv-purple/15"
-								delay={60}
-							/>
-							<StatCard
-								label="S3 Requests"
-								value={formatNumber(s3Total)}
-								icon={<HardDrive className="h-5 w-5 text-lv-cyan" />}
-								iconBg="bg-lv-cyan/15"
-								delay={120}
-							/>
-							<StatCard
-								label="DNS Requests"
-								value={formatNumber(dnsTotal)}
-								icon={<Globe className="h-5 w-5 text-lv-green" />}
-								iconBg="bg-lv-green/15"
-								delay={150}
-							/>
-							{cfTotal > 0 && (
-								<StatCard
-									label="CF Services"
-									value={formatNumber(cfTotal)}
-									icon={<Cpu className="h-5 w-5 text-lv-blue" />}
-									iconBg="bg-lv-blue/15"
-									delay={165}
-								/>
-							)}
 							<StatCard
 								label="Avg Latency"
 								value={`${avgLatency} ms`}
