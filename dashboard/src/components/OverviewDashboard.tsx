@@ -24,6 +24,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { computeSurfaceHealth, WARN_ERROR_PCT, type HealthLevel } from '@/components/analytics/health';
 import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
 	getSummary,
@@ -368,28 +370,47 @@ export function OverviewDashboard() {
 		setLoading(true);
 		setError(null);
 		try {
-			const [purge, s3, dns, cf, supa, purgeEvents, s3Events, dnsEvents, cfEvents, supabaseEvents, purgeTs, s3Ts, dnsTs, cfTs, supaTs, keys, s3Creds, upTokens, upR2] =
-				await Promise.all([
-					getSummary().catch(() => null),
-					getS3Summary().catch(() => null),
-					getDnsSummary().catch(() => null),
-					getCfProxySummary().catch(() => null),
-					getSupabaseProxySummary().catch(() => null),
-					getEvents({ limit: 10 }).catch(() => [] as PurgeEvent[]),
-					getS3Events({ limit: 10 }).catch(() => [] as S3Event[]),
-					getDnsEvents({ limit: 10 }).catch(() => [] as DnsEvent[]),
-					getCfProxyEvents({ limit: 10 }).catch(() => [] as CfProxyEvent[]),
-					getSupabaseProxyEvents({ limit: 10 }).catch(() => [] as SupabaseProxyEvent[]),
-					getPurgeTimeseries().catch(() => [] as TimeseriesBucket[]),
-					getS3Timeseries().catch(() => [] as TimeseriesBucket[]),
-					getDnsTimeseries().catch(() => [] as TimeseriesBucket[]),
-					getCfProxyTimeseries().catch(() => [] as TimeseriesBucket[]),
-					getSupabaseProxyTimeseries().catch(() => [] as TimeseriesBucket[]),
-					listKeys().catch(() => []),
-					listS3Credentials().catch(() => []),
-					listUpstreamTokens().catch(() => []),
-					listUpstreamR2().catch(() => []),
-				]);
+			const [
+				purge,
+				s3,
+				dns,
+				cf,
+				supa,
+				purgeEvents,
+				s3Events,
+				dnsEvents,
+				cfEvents,
+				supabaseEvents,
+				purgeTs,
+				s3Ts,
+				dnsTs,
+				cfTs,
+				supaTs,
+				keys,
+				s3Creds,
+				upTokens,
+				upR2,
+			] = await Promise.all([
+				getSummary().catch(() => null),
+				getS3Summary().catch(() => null),
+				getDnsSummary().catch(() => null),
+				getCfProxySummary().catch(() => null),
+				getSupabaseProxySummary().catch(() => null),
+				getEvents({ limit: 10 }).catch(() => [] as PurgeEvent[]),
+				getS3Events({ limit: 10 }).catch(() => [] as S3Event[]),
+				getDnsEvents({ limit: 10 }).catch(() => [] as DnsEvent[]),
+				getCfProxyEvents({ limit: 10 }).catch(() => [] as CfProxyEvent[]),
+				getSupabaseProxyEvents({ limit: 10 }).catch(() => [] as SupabaseProxyEvent[]),
+				getPurgeTimeseries().catch(() => [] as TimeseriesBucket[]),
+				getS3Timeseries().catch(() => [] as TimeseriesBucket[]),
+				getDnsTimeseries().catch(() => [] as TimeseriesBucket[]),
+				getCfProxyTimeseries().catch(() => [] as TimeseriesBucket[]),
+				getSupabaseProxyTimeseries().catch(() => [] as TimeseriesBucket[]),
+				listKeys().catch(() => []),
+				listS3Credentials().catch(() => []),
+				listUpstreamTokens().catch(() => []),
+				listUpstreamR2().catch(() => []),
+			]);
 			if (!purge && !s3 && !dns && !cf && !supa) {
 				throw new Error('Failed to load analytics from all endpoints');
 			}
@@ -459,6 +480,25 @@ export function OverviewDashboard() {
 	const cfTotal = cfSummary?.total_requests ?? 0;
 	const supaTotal = supabaseSummary?.total_requests ?? 0;
 	const totalRequests = purgeTotal + s3Total + dnsTotal + cfTotal + supaTotal;
+
+	const HEALTH_DOT: Record<HealthLevel, string> = {
+		ok: 'bg-lv-green',
+		warn: 'bg-lv-peach',
+		crit: 'bg-lv-red',
+	};
+
+	const surfaceHealth = computeSurfaceHealth({
+		purge: purgeSummary,
+		purgeTotal,
+		s3: s3Summary,
+		s3Total,
+		dns: dnsSummary,
+		dnsTotal,
+		cf: cfSummary,
+		cfTotal,
+		supabase: supabaseSummary,
+		supaTotal,
+	});
 
 	// Per-service totals from cfSummary.by_service (d1, kv, workers, etc.)
 	const cfByService = cfSummary?.by_service ?? {};
@@ -577,17 +617,6 @@ export function OverviewDashboard() {
 	const errorPct = totalRequests > 0 ? ((errorCount / totalRequests) * 100).toFixed(1) : '0';
 
 	const collapsedPct = purgeTotal > 0 ? (((purgeSummary?.collapsed_count ?? 0) / purgeTotal) * 100).toFixed(1) : '0';
-	const supabaseTimeouts = supabaseSummary?.timeout_count ?? 0;
-	const supabaseUnauthorized = supabaseSummary?.unauthorized_count ?? 0;
-	const supabaseUpstream5xx = supabaseSummary?.upstream_5xx_count ?? 0;
-	const supabaseTimeoutRate = supaTotal > 0 ? (supabaseTimeouts / supaTotal) * 100 : 0;
-	const supabaseUnauthorizedRate = supaTotal > 0 ? (supabaseUnauthorized / supaTotal) * 100 : 0;
-	const supabaseAlerts: string[] = [];
-	if (supaTotal > 0) {
-		if (supabaseTimeoutRate >= 2) supabaseAlerts.push(`Timeouts ${supabaseTimeoutRate.toFixed(1)}%`);
-		if (supabaseUnauthorizedRate >= 5) supabaseAlerts.push(`401 ${supabaseUnauthorizedRate.toFixed(1)}%`);
-		if (supabaseUpstream5xx > 0) supabaseAlerts.push(`Upstream 5xx ${supabaseUpstream5xx}`);
-	}
 
 	return (
 		<TooltipProvider delayDuration={200}>
@@ -607,23 +636,6 @@ export function OverviewDashboard() {
 				{/* ── Error ──────────────────────────────────────────────── */}
 				{error && <div className="rounded-lg border border-lv-red/30 bg-lv-red/10 px-4 py-3 text-sm text-lv-red">{error}</div>}
 
-				{/* ── Supabase health alerts ─────────────────────────────── */}
-				{!error && supabaseAlerts.length > 0 && (
-					<div className="rounded-lg border border-lv-peach/30 bg-lv-peach/10 px-4 py-3">
-						<div className="mb-2 flex items-center gap-2 text-sm text-lv-peach">
-							<AlertTriangle className="h-4 w-4" />
-							<span className="font-medium">Supabase upstream health signals</span>
-						</div>
-						<div className="flex flex-wrap gap-2">
-							{supabaseAlerts.map((msg) => (
-								<Badge key={msg} className="bg-lv-peach/20 text-lv-peach border-lv-peach/30">
-									{msg}
-								</Badge>
-							))}
-						</div>
-					</div>
-				)}
-
 				{/* ── Loading ────────────────────────────────────────────── */}
 				{loading && <LoadingSkeleton />}
 
@@ -637,6 +649,63 @@ export function OverviewDashboard() {
 				{/* ── Data ───────────────────────────────────────────────── */}
 				{!loading && totalRequests > 0 && (
 					<>
+						{/* Row 0: Per-surface health */}
+						{surfaceHealth.length > 0 && (
+							<Card>
+								<CardHeader>
+									<CardTitle className={T.sectionHeading}>
+										<div className="flex items-center gap-2">
+											<Activity className="h-4 w-4 text-muted-foreground" />
+											Health
+										</div>
+									</CardTitle>
+								</CardHeader>
+								<CardContent className="p-0">
+									<Table>
+										<TableHeader>
+											<TableRow>
+												<TableHead className={T.sectionLabel}>Surface</TableHead>
+												<TableHead className={cn(T.sectionLabel, 'text-right')}>Requests</TableHead>
+												<TableHead className={cn(T.sectionLabel, 'text-right')}>Error %</TableHead>
+												<TableHead className={cn(T.sectionLabel, 'text-right')}>5xx</TableHead>
+												<TableHead className={T.sectionLabel}>Signals</TableHead>
+											</TableRow>
+										</TableHeader>
+										<TableBody>
+											{surfaceHealth.map((h) => (
+												<TableRow key={h.surface}>
+													<TableCell>
+														<div className="flex items-center gap-2">
+															<span className={cn('h-2 w-2 rounded-full', HEALTH_DOT[h.level])} />
+															<span className={T.tableCellMono}>{h.label}</span>
+														</div>
+													</TableCell>
+													<TableCell className={T.tableCellNumeric}>{formatNumber(h.total)}</TableCell>
+													<TableCell className={cn(T.tableCellNumeric, h.errorRate >= WARN_ERROR_PCT && 'text-lv-red')}>
+														{h.errorRate.toFixed(1)}%
+													</TableCell>
+													<TableCell className={cn(T.tableCellNumeric, h.count5xx > 0 && 'text-lv-red')}>{h.count5xx}</TableCell>
+													<TableCell>
+														{h.signals.length === 0 ? (
+															<span className="text-muted-foreground/40">{'\u2014'}</span>
+														) : (
+															<div className="flex flex-wrap gap-1.5">
+																{h.signals.map((sig) => (
+																	<Badge key={sig} className="bg-lv-peach/20 text-lv-peach border-lv-peach/30">
+																		{sig}
+																	</Badge>
+																))}
+															</div>
+														)}
+													</TableCell>
+												</TableRow>
+											))}
+										</TableBody>
+									</Table>
+								</CardContent>
+							</Card>
+						)}
+
 						{/* Row 1: Traffic stat cards */}
 						<div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
 							<StatCard
@@ -674,33 +743,6 @@ export function OverviewDashboard() {
 									icon={<Cpu className="h-5 w-5 text-lv-blue" />}
 									iconBg="bg-lv-blue/15"
 									delay={165}
-								/>
-							)}
-							{supaTotal > 0 && (
-								<StatCard
-									label="Supabase"
-									value={formatNumber(supaTotal)}
-									icon={<Database className="h-5 w-5 text-lv-peach" />}
-									iconBg="bg-lv-peach/15"
-									delay={172}
-								/>
-							)}
-							{supaTotal > 0 && (
-								<StatCard
-									label="Supabase 401"
-									value={formatNumber(supabaseUnauthorized)}
-									icon={<AlertTriangle className="h-5 w-5 text-lv-peach" />}
-									iconBg="bg-lv-peach/15"
-									delay={176}
-								/>
-							)}
-							{supaTotal > 0 && (
-								<StatCard
-									label="Supabase Timeouts"
-									value={formatNumber(supabaseTimeouts)}
-									icon={<Timer className="h-5 w-5 text-lv-red" />}
-									iconBg="bg-lv-red/15"
-									delay={178}
 								/>
 							)}
 							<StatCard
