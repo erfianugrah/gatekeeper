@@ -93,6 +93,8 @@ describe('queryMetering — supabase surface', () => {
 		expect(a.error_count).toBe(1);
 		expect(a.error_rate_pct).toBeCloseTo(33.3, 1);
 		expect(a.egress_bytes).toBe(150); // null response_size ignored by SUM
+		// 2 reads * 0.000010 + 1 write * 0.000050 + ~150B egress = ~0.00007 (illustrative pricing).
+		expect(a.cost_usd).toBeCloseTo(0.00007, 6);
 		expect(a.first_seen).toBe(1000);
 		expect(a.last_seen).toBe(3000);
 	});
@@ -198,6 +200,9 @@ describe('queryMeteringAcrossSurfaces', () => {
 		expect(u1.surfaces.supabase_proxy_events.total_requests).toBe(1);
 		expect(u1.surfaces.cf_proxy_events.total_requests).toBe(1);
 		expect(u1.total_egress_bytes).toBe(120);
+		// Cost unifies across surfaces: supabase 1 write + cf 1 read + egress, all rounded to micro-dollars.
+		expect(u1.total_cost_usd).toBeCloseTo(u1.surfaces.supabase_proxy_events.cost_usd + u1.surfaces.cf_proxy_events.cost_usd, 6);
+		expect(u1.total_cost_usd).toBeGreaterThan(0);
 		const u2 = rows.find((r) => r.tenant === 'user-2')!;
 		expect(u2.total_requests).toBe(1);
 		expect(u2.total_errors).toBe(1);

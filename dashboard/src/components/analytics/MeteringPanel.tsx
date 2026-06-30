@@ -57,6 +57,15 @@ function fmtEgress(bytes: number | null | undefined): string {
 
 // ─── Metering Panel ─────────────────────────────────────────────────
 
+const COST_NOTE = 'Illustrative placeholder pricing - not real list prices';
+
+function fmtUsd(n: number | null | undefined): string {
+	if (n === null || n === undefined) return '-';
+	if (n === 0) return '$0';
+	if (n < 0.01) return `$${n.toFixed(6)}`;
+	return `$${n.toFixed(2)}`;
+}
+
 export function MeteringPanel() {
 	const [surface, setSurface] = useState<SurfaceSel>('all');
 	const [groupBy, setGroupBy] = useState<string>('tenant');
@@ -102,10 +111,7 @@ export function MeteringPanel() {
 		fetchData();
 	}, [fetchData]);
 
-	const isEmpty = useMemo(
-		() => (surface === 'all' ? crossRows.length === 0 : surfaceRows.length === 0),
-		[surface, crossRows, surfaceRows],
-	);
+	const isEmpty = useMemo(() => (surface === 'all' ? crossRows.length === 0 : surfaceRows.length === 0), [surface, crossRows, surfaceRows]);
 
 	return (
 		<div className="space-y-6">
@@ -222,6 +228,9 @@ export function MeteringPanel() {
 								<TableRow>
 									<TableHead className={T.sectionLabel}>Tenant</TableHead>
 									<TableHead className={cn(T.sectionLabel, 'text-right')}>Total req</TableHead>
+									<TableHead className={cn(T.sectionLabel, 'text-right')} title={COST_NOTE}>
+										Cost*
+									</TableHead>
 									<TableHead className={cn(T.sectionLabel, 'text-right')}>Errors</TableHead>
 									<TableHead className={cn(T.sectionLabel, 'text-right')} title={EGRESS_FOOTNOTE}>
 										Egress*
@@ -240,6 +249,7 @@ export function MeteringPanel() {
 											{row.tenant ? truncateId(row.tenant, 24) : <span className="text-muted-foreground/60 italic">(none)</span>}
 										</TableCell>
 										<TableCell className={T.tableCellNumeric}>{fmtNum(row.total_requests)}</TableCell>
+										<TableCell className={cn(T.tableCellNumeric, 'text-lv-green')}>{fmtUsd(row.total_cost_usd)}</TableCell>
 										<TableCell className={cn(T.tableCellNumeric, row.total_errors > 0 && 'text-lv-red')}>
 											{fmtNum(row.total_errors)}
 										</TableCell>
@@ -256,7 +266,7 @@ export function MeteringPanel() {
 								))}
 							</TableBody>
 						</Table>
-						<p className={cn(T.mutedSm, 'px-4 py-2 text-xs')}>* {EGRESS_FOOTNOTE}.</p>
+						<p className={cn(T.mutedSm, 'px-4 py-2 text-xs')}>* {EGRESS_FOOTNOTE}. Cost uses illustrative placeholder pricing.</p>
 					</CardContent>
 				</Card>
 			)}
@@ -284,6 +294,9 @@ export function MeteringPanel() {
 									<TableHead className={cn(T.sectionLabel, 'text-right')} title={EGRESS_FOOTNOTE}>
 										Egress*
 									</TableHead>
+									<TableHead className={cn(T.sectionLabel, 'text-right')} title={COST_NOTE}>
+										Cost*
+									</TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -301,12 +314,13 @@ export function MeteringPanel() {
 												{row.error_rate_pct.toFixed(1)}%
 											</TableCell>
 											<TableCell className={T.tableCellNumeric}>{fmtEgress(row.egress_bytes)}</TableCell>
+											<TableCell className={cn(T.tableCellNumeric, 'text-lv-green')}>{fmtUsd(row.cost_usd)}</TableCell>
 										</TableRow>
 									);
 								})}
 							</TableBody>
 						</Table>
-						<p className={cn(T.mutedSm, 'px-4 py-2 text-xs')}>* {EGRESS_FOOTNOTE}.</p>
+						<p className={cn(T.mutedSm, 'px-4 py-2 text-xs')}>* {EGRESS_FOOTNOTE}. Cost uses illustrative placeholder pricing.</p>
 					</CardContent>
 				</Card>
 			)}

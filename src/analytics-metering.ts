@@ -13,6 +13,7 @@
  */
 
 import { toSafeKeyPreview } from './analytics-identifiers';
+import { computeCostUsd } from './metering-pricing';
 
 // ─── Descriptors ──────────────────────────────────────────────────────────────
 
@@ -82,6 +83,8 @@ export interface MeteringRow {
 	error_count: number;
 	error_rate_pct: number;
 	egress_bytes: number | null;
+	/** Billable cost (USD) from `metering-pricing` - illustrative placeholder rates, not real prices. */
+	cost_usd: number;
 	first_seen: number;
 	last_seen: number;
 }
@@ -169,15 +172,24 @@ export async function queryMetering(db: D1Database, table: string, query: Meteri
 		const total = Number(row.total_requests ?? 0);
 		const errors = Number(row.error_count ?? 0);
 		const label = typeof row.label === 'string' ? toSafeKeyPreview(row.label) : (row.label ?? null);
+		const readRequests = we ? Number(row.read_requests ?? 0) : null;
+		const writeRequests = we ? Number(row.write_requests ?? 0) : null;
+		const egressBytes = desc.hasEgress ? Number(row.egress_bytes ?? 0) : null;
 		return {
 			group_key: row.group_key ?? null,
 			label,
 			total_requests: total,
-			read_requests: we ? Number(row.read_requests ?? 0) : null,
-			write_requests: we ? Number(row.write_requests ?? 0) : null,
+			read_requests: readRequests,
+			write_requests: writeRequests,
 			error_count: errors,
 			error_rate_pct: total > 0 ? Math.round((errors / total) * 1000) / 10 : 0,
-			egress_bytes: desc.hasEgress ? Number(row.egress_bytes ?? 0) : null,
+			egress_bytes: egressBytes,
+			cost_usd: computeCostUsd(table, {
+				total_requests: total,
+				read_requests: readRequests,
+				write_requests: writeRequests,
+				egress_bytes: egressBytes,
+			}),
 			first_seen: Number(row.first_seen ?? 0),
 			last_seen: Number(row.last_seen ?? 0),
 		};
@@ -191,6 +203,7 @@ export interface CrossSurfaceSurfaceTotals {
 	write_requests: number | null;
 	error_count: number;
 	egress_bytes: number | null;
+	cost_usd: number;
 }
 
 export interface CrossSurfaceTenantRow {
@@ -199,6 +212,7 @@ export interface CrossSurfaceTenantRow {
 	total_requests: number;
 	total_errors: number;
 	total_egress_bytes: number;
+	total_cost_usd: number;
 }
 
 export interface CrossSurfaceMeteringQuery {
@@ -221,7 +235,7 @@ export async function queryMeteringAcrossSurfaces(db: D1Database, query: CrossSu
 			const tenantKey = r.group_key ?? '(none)';
 			let agg = byTenant.get(tenantKey);
 			if (!agg) {
-				agg = { tenant: r.group_key, surfaces: {}, total_requests: 0, total_errors: 0, total_egress_bytes: 0 };
+				agg = { tenant: r.group_key, surfaces: {}, total_requests: 0, total_errors: 0, total_egress_bytes: 0, total_cost_usd: 0 };
 				byTenant.set(tenantKey, agg);
 			}
 			agg.surfaces[table] = {
@@ -229,14 +243,17 @@ export async function queryMeteringAcrossSurfaces(db: D1Database, query: CrossSu
 				write_requests: r.write_requests,
 				error_count: r.error_count,
 				egress_bytes: r.egress_bytes,
+				cost_usd: r.cost_usd,
 			};
 			agg.total_requests += r.total_requests;
 			agg.total_errors += r.error_count;
 			agg.total_egress_bytes += r.egress_bytes ?? 0;
+			agg.total_cost_usd += r.cost_usd;
 		}
 	}
 	const limit = Math.min(query.limit ?? 100, 1000);
 	return Array.from(byTenant.values())
+		.map((a) => ({ ...a, total_cost_usd: Math.round(a.total_cost_usd * 1e6) / 1e6 }))
 		.sort((a, b) => b.total_requests - a.total_requests)
 		.slice(0, limit);
 }

@@ -825,6 +825,8 @@ export interface MeteringRow {
 	error_rate_pct: number;
 	/** Best-effort — excludes streamed responses. Null when the surface does not track egress. */
 	egress_bytes: number | null;
+	/** Billable cost (USD) - illustrative placeholder pricing, not real prices. */
+	cost_usd: number;
 	first_seen: number;
 	last_seen: number;
 }
@@ -832,13 +834,20 @@ export interface MeteringRow {
 /** One per-tenant row from the cross-surface /admin/metering endpoint. */
 export interface CrossSurfaceTenantRow {
 	tenant: string | null;
-	surfaces: Record<string, { total_requests: number; write_requests: number | null; error_count: number; egress_bytes: number | null }>;
+	surfaces: Record<
+		string,
+		{ total_requests: number; write_requests: number | null; error_count: number; egress_bytes: number | null; cost_usd: number }
+	>;
 	total_requests: number;
 	total_errors: number;
 	total_egress_bytes: number;
+	/** Summed billable cost (USD) across surfaces - illustrative placeholder pricing. */
+	total_cost_usd: number;
 }
 
-export async function getCrossSurfaceMetering(query: { since?: number; until?: number; limit?: number } = {}): Promise<CrossSurfaceTenantRow[]> {
+export async function getCrossSurfaceMetering(
+	query: { since?: number; until?: number; limit?: number } = {},
+): Promise<CrossSurfaceTenantRow[]> {
 	const params = new URLSearchParams();
 	if (query.since) params.set('since', String(query.since));
 	if (query.until) params.set('until', String(query.until));

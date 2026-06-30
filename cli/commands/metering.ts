@@ -30,6 +30,14 @@ function fmtBytes(value: unknown): string {
 	return String(value);
 }
 
+// Cost is illustrative placeholder pricing (see src/metering-pricing.ts), not real list prices.
+function fmtUsd(value: unknown): string {
+	const n = Number(value ?? 0);
+	if (!Number.isFinite(n) || n === 0) return dim('$0');
+	if (n < 0.01) return green(`$${n.toFixed(6)}`);
+	return green(`$${n.toFixed(2)}`);
+}
+
 export default defineCommand({
 	meta: { name: 'metering', description: 'Per-tenant cost metering across proxy surfaces' },
 	args: {
@@ -116,12 +124,13 @@ export default defineCommand({
 					r.write_requests === null || r.write_requests === undefined ? dim('-') : String(r.write_requests),
 					errPct > 0 ? red(`${errPct}%`) : green(`${errPct}%`),
 					fmtBytes(r.egress_bytes),
+					fmtUsd(r.cost_usd),
 				];
 			});
-			table(['Label', 'Total req', 'Read', 'Write', 'Error%', 'Egress (bytes)'], rows);
+			table(['Label', 'Total req', 'Read', 'Write', 'Error%', 'Egress (bytes)', 'Cost*'], rows);
 		} else {
 			// Cross-surface: Tenant | Total req | Errors | Egress (bytes) | one col per surface (req count)
-			const headers = ['Tenant', 'Total req', 'Errors', 'Egress (bytes)', ...SURFACE_ORDER];
+			const headers = ['Tenant', 'Total req', 'Cost*', 'Errors', 'Egress (bytes)', ...SURFACE_ORDER];
 			const rows = result.map((r) => {
 				const surfaces = (r.surfaces ?? {}) as Record<string, { total_requests?: number }>;
 				const errors = Number(r.total_errors ?? 0);
@@ -132,12 +141,14 @@ export default defineCommand({
 				return [
 					cyan(String(r.tenant ?? '(none)')),
 					bold(String(r.total_requests ?? 0)),
+					fmtUsd(r.total_cost_usd),
 					errors > 0 ? red(String(errors)) : green(String(errors)),
 					fmtBytes(r.total_egress_bytes),
 					...surfaceCols,
 				];
 			});
 			table(headers, rows);
+			console.error(dim('  * Cost uses illustrative placeholder pricing, not real list prices.'));
 		}
 
 		console.error('');
