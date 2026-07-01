@@ -171,3 +171,19 @@ jobs:
             echo "::notice::SUPABASE_SMOKE_METRICS_SECRET and/or SUPABASE_SMOKE_METRICS_REF not set — metrics live tier will self-skip."
           fi
           bunx tsx cli/smoke-supabase.ts
+
+      - name: Metering readout (staging)
+        # Surface the per-tenant cost rollups over the traffic the smoke just generated.
+        # Read-only (viewer-role) admin API calls; uses the same STAGING_ADMIN_KEY.
+        env:
+          GATEKEEPER_URL: https://gatekeeper-staging.anugrah.workers.dev
+          GATEKEEPER_ADMIN_KEY: ${{ secrets.STAGING_ADMIN_KEY }}
+        run: |
+          if [ -z "$GATEKEEPER_ADMIN_KEY" ]; then
+            echo "::notice::STAGING_ADMIN_KEY not set, skipping metering readout."
+            exit 0
+          fi
+          echo "=== Cross-surface metering (per-tenant cost rollup) ==="
+          bunx tsx cli/index.ts metering || echo "::warning::cross-surface metering query failed"
+          echo "=== Supabase surface metering ==="
+          bunx tsx cli/index.ts metering --surface supabase || echo "::warning::supabase metering query failed"
