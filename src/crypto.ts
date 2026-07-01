@@ -22,6 +22,12 @@ export async function timingSafeEqual(a: string, b: string): Promise<boolean> {
 	return (crypto.subtle as SubtleCrypto & { timingSafeEqual(a: ArrayBuffer, b: ArrayBuffer): boolean }).timingSafeEqual(macA, macB);
 }
 
+/** SHA-256 hash of a string, returned as lowercase hex. Deterministic, so safe as a lookup key. */
+export async function sha256Hex(input: string): Promise<string> {
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+	return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 /** Generate a short random flight identifier (8 hex chars). */
 export function generateFlightId(): string {
 	const bytes = new Uint8Array(4);

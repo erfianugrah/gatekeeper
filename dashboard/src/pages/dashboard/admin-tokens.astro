@@ -1,0 +1,8 @@
+---
+import DashboardLayout from "../../layouts/DashboardLayout.astro";
+import { AdminTokensPage } from "../../components/AdminTokensPage";
+---
+
+<DashboardLayout title="gatekeeper - Admin Tokens" active="admin-tokens">
+  <AdminTokensPage client:load />
+</DashboardLayout>

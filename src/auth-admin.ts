@@ -1,10 +1,11 @@
 /**
  * Admin authentication + RBAC middleware.
  *
- * Three auth paths (checked in order):
- * 1. Cloudflare Access JWT (dashboard SSO) — provides identity + RBAC from IdP groups
- * 2. X-Admin-Key header (CLI / automation) — always "admin" role
- * 3. Session cookie (built-in auth) — provides identity + role from the user record
+ * Four auth paths (checked in order):
+ * 1. Cloudflare Access JWT (dashboard SSO): provides identity + RBAC from IdP groups
+ * 2. X-Admin-Key header matching the static ADMIN_KEY secret: always "admin" role
+ * 3. Admin API token (gka_...) via X-Admin-Key or Authorization Bearer: role from the token record
+ * 4. Session cookie (built-in auth): provides identity + role from the user record
  *
  * Access JWT is checked first so dashboard users get identity attached to tokens.
  * CF Access is only enforced at the edge on /dashboard/*, but the CF_Authorization
@@ -20,6 +21,7 @@ import { makePreview, timingSafeEqual } from './crypto';
 import { getStub } from './do-stub';
 import { ADMIN_KEY_HEADER } from './constants';
 import { SESSION_COOKIE } from './session-manager';
+import { ADMIN_TOKEN_PREFIX } from './admin-token-manager';
 import type { HonoEnv, AdminRole } from './types';
 
 // ─── Role hierarchy ─────────────────────────────────────────────────────────
@@ -179,6 +181,38 @@ export async function adminAuth(c: Context<HonoEnv>, next: Next): Promise<Respon
 		c.set('adminRole', 'admin');
 		await next();
 		return;
+	}
+
+	// 3. Admin API token (gka_...): a named, revocable, role-scoped token minted from the
+	// dashboard/CLI. Accepted either via X-Admin-Key (so the CLI works unchanged) or an
+	// Authorization: Bearer header. Verified against the DO store; role comes from the record.
+	const bearer = c.req.header('Authorization');
+	const bearerToken = bearer?.startsWith('Bearer ') ? bearer.slice(7).trim() : null;
+	const tokenCandidate = adminKey?.startsWith(ADMIN_TOKEN_PREFIX)
+		? adminKey
+		: bearerToken?.startsWith(ADMIN_TOKEN_PREFIX)
+			? bearerToken
+			: null;
+	if (tokenCandidate) {
+		const stub = getStub(c.env);
+		const tokenAuth = await stub.verifyAdminToken(tokenCandidate);
+		if (tokenAuth) {
+			console.log(
+				JSON.stringify({
+					breadcrumb: 'admin-auth-token',
+					tokenId: tokenAuth.id,
+					name: tokenAuth.name,
+					role: tokenAuth.role,
+					method: c.req.method,
+					path: redactAdminPath(c.req.path),
+				}),
+			);
+			// Synthetic identity so audit logs attribute actions to the token by name.
+			c.set('accessIdentity', { email: `admin-token:${tokenAuth.name}`, groups: [], sub: tokenAuth.id, type: 'admin-token' } as any);
+			c.set('adminRole', tokenAuth.role);
+			await next();
+			return;
+		}
 	}
 
 	// 3. Try session cookie — built-in email/password auth

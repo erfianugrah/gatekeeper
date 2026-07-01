@@ -17,6 +17,7 @@ const navLinks = [
   { id: "upstream-r2", label: "Upstream R2", href: "/dashboard/upstream-r2", icon: "bucket", section: "Upstream" },
   { id: "analytics", label: "Analytics", href: "/dashboard/analytics", icon: "list", section: "Observability" },
   { id: "metering", label: "Metering", href: "/dashboard/metering", icon: "gauge", section: "Observability" },
+  { id: "admin-tokens", label: "Admin Tokens", href: "/dashboard/admin-tokens", icon: "shield", section: "System" },
   { id: "settings", label: "Settings", href: "/dashboard/settings", icon: "settings", section: "System" },
 ];
 
@@ -179,6 +180,12 @@ for (const link of navLinks) {
                           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <rect x="2" y="2" width="20" height="8" rx="2" ry="2" /><rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
                             <line x1="6" y1="6" x2="6.01" y2="6" /><line x1="6" y1="18" x2="6.01" y2="18" />
+                          </svg>
+                        )}
+                        {link.icon === "shield" && (
+                          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                            <path d="M9 12l2 2 4-4" />
                           </svg>
                         )}
                         {link.icon === "settings" && (

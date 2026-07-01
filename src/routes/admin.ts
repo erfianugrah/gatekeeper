@@ -12,6 +12,7 @@ import { adminUpstreamR2App } from './admin-upstream-r2';
 import { adminConfigApp } from './admin-config';
 import { adminAuditApp } from './admin-audit';
 import { adminUsersApp } from './admin-users';
+import { adminTokensApp } from './admin-tokens';
 import { jsonError } from './admin-schemas';
 import type { HonoEnv } from '../types';
 
@@ -44,11 +45,16 @@ adminApp.get('/me', (c) => {
 	let authMethod: string;
 	if (identity?.type === 'session') {
 		authMethod = 'session';
+	} else if (identity?.type === 'admin-token') {
+		authMethod = 'api-token';
 	} else if (identity) {
 		authMethod = 'access';
 	} else {
 		authMethod = 'api-key';
 	}
+
+	// Only session + Access SSO have a logout flow; static key and API tokens do not.
+	const hasLogout = authMethod === 'session' || authMethod === 'access';
 
 	return c.json({
 		success: true,
@@ -57,8 +63,8 @@ adminApp.get('/me', (c) => {
 			role,
 			groups: identity?.groups ?? [],
 			authMethod,
-			// Session-based auth uses /logout; Access SSO uses /logout (with CF Access redirect); API key has no logout
-			logoutUrl: authMethod !== 'api-key' ? '/logout' : null,
+			// Session-based auth uses /logout; Access SSO uses /logout (with CF Access redirect); static key + API tokens have no logout
+			logoutUrl: hasLogout ? '/logout' : null,
 		},
 	});
 });
@@ -94,6 +100,10 @@ adminApp.use('/audit/*', requireRole('viewer'));
 adminApp.use('/users/*', requireRole('admin'));
 adminApp.use('/users', requireRole('admin'));
 
+// Admin API tokens: admin only (they mint management-plane credentials)
+adminApp.use('/tokens/*', requireRole('admin'));
+adminApp.use('/tokens', requireRole('admin'));
+
 adminApp.route('/keys', adminKeysApp);
 adminApp.route('/analytics', adminAnalyticsApp);
 adminApp.route('/dns/analytics', adminDnsAnalyticsApp);
@@ -106,3 +116,4 @@ adminApp.route('/upstream-r2', adminUpstreamR2App);
 adminApp.route('/config', adminConfigApp);
 adminApp.route('/audit', adminAuditApp);
 adminApp.route('/users', adminUsersApp);
+adminApp.route('/tokens', adminTokensApp);

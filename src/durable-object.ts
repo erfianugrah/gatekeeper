@@ -8,6 +8,8 @@ import { UpstreamR2Manager } from './s3/upstream-r2';
 import { ConfigManager } from './config-registry';
 import { UserManager } from './user-manager';
 import { SessionManager } from './session-manager';
+import { AdminTokenManager } from './admin-token-manager';
+import type { AdminTokenRecord, AdminTokenAuth } from './admin-token-manager';
 import { generateFlightId, makePreview } from './crypto';
 import { CF_API_BASE, DEFAULT_RETRY_AFTER_SEC } from './constants';
 import type {
@@ -75,6 +77,7 @@ export class Gatekeeper extends DurableObject<Env> {
 	private configManager!: ConfigManager;
 	private users!: UserManager;
 	private sessions!: SessionManager;
+	private adminTokens!: AdminTokenManager;
 
 	/** Per-key rate limit buckets. Lazily created when a key with custom limits is first used. Capped at MAX_KEY_BUCKETS. */
 	private keyBuckets = new Map<string, { bulk: TokenBucket; single: TokenBucket }>();
@@ -118,6 +121,9 @@ export class Gatekeeper extends DurableObject<Env> {
 
 			this.sessions = new SessionManager(ctx.storage.sql);
 			this.sessions.initTable();
+
+			this.adminTokens = new AdminTokenManager(ctx.storage.sql);
+			this.adminTokens.initTable();
 
 			console.log(
 				JSON.stringify({
@@ -742,13 +748,15 @@ export class Gatekeeper extends DurableObject<Env> {
 		upstreamTokensDeleted: number;
 		upstreamR2Deleted: number;
 		sessionsDeleted: number;
+		adminTokensDeleted: number;
 	}> {
 		const keysRevoked = this.iam.revokeExpired();
 		const s3CredsRevoked = this.s3Iam.revokeExpired();
 		const upstreamTokensDeleted = this.upstreamTokens.deleteExpired();
 		const upstreamR2Deleted = this.upstreamR2.deleteExpired();
 		const sessionsDeleted = this.sessions.deleteExpired();
-		return { keysRevoked, s3CredsRevoked, upstreamTokensDeleted, upstreamR2Deleted, sessionsDeleted };
+		const adminTokensDeleted = this.adminTokens.deleteExpired();
+		return { keysRevoked, s3CredsRevoked, upstreamTokensDeleted, upstreamR2Deleted, sessionsDeleted, adminTokensDeleted };
 	}
 
 	// ─── Config Registry RPC methods ────────────────────────────────────
@@ -844,5 +852,36 @@ export class Gatekeeper extends DurableObject<Env> {
 
 	async deleteExpiredSessions(): Promise<number> {
 		return this.sessions.deleteExpired();
+	}
+
+	// ─── Admin token RPC methods ───────────────────────────────────────
+
+	async createAdminToken(input: {
+		name: string;
+		role: AdminRole;
+		createdBy?: string | null;
+		expiresAt?: number | null;
+	}): Promise<{ token: string; record: AdminTokenRecord }> {
+		return this.adminTokens.createToken(input);
+	}
+
+	async verifyAdminToken(token: string): Promise<AdminTokenAuth | null> {
+		return this.adminTokens.verifyToken(token);
+	}
+
+	async listAdminTokens(): Promise<AdminTokenRecord[]> {
+		return this.adminTokens.listTokens();
+	}
+
+	async getAdminToken(id: string): Promise<AdminTokenRecord | null> {
+		return this.adminTokens.getById(id);
+	}
+
+	async revokeAdminToken(id: string): Promise<boolean> {
+		return this.adminTokens.revokeToken(id);
+	}
+
+	async deleteAdminToken(id: string): Promise<boolean> {
+		return this.adminTokens.deleteToken(id);
 	}
 }

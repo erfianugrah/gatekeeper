@@ -21,6 +21,7 @@ const COMMANDS: Record<string, string[]> = {
 		'upstream-tokens',
 		'upstream-r2',
 		'config',
+		'admin-tokens',
 		'audit',
 		'me',
 		'completions',
@@ -36,6 +37,7 @@ const COMMANDS: Record<string, string[]> = {
 	'cf-analytics': ['events', 'summary'],
 	'supabase-analytics': ['events', 'summary', 'timeseries'],
 	config: ['get', 'set', 'reset'],
+	'admin-tokens': ['create', 'list', 'revoke'],
 	audit: ['events'],
 };
 

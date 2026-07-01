@@ -986,3 +986,45 @@ export async function healthCheck(): Promise<{ ok: boolean }> {
 	const res = await fetch('/health');
 	return res.json();
 }
+
+// ─── Admin API Tokens ────────────────────────────────────────────────
+
+export type AdminRole = 'admin' | 'operator' | 'viewer';
+
+/** Metadata for one admin API token. The token value is never returned by list/get. */
+export interface AdminToken {
+	id: string;
+	name: string;
+	token_preview: string;
+	role: AdminRole;
+	created_by: string | null;
+	created_at: number;
+	expires_at: number | null;
+	last_used_at: number | null;
+	revoked: number;
+}
+
+export interface CreateAdminTokenRequest {
+	name: string;
+	role: AdminRole;
+	/** Optional TTL in days. Omit for a token that never expires. */
+	expires_in_days?: number;
+}
+
+/** Create response includes the plaintext `token`, shown exactly once. */
+export type CreatedAdminToken = AdminToken & { token: string };
+
+export async function listAdminTokens(): Promise<AdminToken[]> {
+	return apiFetch<AdminToken[]>('/admin/tokens');
+}
+
+export async function createAdminToken(req: CreateAdminTokenRequest): Promise<CreatedAdminToken> {
+	return apiFetch<CreatedAdminToken>('/admin/tokens', {
+		method: 'POST',
+		body: JSON.stringify(req),
+	});
+}
+
+export async function revokeAdminToken(id: string): Promise<{ id: string; revoked: boolean }> {
+	return apiFetch<{ id: string; revoked: boolean }>(`/admin/tokens/${id}`, { method: 'DELETE' });
+}
