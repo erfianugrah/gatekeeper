@@ -31,8 +31,9 @@
 		"smoke:supabase": "node --env-file=.env --import tsx cli/smoke-supabase.ts",
 		"traffic": "node --env-file=.env --import tsx cli/traffic-gen.ts",
 		"openapi": "tsx scripts/generate-openapi.ts",
-		"env:decrypt": "sops -d --input-type dotenv --output-type dotenv .env.sops > .env",
-		"env:edit": "sops --input-type dotenv --output-type dotenv .env.sops"
+		"env:decrypt": "sops -d -i --input-type dotenv --output-type dotenv .env",
+		"env:encrypt": "sops -e -i --age \"$(printf '%s' \"$SOPS_AGE_KEYS\" | grep -oE 'age1[a-z0-9]+' | head -1)\" --input-type dotenv --output-type dotenv .env",
+		"env:edit": "sops --input-type dotenv --output-type dotenv .env"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.12.19",
