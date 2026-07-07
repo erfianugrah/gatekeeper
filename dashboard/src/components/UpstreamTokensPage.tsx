@@ -418,7 +418,8 @@ export function UpstreamTokensPage() {
 				<div>
 					<h2 className={T.pageTitle}>Upstream Tokens</h2>
 					<p className={T.pageDescription}>
-						Upstream credentials fronted by Gatekeeper's IAM + policy engine: Cloudflare API tokens (cache purge, DNS, API proxy — scoped to zones or accounts) and Supabase credentials (Management API PAT or metrics secret — scoped to project refs).
+						Upstream credentials fronted by Gatekeeper's IAM + policy engine: Cloudflare API tokens (cache purge, DNS, API proxy — scoped to
+						zones or accounts) and Supabase credentials (Management API PAT or metrics secret — scoped to project refs).
 					</p>
 				</div>
 				<CreateTokenDialog onCreated={handleCreated} />

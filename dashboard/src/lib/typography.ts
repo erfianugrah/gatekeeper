@@ -4,36 +4,34 @@
 
 export const T = {
 	// ── Page-level ────────────────────────────────────────────────────
-	pageTitle: "text-lg font-semibold",
-	pageDescription: "text-sm text-muted-foreground",
+	pageTitle: 'text-lg font-semibold',
+	pageDescription: 'text-sm text-muted-foreground',
 
 	// ── Cards ─────────────────────────────────────────────────────────
-	cardTitle: "text-sm",
+	cardTitle: 'text-sm',
 
 	// ── Section headings ──────────────────────────────────────────────
-	sectionHeading: "text-sm font-semibold",
-	sectionLabel:
-		"text-xs font-medium uppercase tracking-wider text-muted-foreground",
+	sectionHeading: 'text-sm font-semibold',
+	sectionLabel: 'text-xs font-medium uppercase tracking-wider text-muted-foreground',
 
 	// ── Stat values & labels ──────────────────────────────────────────
-	statValue: "text-2xl font-bold tabular-nums font-data",
-	statValueSm: "text-xl font-bold tabular-nums font-data",
-	statLabel: "text-xs text-muted-foreground",
-	statLabelUpper:
-		"text-xs font-medium uppercase tracking-wider text-muted-foreground",
+	statValue: 'text-2xl font-bold tabular-nums font-data',
+	statValueSm: 'text-xl font-bold tabular-nums font-data',
+	statLabel: 'text-xs text-muted-foreground',
+	statLabelUpper: 'text-xs font-medium uppercase tracking-wider text-muted-foreground',
 
 	// ── Form labels ───────────────────────────────────────────────────
-	formLabel: "text-xs uppercase tracking-wider text-muted-foreground",
+	formLabel: 'text-xs uppercase tracking-wider text-muted-foreground',
 
 	// ── Table cells ───────────────────────────────────────────────────
-	tableCell: "text-xs",
-	tableCellMono: "text-xs font-data",
-	tableCellNumeric: "text-xs font-data tabular-nums text-right",
-	tableRowName: "text-xs font-medium",
+	tableCell: 'text-xs',
+	tableCellMono: 'text-xs font-data',
+	tableCellNumeric: 'text-xs font-data tabular-nums text-right',
+	tableRowName: 'text-xs font-medium',
 
 	// ── Muted helpers ─────────────────────────────────────────────────
-	muted: "text-xs text-muted-foreground",
-	mutedSm: "text-sm text-muted-foreground",
+	muted: 'text-xs text-muted-foreground',
+	mutedSm: 'text-sm text-muted-foreground',
 
 	// ── Chart font sizes (px) ────────────────────────────────────────
 	chartAxisTick: 10,

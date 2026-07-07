@@ -236,8 +236,8 @@ export function AdminTokensPage() {
 				<div>
 					<h1 className={T.pageTitle}>Admin Tokens</h1>
 					<p className={T.pageDescription}>
-						Named, revocable API tokens for the admin plane (CLI / automation). The bootstrap <code>ADMIN_KEY</code> secret and SSO
-						login are unaffected.
+						Named, revocable API tokens for the admin plane (CLI / automation). The bootstrap <code>ADMIN_KEY</code> secret and SSO login
+						are unaffected.
 					</p>
 				</div>
 				<CreateTokenDialog onCreated={load} />
@@ -301,11 +301,7 @@ export function AdminTokensPage() {
 													onClick={() => handleRevoke(t.id)}
 													disabled={revoking === t.id}
 												>
-													{revoking === t.id ? (
-														<Loader2 className="h-4 w-4 animate-spin" />
-													) : (
-														<Trash2 className="mr-1 h-4 w-4" />
-													)}
+													{revoking === t.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="mr-1 h-4 w-4" />}
 													Revoke
 												</Button>
 											)}
