@@ -229,6 +229,27 @@ test.describe('Policy Builder — Supabase scope gating', () => {
 		await expect(page.locator('button:has-text("purge:*")')).toHaveCount(0);
 	});
 
+	test('Supabase-scoped token offers Supabase condition fields and defaults to Project Ref', async ({ page }) => {
+		await setupAuth(page, KEYS_URL);
+		await openPolicyBuilderForToken(page, 'e2e-sb-mgmt');
+
+		// Add a condition -- for a Supabase token the new leaf must default to a Supabase
+		// field (Project Ref), NOT the purge-only 'host' field that would show a warning.
+		await page.getByRole('button', { name: 'Add condition' }).first().click();
+
+		const fieldTrigger = page.locator('[role="combobox"]').filter({ hasText: 'Project Ref' }).first();
+		await expect(fieldTrigger).toBeVisible();
+
+		// No inapplicable-field warning should be present for the default condition.
+		await expect(page.locator('text=/only applies to .* actions/i')).toHaveCount(0);
+
+		// The field dropdown lists the full Supabase condition set.
+		await fieldTrigger.click();
+		await expect(page.locator('[role="option"]:has-text("Category")')).toBeVisible();
+		await expect(page.locator('[role="option"]:has-text("HTTP Method")')).toBeVisible();
+		await expect(page.locator('[role="option"]:has-text("Is Write")')).toBeVisible();
+	});
+
 	test('Zone-scoped token shows Cloudflare groups, not Supabase', async ({ page }) => {
 		await setupAuth(page, KEYS_URL);
 		await openPolicyBuilderForToken(page, 'e2e-zone-cf');

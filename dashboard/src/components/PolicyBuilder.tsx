@@ -332,19 +332,49 @@ const ACTION_GROUPS: readonly ActionGroup[] = [
 			{ value: 'supabase:projects:read', label: 'Projects Read', description: 'Read project info & config', category: 'Projects' },
 			{ value: 'supabase:projects:write', label: 'Projects Write', description: 'Create / modify projects & config', category: 'Projects' },
 			{ value: 'supabase:database:read', label: 'Database Read', description: 'Read DB config, read-only queries', category: 'Database' },
-			{ value: 'supabase:database:write', label: 'Database Write', description: 'Queries, migrations, backups, branches', category: 'Database' },
+			{
+				value: 'supabase:database:write',
+				label: 'Database Write',
+				description: 'Queries, migrations, backups, branches',
+				category: 'Database',
+			},
 			{ value: 'supabase:auth:read', label: 'Auth Read', description: 'Read auth config & users', category: 'Auth' },
 			{ value: 'supabase:auth:write', label: 'Auth Write', description: 'Modify auth config, SSO, users', category: 'Auth' },
-			{ value: 'supabase:storage:read', label: 'Storage Read', description: 'Read storage buckets & config (fileSizeLimit, features)', category: 'Storage' },
-			{ value: 'supabase:storage:write', label: 'Storage Write', description: 'Modify storage buckets & config (fileSizeLimit, features)', category: 'Storage' },
+			{
+				value: 'supabase:storage:read',
+				label: 'Storage Read',
+				description: 'Read storage buckets & config (fileSizeLimit, features)',
+				category: 'Storage',
+			},
+			{
+				value: 'supabase:storage:write',
+				label: 'Storage Write',
+				description: 'Modify storage buckets & config (fileSizeLimit, features)',
+				category: 'Storage',
+			},
 			{ value: 'supabase:edge_functions:read', label: 'Functions Read', description: 'Read Edge Functions', category: 'Edge Functions' },
-			{ value: 'supabase:edge_functions:write', label: 'Functions Write', description: 'Deploy / modify Edge Functions', category: 'Edge Functions' },
+			{
+				value: 'supabase:edge_functions:write',
+				label: 'Functions Write',
+				description: 'Deploy / modify Edge Functions',
+				category: 'Edge Functions',
+			},
 			{ value: 'supabase:secrets:read', label: 'Secrets Read', description: 'Read project secrets / env', category: 'Secrets' },
 			{ value: 'supabase:secrets:write', label: 'Secrets Write', description: 'Modify project secrets / env', category: 'Secrets' },
 			{ value: 'supabase:domains:read', label: 'Domains Read', description: 'Read custom domains', category: 'Domains' },
 			{ value: 'supabase:domains:write', label: 'Domains Write', description: 'Modify custom domains', category: 'Domains' },
-			{ value: 'supabase:environment:read', label: 'Environment Read', description: 'Read branches / environment', category: 'Environment' },
-			{ value: 'supabase:environment:write', label: 'Environment Write', description: 'Modify branches / environment', category: 'Environment' },
+			{
+				value: 'supabase:environment:read',
+				label: 'Environment Read',
+				description: 'Read branches / environment',
+				category: 'Environment',
+			},
+			{
+				value: 'supabase:environment:write',
+				label: 'Environment Write',
+				description: 'Modify branches / environment',
+				category: 'Environment',
+			},
 			{ value: 'supabase:organizations:read', label: 'Orgs Read', description: 'Read organizations', category: 'Organizations' },
 			{ value: 'supabase:organizations:write', label: 'Orgs Write', description: 'Modify organizations', category: 'Organizations' },
 			{ value: 'supabase:oauth:read', label: 'OAuth Read', description: 'Read OAuth app authorization state', category: 'OAuth' },
@@ -355,15 +385,40 @@ const ACTION_GROUPS: readonly ActionGroup[] = [
 			{ value: 'supabase:rest:read', label: 'REST Read', description: 'Read via PostgREST data API', category: 'REST' },
 			{ value: 'supabase:rest:write', label: 'REST Write', description: 'Write via PostgREST data API', category: 'REST' },
 			{ value: 'supabase:billing:read', label: 'Billing Read', description: 'Read compute tier & addon pricing', category: 'Billing' },
-			{ value: 'supabase:billing:write', label: 'Billing Write', description: 'Change compute tier, PITR, IPv4 addons', category: 'Billing' },
+			{
+				value: 'supabase:billing:write',
+				label: 'Billing Write',
+				description: 'Change compute tier, PITR, IPv4 addons',
+				category: 'Billing',
+			},
 			{ value: 'supabase:disk:read', label: 'Disk Read', description: 'Read disk size, IOPS, live utilization', category: 'Disk' },
 			{ value: 'supabase:disk:write', label: 'Disk Write', description: 'Resize disk IOPS / storage volume', category: 'Disk' },
 			{ value: 'supabase:realtime:read', label: 'Realtime Read', description: 'Read Realtime service config', category: 'Realtime' },
 			{ value: 'supabase:realtime:write', label: 'Realtime Write', description: 'Modify Realtime config & shutdown', category: 'Realtime' },
-			{ value: 'supabase:analytics:read', label: 'Analytics Read', description: 'Read API usage counts & log queries', category: 'Analytics' },
-			{ value: 'supabase:analytics:write', label: 'Analytics Write', description: 'Write analytics endpoints (future use)', category: 'Analytics' },
-			{ value: 'supabase:networking:read', label: 'Networking Read', description: 'Read network bans & restrictions', category: 'Networking' },
-			{ value: 'supabase:networking:write', label: 'Networking Write', description: 'Modify network bans & IP restrictions', category: 'Networking' },
+			{
+				value: 'supabase:analytics:read',
+				label: 'Analytics Read',
+				description: 'Read API usage counts & log queries',
+				category: 'Analytics',
+			},
+			{
+				value: 'supabase:analytics:write',
+				label: 'Analytics Write',
+				description: 'Write analytics endpoints (future use)',
+				category: 'Analytics',
+			},
+			{
+				value: 'supabase:networking:read',
+				label: 'Networking Read',
+				description: 'Read network bans & restrictions',
+				category: 'Networking',
+			},
+			{
+				value: 'supabase:networking:write',
+				label: 'Networking Write',
+				description: 'Modify network bans & IP restrictions',
+				category: 'Networking',
+			},
 			{ value: 'supabase:metrics:read', label: 'Metrics Read', description: 'Read project metrics (Management /v0)', category: 'Metrics' },
 		],
 	},
@@ -385,6 +440,25 @@ function getActivePrefixes(actions: string[]): string[] {
 	return ALL_PREFIXES.filter((p) => actions.some((a) => a.startsWith(p + ':')));
 }
 
+/**
+ * Pick a sensible starting field for a NEW condition so it is applicable to the
+ * statement's actions out of the box (no spurious "only applies to X" warning).
+ * Prefers the active action prefix, then falls back to the token scope.
+ */
+function defaultConditionField(tokenScopeType: PolicyBuilderProps['tokenScopeType'], actions: string[]): string {
+	const prefixes = getActivePrefixes(actions);
+	if (prefixes.includes('supabase') || tokenScopeType === 'supabase' || tokenScopeType === 'supabase_metrics')
+		return 'supabase.project_ref';
+	if (prefixes.includes('dns')) return 'dns.name';
+	if (prefixes.includes('d1')) return 'd1.name';
+	if (prefixes.includes('kv')) return 'kv.key_name';
+	if (prefixes.includes('workers')) return 'workers.script_name';
+	if (prefixes.includes('queues')) return 'queues.queue_id';
+	if (prefixes.includes('vectorize')) return 'vectorize.index_name';
+	if (prefixes.includes('hyperdrive')) return 'hyperdrive.config_id';
+	return 'host';
+}
+
 const CONDITION_FIELDS: readonly FieldOption[] = [
 	// --- Purge (action-specific) ---
 	{ value: 'host', label: 'Host', hint: 'e.g. example.com', appliesTo: ['purge'] },
@@ -392,6 +466,7 @@ const CONDITION_FIELDS: readonly FieldOption[] = [
 	{ value: 'prefix', label: 'Prefix', hint: 'e.g. example.com/assets/', appliesTo: ['purge'] },
 	{ value: 'url', label: 'URL', hint: 'e.g. https://example.com/page', appliesTo: ['purge'] },
 	{ value: 'url.path', label: 'URL Path', hint: 'e.g. /api/v1/', appliesTo: ['purge'] },
+	{ value: 'url.query', label: 'URL Query', hint: 'e.g. v=2', appliesTo: ['purge'] },
 	{ value: 'purge_everything', label: 'Purge Everything', hint: 'true/false', appliesTo: ['purge'] },
 	// --- DNS ---
 	{ value: 'dns.name', label: 'DNS Name', hint: 'e.g. _acme-challenge.example.com', appliesTo: ['dns'] },
@@ -399,15 +474,33 @@ const CONDITION_FIELDS: readonly FieldOption[] = [
 	{ value: 'dns.content', label: 'DNS Content', hint: 'e.g. 1.2.3.4', appliesTo: ['dns'] },
 	{ value: 'dns.proxied', label: 'DNS Proxied', hint: 'true/false', appliesTo: ['dns'] },
 	{ value: 'dns.ttl', label: 'DNS TTL', hint: 'e.g. 300', appliesTo: ['dns'] },
+	{ value: 'dns.priority', label: 'DNS Priority', hint: 'e.g. 10 (MX/SRV)', appliesTo: ['dns'] },
 	{ value: 'dns.comment', label: 'DNS Comment', hint: 'e.g. managed by cert-manager', appliesTo: ['dns'] },
 	// --- D1 ---
+	{ value: 'd1.database_id', label: 'D1 Database ID', hint: 'e.g. uuid', appliesTo: ['d1'] },
 	{ value: 'd1.name', label: 'D1 Name', hint: 'e.g. my-database', appliesTo: ['d1'] },
-	{ value: 'd1.sql_command', label: 'D1 SQL Command', hint: 'e.g. SELECT, INSERT, DELETE', appliesTo: ['d1'] },
+	{ value: 'd1.sql_command', label: 'D1 SQL Command', hint: 'e.g. select, insert, delete', appliesTo: ['d1'] },
 	// --- KV ---
+	{ value: 'kv.namespace_id', label: 'KV Namespace ID', hint: 'e.g. abc123...', appliesTo: ['kv'] },
 	{ value: 'kv.key_name', label: 'KV Key', hint: 'e.g. user:1234', appliesTo: ['kv'] },
 	{ value: 'kv.title', label: 'KV Title', hint: 'e.g. MY_NAMESPACE', appliesTo: ['kv'] },
 	// --- Workers ---
+	{ value: 'workers.script_name', label: 'Workers Script Name', hint: 'e.g. my-worker', appliesTo: ['workers'] },
+	{ value: 'workers.version_id', label: 'Workers Version ID', hint: 'e.g. abc123...', appliesTo: ['workers'] },
+	{ value: 'workers.deployment_id', label: 'Workers Deployment ID', hint: 'e.g. abc123...', appliesTo: ['workers'] },
+	{ value: 'workers.secret_name', label: 'Workers Secret Name', hint: 'e.g. API_KEY', appliesTo: ['workers'] },
 	{ value: 'workers.domain_id', label: 'Workers Domain ID', hint: 'e.g. abc123...', appliesTo: ['workers'] },
+	// --- Queues ---
+	{ value: 'queues.queue_id', label: 'Queue ID', hint: 'e.g. abc123...', appliesTo: ['queues'] },
+	{ value: 'queues.consumer_id', label: 'Queue Consumer ID', hint: 'e.g. abc123...', appliesTo: ['queues'] },
+	// --- Vectorize ---
+	{ value: 'vectorize.index_name', label: 'Vectorize Index', hint: 'e.g. my-index', appliesTo: ['vectorize'] },
+	// --- Hyperdrive ---
+	{ value: 'hyperdrive.config_id', label: 'Hyperdrive Config ID', hint: 'e.g. abc123...', appliesTo: ['hyperdrive'] },
+	{ value: 'supabase.project_ref', label: 'Project Ref', hint: 'e.g. abcdefghij1234567890', appliesTo: ['supabase'] },
+	{ value: 'supabase.category', label: 'Category', hint: 'e.g. database, auth, storage, secrets', appliesTo: ['supabase'] },
+	{ value: 'supabase.method', label: 'HTTP Method', hint: 'e.g. GET, POST, PATCH, DELETE', appliesTo: ['supabase'] },
+	{ value: 'supabase.write', label: 'Is Write', hint: 'true / false', appliesTo: ['supabase'] },
 	// --- Request context (universal — applies to all actions) ---
 	{ value: 'client_ip', label: 'Client IP', hint: 'e.g. 203.0.113.42' },
 	{ value: 'client_country', label: 'Country', hint: 'e.g. US, DE, SG' },
@@ -548,7 +641,16 @@ function renderActionsWithCategories(
 	return items;
 }
 
-function StatementEditor({ index, statement, onChange, onRemove, canRemove, visibleGroups, resourceHint, tokenScopeType }: StatementEditorProps) {
+function StatementEditor({
+	index,
+	statement,
+	onChange,
+	onRemove,
+	canRemove,
+	visibleGroups,
+	resourceHint,
+	tokenScopeType,
+}: StatementEditorProps) {
 	const [collapsed, setCollapsed] = useState(false);
 
 	// Smart collapse: only expand groups that have active selections
@@ -748,7 +850,12 @@ function StatementEditor({ index, statement, onChange, onRemove, canRemove, visi
 					<div className="space-y-2">
 						<Label className={T.formLabel}>Resources</Label>
 						<Input
-							placeholder={resourceHint ?? (tokenScopeType === 'supabase' || tokenScopeType === 'supabase_metrics' ? 'e.g. project:abcdefghij1234567890' : 'e.g. zone:abc123, account:id/d1/db-id')}
+							placeholder={
+								resourceHint ??
+								(tokenScopeType === 'supabase' || tokenScopeType === 'supabase_metrics'
+									? 'e.g. project:abcdefghij1234567890'
+									: 'e.g. zone:abc123, account:id/d1/db-id')
+							}
 							value={statement.resources.join(', ')}
 							onChange={(e) => {
 								const raw = e.target.value;
@@ -773,8 +880,9 @@ function StatementEditor({ index, statement, onChange, onRemove, canRemove, visi
 								</>
 							) : (
 								<>
-									<code className="text-lv-cyan">zone:id</code> for zones, <code className="text-lv-cyan">account:id</code> for account-level,{' '}
-									<code className="text-lv-cyan">account:id/d1/db-id</code> for instance-scoped. Bare <code className="text-lv-cyan">*</code> is not allowed.
+									<code className="text-lv-cyan">zone:id</code> for zones, <code className="text-lv-cyan">account:id</code> for
+									account-level, <code className="text-lv-cyan">account:id/d1/db-id</code> for instance-scoped. Bare{' '}
+									<code className="text-lv-cyan">*</code> is not allowed.
 								</>
 							)}
 						</p>
@@ -788,7 +896,7 @@ function StatementEditor({ index, statement, onChange, onRemove, canRemove, visi
 							onChange={(next) => onChange({ ...statement, conditions: next.length > 0 ? next : undefined })}
 							fields={CONDITION_FIELDS}
 							operators={OPERATORS}
-							defaultField="host"
+							defaultField={defaultConditionField(tokenScopeType, statement.actions)}
 							activeActionPrefixes={getActivePrefixes(statement.actions)}
 						/>
 					</div>
