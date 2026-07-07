@@ -8,7 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ConditionEditor, summarizeStatement } from '@/components/ConditionEditor';
+import { PolicyTemplateMenu } from '@/components/PolicyTemplateMenu';
 import type { FieldOption, OperatorOption } from '@/components/ConditionEditor';
+import { S3_POLICY_TEMPLATES } from '@/lib/policy-templates';
 import type { PolicyDocument, Statement, Condition } from '@/lib/api';
 import { convertAwsPolicy } from '@/lib/aws-policy-converter';
 import type { ConvertResult } from '@/lib/aws-policy-converter';
@@ -434,6 +436,7 @@ export function S3PolicyBuilder({ value, onChange }: S3PolicyBuilderProps) {
 					<Plus className="h-3 w-3 mr-1" />
 					Add Statement
 				</Button>
+				<PolicyTemplateMenu templates={S3_POLICY_TEMPLATES} ctx={{ resources: ['*'] }} onApply={onChange} />
 				<ImportAwsDialog onImport={onChange} />
 				<Button
 					type="button"

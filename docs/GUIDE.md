@@ -2822,6 +2822,87 @@ Resources are `project:<ref>` (20-char project ref), `project:*`, `org:<slug>`, 
 
 `client_ip`, `client_country`, `client_asn`, `time.hour`, `time.day_of_week`, `time.iso`
 
+### Policy templates (dashboard)
+
+The Create Key and S3 Credentials dialogs offer a **Start from template** picker
+next to *Add Statement*. Choosing a template replaces the current policy with a
+ready-made starting point, scoped to the selected token's resources (the token's
+zone / account / project ref is filled in automatically; S3 templates carry an
+editable `my-bucket` placeholder). Templates are grouped by service and are a
+starting point -- edit actions, resources, and conditions afterwards.
+
+The catalog below is generated from `dashboard/src/lib/policy-templates.ts` and
+validated in `test/policy-templates.test.ts`. Resource placeholders shown here
+(`zone:<zone-id>`, `account:<account-id>`, `project:<ref>`) are substituted with
+the bound token's real resources at key-creation time.
+
+#### zone
+
+| Template | Group | Policy |
+| --- | --- | --- |
+| **Purge - full access**<br><span>All purge types (URL, host, tag, prefix, everything).</span> | Purge | **allow** `purge:*` on `zone:<zone-id>` |
+| **Purge - all except purge-everything**<br><span>Every targeted purge type, but block the account-wide "purge everything".</span> | Purge | **allow** `purge:*` on `zone:<zone-id>`<br>**deny** `purge:everything` on `zone:<zone-id>` |
+| **Purge - tags only**<br><span>Only cache-tag purges (Enterprise cache tags).</span> | Purge | **allow** `purge:tag` on `zone:<zone-id>` |
+| **Purge - specific hosts**<br><span>Purge scoped to hostnames matching a pattern. Edit the host value.</span> | Purge | **allow** `purge:*` on `zone:<zone-id>` where host wildcard *.example.com |
+| **DNS - ACME client**<br><span>Create/read/delete only _acme-challenge TXT records (cert issuance).</span> | DNS | **allow** `dns:create, dns:read, dns:delete` on `zone:<zone-id>` where dns.type eq TXT AND dns.name starts_with _acme-challenge. |
+| **DNS - read-only**<br><span>List and get DNS records only.</span> | DNS | **allow** `dns:read` on `zone:<zone-id>` |
+| **DNS - full access**<br><span>All DNS operations including batch, import, and export.</span> | DNS | **allow** `dns:*` on `zone:<zone-id>` |
+
+#### account
+
+| Template | Group | Policy |
+| --- | --- | --- |
+| **Full - all CF services**<br><span>Wildcard across D1, KV, Workers, Queues, Vectorize, and Hyperdrive.</span> | All services | **allow** `d1:*, kv:*, workers:*, queues:*, vectorize:*, hyperdrive:*` on `account:<account-id>` |
+| **D1 - read-only**<br><span>List databases, get details, and run queries.</span> | D1 | **allow** `d1:list, d1:get, d1:query` on `account:<account-id>` |
+| **D1 - SELECT only**<br><span>Query, restricted to read-only SQL commands (select, pragma).</span> | D1 | **allow** `d1:query` on `account:<account-id>` where d1.sql_command in [select, pragma] |
+| **D1 - full access**<br><span>All D1 operations including create, delete, import/export, time travel.</span> | D1 | **allow** `d1:*` on `account:<account-id>` |
+| **KV - read-only**<br><span>List and read namespaces, keys, values, and metadata.</span> | KV | **allow** `kv:list_namespaces, kv:get_namespace, kv:list_keys, kv:get_value, kv:get_metadata, kv:bulk_get` on `account:<account-id>` |
+| **KV - admin, no delete**<br><span>Full KV access except deleting keys, namespaces, or bulk deletes.</span> | KV | **allow** `kv:*` on `account:<account-id>`<br>**deny** `kv:delete_value, kv:delete_namespace, kv:bulk_delete` on `account:<account-id>` |
+| **KV - full access**<br><span>All KV namespace and key/value operations.</span> | KV | **allow** `kv:*` on `account:<account-id>` |
+| **Workers - deploy-only**<br><span>Upload script/content and cut versions/deployments for one script. Edit the script name.</span> | Workers | **allow** `workers:list_scripts, workers:get_script, workers:update_script, workers:update_content, workers:create_version, workers:create_deployment` on `account:<account-id>` where workers.script_name eq my-worker |
+| **Workers - read-only**<br><span>List/get scripts, content, settings, versions, and deployments.</span> | Workers | **allow** `workers:list_scripts, workers:get_script, workers:get_content, workers:get_settings, workers:list_versions, workers:get_version, workers:list_deployments, workers:get_deployment` on `account:<account-id>` |
+| **Workers - full access**<br><span>All Workers operations (scripts, versions, deployments, secrets, cron, tails).</span> | Workers | **allow** `workers:*` on `account:<account-id>` |
+| **Queues - producer**<br><span>Push messages (single + bulk); list and get queues.</span> | Queues | **allow** `queues:push_message, queues:bulk_push, queues:list, queues:get` on `account:<account-id>` |
+| **Queues - consumer**<br><span>Pull and acknowledge messages; list and get queues.</span> | Queues | **allow** `queues:pull_messages, queues:ack_messages, queues:list, queues:get` on `account:<account-id>` |
+| **Queues - full access**<br><span>All queue, message, and consumer operations.</span> | Queues | **allow** `queues:*` on `account:<account-id>` |
+| **Vectorize - query-only**<br><span>Query vectors and read index metadata; no inserts or deletes.</span> | Vectorize | **allow** `vectorize:query, vectorize:get_by_ids, vectorize:list_indexes, vectorize:get_index, vectorize:get_info` on `account:<account-id>` |
+| **Vectorize - full access**<br><span>All Vectorize index and vector operations.</span> | Vectorize | **allow** `vectorize:*` on `account:<account-id>` |
+| **Hyperdrive - read-only**<br><span>List and get Hyperdrive configs.</span> | Hyperdrive | **allow** `hyperdrive:list, hyperdrive:get` on `account:<account-id>` |
+| **Hyperdrive - full access**<br><span>All Hyperdrive config operations.</span> | Hyperdrive | **allow** `hyperdrive:*` on `account:<account-id>` |
+
+#### supabase
+
+| Template | Group | Policy |
+| --- | --- | --- |
+| **Full - bound project(s)**<br><span>All Management API operations on the token's project(s).</span> | General | **allow** `supabase:*` on `project:<ref>` |
+| **Read-only**<br><span>All read operations; every write is blocked via the is-write condition.</span> | General | **allow** `supabase:*` on `project:<ref>` where supabase.write eq false |
+| **Full except secrets**<br><span>Everything except reading or writing project secrets/env.</span> | General | **allow** `supabase:*` on `project:<ref>`<br>**deny** `supabase:secrets:read, supabase:secrets:write` on `project:<ref>` |
+| **Database - full**<br><span>Read + write database config, queries, migrations, backups, branches.</span> | Database | **allow** `supabase:database:read, supabase:database:write` on `project:<ref>` |
+| **Database - read-only**<br><span>Read database config and run read-only queries.</span> | Database | **allow** `supabase:database:read` on `project:<ref>` |
+| **Edge Functions - deploy**<br><span>Read and deploy/modify Edge Functions.</span> | Edge Functions | **allow** `supabase:edge_functions:read, supabase:edge_functions:write` on `project:<ref>` |
+| **Auth - admin**<br><span>Read and modify auth config, SSO, and users.</span> | Auth | **allow** `supabase:auth:read, supabase:auth:write` on `project:<ref>` |
+| **Secrets - manage**<br><span>Read and write project secrets/env only.</span> | Secrets | **allow** `supabase:secrets:read, supabase:secrets:write` on `project:<ref>` |
+| **Metrics - read (v0)**<br><span>Read the per-project analytics metrics endpoint (Management /v0).</span> | Metrics | **allow** `supabase:metrics:read` on `project:<ref>` |
+
+#### supabase_metrics
+
+| Template | Group | Policy |
+| --- | --- | --- |
+| **Metrics - scrape**<br><span>Read per-project Prometheus metrics via the Basic-auth metrics proxy.</span> | Metrics | **allow** `supabase:metrics:read` on `project:<ref>` |
+
+#### s3
+
+| Template | Group | Policy |
+| --- | --- | --- |
+| **Full access**<br><span>All S3 operations on all buckets.</span> | General | **allow** `s3:*` on `*` |
+| **Read-only (all buckets)**<br><span>Get/list objects and buckets; no writes or deletes.</span> | General | **allow** `s3:GetObject, s3:ListBucket, s3:ListAllMyBuckets, s3:HeadBucket, s3:GetBucketLocation` on `*` |
+| **Read-only - one bucket**<br><span>Get and list within a single bucket. Edit the bucket name.</span> | Bucket-scoped | **allow** `s3:GetObject, s3:ListBucket` on `bucket:my-bucket, object:my-bucket/*` |
+| **Prefix-scoped read/write**<br><span>Read/write objects under a key prefix. Edit the bucket and prefix.</span> | Bucket-scoped | **allow** `s3:GetObject, s3:PutObject, s3:ListBucket` on `bucket:my-bucket, object:my-bucket/*` where key.prefix starts_with uploads/ |
+| **Upload-only**<br><span>PutObject only - no read, list, or delete. Edit the bucket name.</span> | Uploads | **allow** `s3:PutObject` on `object:my-bucket/*` |
+| **Image uploads only**<br><span>PutObject restricted to image/* content types. Edit the bucket name.</span> | Uploads | **allow** `s3:PutObject` on `object:my-bucket/*` where content_type starts_with image/ |
+| **Full access, protect from deletion**<br><span>All S3 operations but deny object and bucket deletes.</span> | Protection | **allow** `s3:*` on `*`<br>**deny** `s3:DeleteObject, s3:DeleteBucket` on `*` |
+| **Writes during business hours (UTC)**<br><span>Read anytime; PutObject/DeleteObject only 09:00-18:00 UTC.</span> | Time | **allow** `s3:GetObject, s3:PutObject, s3:DeleteObject, s3:ListBucket` on `*`<br>**deny** `s3:PutObject, s3:DeleteObject` on `*` where (time.hour lt 9 OR time.hour gte 18) |
+
 ## Appendix B: Bulk Operation Safety
 
 All bulk operations (`bulk-revoke`, `bulk-delete`) across all resource types share the same safety guards:

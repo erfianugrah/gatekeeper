@@ -250,6 +250,21 @@ test.describe('Policy Builder — Supabase scope gating', () => {
 		await expect(page.locator('[role="option"]:has-text("Is Write")')).toBeVisible();
 	});
 
+	test('template picker applies a Supabase policy (Read-only)', async ({ page }) => {
+		await setupAuth(page, KEYS_URL);
+		await openPolicyBuilderForToken(page, 'e2e-sb-mgmt');
+
+		// Open the "Start from template" picker and choose the Read-only template.
+		await page.locator('[aria-label="Start from template"]').click();
+		await page.locator('[role="option"]:has-text("Read-only")').first().click();
+
+		// Reveal the JSON and confirm the template's is-write condition landed.
+		await page.getByRole('button', { name: /Show JSON/i }).click();
+		const json = page.locator('pre');
+		await expect(json).toContainText('supabase.write');
+		await expect(json).toContainText('supabase:*');
+	});
+
 	test('Zone-scoped token shows Cloudflare groups, not Supabase', async ({ page }) => {
 		await setupAuth(page, KEYS_URL);
 		await openPolicyBuilderForToken(page, 'e2e-zone-cf');

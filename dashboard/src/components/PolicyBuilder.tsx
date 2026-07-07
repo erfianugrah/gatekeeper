@@ -8,8 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 import { ConditionEditor, summarizeStatement } from '@/components/ConditionEditor';
+import { PolicyTemplateMenu } from '@/components/PolicyTemplateMenu';
 import type { FieldOption, OperatorOption } from '@/components/ConditionEditor';
 import type { PolicyDocument, Statement, Condition } from '@/lib/api';
+import { POLICY_TEMPLATES } from '@/lib/policy-templates';
 import { cn } from '@/lib/utils';
 import { T } from '@/lib/typography';
 
@@ -574,6 +576,8 @@ interface PolicyBuilderProps {
 	tokenScopeType?: 'zone' | 'account' | 'supabase' | 'supabase_metrics';
 	/** Resource hint derived from token scope — shown as placeholder. */
 	resourceHint?: string;
+	/** Default resources for the selected token, used to fill policy templates. */
+	defaultResources?: string[];
 }
 
 // ─── Statement Editor ───────────────────────────────────────────────
@@ -908,8 +912,9 @@ function StatementEditor({
 
 // ─── Policy Builder ─────────────────────────────────────────────────
 
-export function PolicyBuilder({ value, onChange, tokenScopeType, resourceHint }: PolicyBuilderProps) {
+export function PolicyBuilder({ value, onChange, tokenScopeType, resourceHint, defaultResources }: PolicyBuilderProps) {
 	const [showJson, setShowJson] = useState(false);
+	const templates = tokenScopeType ? POLICY_TEMPLATES[tokenScopeType] : [];
 
 	const visibleGroups = useMemo(() => {
 		if (!tokenScopeType) return ACTION_GROUPS;
@@ -982,6 +987,7 @@ export function PolicyBuilder({ value, onChange, tokenScopeType, resourceHint }:
 					<Plus className="h-3 w-3 mr-1" />
 					Add Statement
 				</Button>
+				<PolicyTemplateMenu templates={templates} ctx={{ resources: defaultResources ?? [] }} onApply={onChange} />
 				<Button
 					type="button"
 					variant="ghost"

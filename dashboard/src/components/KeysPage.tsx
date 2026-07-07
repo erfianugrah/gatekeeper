@@ -341,7 +341,13 @@ function CreateKeyDialog({ onCreated }: CreateKeyDialogProps) {
 					{selectedTokenId && (
 						<div className="space-y-2">
 							<Label className={T.formLabel}>Policy</Label>
-							<PolicyBuilder value={policy} onChange={setPolicy} tokenScopeType={scopeType} resourceHint={resourceHint} />
+							<PolicyBuilder
+								value={policy}
+								onChange={setPolicy}
+								tokenScopeType={scopeType}
+								resourceHint={resourceHint}
+								defaultResources={selectedToken ? buildDefaultResources(selectedToken) : undefined}
+							/>
 						</div>
 					)}
 
