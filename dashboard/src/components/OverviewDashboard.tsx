@@ -1,5 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
-import { PieChart, Pie, Cell, BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import {
+	PieChart,
+	Pie,
+	Cell,
+	BarChart,
+	Bar,
+	AreaChart,
+	Area,
+	XAxis,
+	YAxis,
+	Tooltip,
+	Legend,
+	ResponsiveContainer,
+	CartesianGrid,
+} from 'recharts';
 import {
 	Activity,
 	Link,
@@ -81,6 +95,47 @@ function formatNumber(n: number): string {
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
 	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
 	return n.toLocaleString();
+}
+
+// Shared donut chart: ring + right-aligned legend with percentages.
+// Perimeter labels are omitted deliberately -- with many small slices they
+// collide into an unreadable pile at the bottom of the ring. The legend keeps
+// every series identifiable (incl. sub-1% slices) without any overlap.
+function DonutPie({ data, colorFor }: { data: { name: string; value: number }[]; colorFor: (name: string, index: number) => string }) {
+	return (
+		<ResponsiveContainer width="100%" height={260}>
+			<PieChart>
+				<Pie data={data} cx="38%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={4} dataKey="value" nameKey="name">
+					{data.map((entry, i) => (
+						<Cell key={entry.name} fill={colorFor(entry.name, i)} />
+					))}
+				</Pie>
+				<Tooltip
+					contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
+					itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
+					labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
+					formatter={(value: number, name: string) => [formatNumber(value), name]}
+				/>
+				<Legend
+					layout="vertical"
+					align="right"
+					verticalAlign="middle"
+					iconType="circle"
+					iconSize={8}
+					wrapperStyle={{ fontSize: T.chartLabel, lineHeight: '1.5', paddingLeft: 8 }}
+					formatter={(value: string, entry: any) => {
+						const pct = entry?.payload?.percent;
+						return (
+							<span style={{ color: '#bdbdc1' }}>
+								{value}
+								{typeof pct === 'number' ? <span style={{ color: '#6b6f7d' }}> {(pct * 100).toFixed(0)}%</span> : null}
+							</span>
+						);
+					}}
+				/>
+			</PieChart>
+		</ResponsiveContainer>
+	);
 }
 
 function mergeByStatus(...sources: Record<string, number>[]): Record<string, number> {
@@ -853,32 +908,7 @@ export function OverviewDashboard() {
 											{trafficPie.length === 0 ? (
 												<p className={cn(T.muted, 'py-12 text-center')}>No data</p>
 											) : (
-												<ResponsiveContainer width="100%" height={260}>
-													<PieChart>
-														<Pie
-															data={trafficPie}
-															cx="50%"
-															cy="50%"
-															innerRadius={60}
-															outerRadius={100}
-															paddingAngle={4}
-															dataKey="value"
-															nameKey="name"
-															label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-															labelLine={false}
-															fontSize={T.chartLabel}
-														>
-															{trafficPie.map((entry) => (
-																<Cell key={entry.name} fill={TRAFFIC_COLORS[entry.name] ?? '#8796f4'} />
-															))}
-														</Pie>
-														<Tooltip
-															contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
-															itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
-															labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
-														/>
-													</PieChart>
-												</ResponsiveContainer>
+												<DonutPie data={trafficPie} colorFor={(name) => TRAFFIC_COLORS[name] ?? '#8796f4'} />
 											)}
 										</CardContent>
 									</Card>
@@ -926,35 +956,10 @@ export function OverviewDashboard() {
 												{purgeTypePie.length === 0 ? (
 													<p className={cn(T.muted, 'py-12 text-center')}>No data</p>
 												) : (
-													<ResponsiveContainer width="100%" height={260}>
-														<PieChart>
-															<Pie
-																data={purgeTypePie}
-																cx="50%"
-																cy="50%"
-																innerRadius={60}
-																outerRadius={100}
-																paddingAngle={4}
-																dataKey="value"
-																nameKey="name"
-																label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-																labelLine={false}
-																fontSize={T.chartLabel}
-															>
-																{purgeTypePie.map((entry) => (
-																	<Cell
-																		key={entry.name}
-																		fill={PURGE_TYPE_COLORS[entry.name as keyof typeof PURGE_TYPE_COLORS] ?? '#8796f4'}
-																	/>
-																))}
-															</Pie>
-															<Tooltip
-																contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
-																itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
-																labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
-															/>
-														</PieChart>
-													</ResponsiveContainer>
+													<DonutPie
+														data={purgeTypePie}
+														colorFor={(name) => PURGE_TYPE_COLORS[name as keyof typeof PURGE_TYPE_COLORS] ?? '#8796f4'}
+													/>
 												)}
 											</CardContent>
 										</Card>
@@ -999,32 +1004,7 @@ export function OverviewDashboard() {
 												<CardTitle className={T.sectionHeading}>S3 Requests by Bucket</CardTitle>
 											</CardHeader>
 											<CardContent>
-												<ResponsiveContainer width="100%" height={260}>
-													<PieChart>
-														<Pie
-															data={s3BucketPie}
-															cx="50%"
-															cy="50%"
-															innerRadius={60}
-															outerRadius={100}
-															paddingAngle={4}
-															dataKey="value"
-															nameKey="name"
-															label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-															labelLine={false}
-															fontSize={T.chartLabel}
-														>
-															{s3BucketPie.map((entry, i) => (
-																<Cell key={entry.name} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />
-															))}
-														</Pie>
-														<Tooltip
-															contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
-															itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
-															labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
-														/>
-													</PieChart>
-												</ResponsiveContainer>
+												<DonutPie data={s3BucketPie} colorFor={(_, i) => CHART_PALETTE[i % CHART_PALETTE.length]} />
 											</CardContent>
 										</Card>
 									)}
@@ -1067,32 +1047,7 @@ export function OverviewDashboard() {
 												<CardTitle className={T.sectionHeading}>CF Services</CardTitle>
 											</CardHeader>
 											<CardContent>
-												<ResponsiveContainer width="100%" height={260}>
-													<PieChart>
-														<Pie
-															data={cfServicePie}
-															cx="50%"
-															cy="50%"
-															innerRadius={60}
-															outerRadius={100}
-															paddingAngle={4}
-															dataKey="value"
-															nameKey="name"
-															label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-															labelLine={false}
-															fontSize={T.chartLabel}
-														>
-															{cfServicePie.map((entry) => (
-																<Cell key={entry.name} fill={CF_SERVICE_COLORS[entry.name] ?? '#8796f4'} />
-															))}
-														</Pie>
-														<Tooltip
-															contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
-															itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
-															labelStyle={CHART_TOOLTIP_STYLE.labelStyle}
-														/>
-													</PieChart>
-												</ResponsiveContainer>
+												<DonutPie data={cfServicePie} colorFor={(name) => CF_SERVICE_COLORS[name] ?? '#8796f4'} />
 											</CardContent>
 										</Card>
 									)}
