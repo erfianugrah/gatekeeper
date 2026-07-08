@@ -5,8 +5,9 @@ import {
 	Cell,
 	BarChart,
 	Bar,
-	AreaChart,
+	ComposedChart,
 	Area,
+	Line,
 	XAxis,
 	YAxis,
 	Tooltip,
@@ -39,7 +40,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { computeSurfaceHealth, WARN_ERROR_PCT, type HealthLevel } from '@/components/analytics/health';
+import { computeSurfaceHealth, worstHealthLevel, WARN_ERROR_PCT, type HealthLevel } from '@/components/analytics/health';
 import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
 	getSummary,
@@ -171,19 +172,54 @@ interface StatCardProps {
 	value: string;
 	icon: React.ReactNode;
 	iconBg: string;
+	/**
+	 * Optional severity override. When set, replaces iconBg/value coloring
+	 * with the shared health palette regardless of the icon/iconBg passed in --
+	 * used by rollup KPIs (e.g. Error Rate) so a blended-looking-fine number
+	 * still escalates visually when the WORST underlying surface is warn/crit.
+	 */
+	tone?: HealthLevel;
 }
 
-function StatCard({ label, value, icon, iconBg }: StatCardProps) {
+const TONE_ICON_BG: Record<HealthLevel, string> = {
+	ok: 'bg-status-ok/15 text-status-ok',
+	warn: 'bg-status-warn/15 text-status-warn',
+	crit: 'bg-status-danger/15 text-status-danger',
+};
+const TONE_VALUE: Record<HealthLevel, string> = {
+	ok: '',
+	warn: 'text-status-warn',
+	crit: 'text-status-danger',
+};
+
+function StatCard({ label, value, icon, iconBg, tone }: StatCardProps) {
 	return (
 		<Card>
 			<CardContent className="flex items-center gap-4 p-5">
-				<div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg', iconBg)}>{icon}</div>
+				<div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg', tone ? TONE_ICON_BG[tone] : iconBg)}>{icon}</div>
 				<div className="min-w-0">
 					<p className={T.statLabelUpper}>{label}</p>
-					<p className={T.statValue}>{value}</p>
+					<p className={cn(T.statValue, tone && TONE_VALUE[tone])}>{value}</p>
 				</div>
 			</CardContent>
 		</Card>
+	);
+}
+
+/**
+ * Dense inline resource-count strip. These are plain counts (no good/bad
+ * reading), so a full StatCard per number wastes two rows of vertical space
+ * on four small integers -- a single hairline-divided bar is the same
+ * information at a fraction of the height, matching the "tables over card
+ * grids" ethos elsewhere in this dashboard.
+ */
+function ResourceStat({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
+	return (
+		<div className="flex flex-1 items-center gap-2 px-4 py-2.5">
+			<span className="shrink-0">{icon}</span>
+			<span className={T.statLabelUpper}>{label}</span>
+			<span className="ml-auto font-semibold text-foreground">{value}</span>
+		</div>
 	);
 }
 
@@ -669,8 +705,21 @@ export function OverviewDashboard() {
 		.filter(([s]) => Number(s) >= 400)
 		.reduce((acc, [, v]) => acc + v, 0);
 	const errorPct = totalRequests > 0 ? ((errorCount / totalRequests) * 100).toFixed(1) : '0';
+	// The blended errorPct above can look fine (e.g. 10%) while one surface is
+	// actually on fire (e.g. Supabase at 39%) -- escalate the tile's color to
+	// the WORST underlying surface, not the diluted average, so a real incident
+	// is never masked by good numbers from unrelated surfaces.
+	const worstLevel = worstHealthLevel(surfaceHealth);
 
 	const collapsedPct = purgeTotal > 0 ? (((purgeSummary?.collapsed_count ?? 0) / purgeTotal) * 100).toFixed(1) : '0';
+
+	// The query defaults to a 7-day window, but real data is often much
+	// narrower (e.g. a fresh deployment, or a short test burst) -- title and
+	// x-axis tick format should reflect the ACTUAL span, not the query default,
+	// or a short-span chart shows misleading duplicate-looking date ticks.
+	const chartSpanMs = timeseries.length > 1 ? timeseries[timeseries.length - 1].bucket - timeseries[0].bucket : 0;
+	const chartSpanUnderOneDay = chartSpanMs > 0 && chartSpanMs < 24 * 60 * 60 * 1000;
+	const chartRangeLabel = chartSpanUnderOneDay ? 'Last 24 Hours' : 'Last 7 Days';
 
 	return (
 		<TooltipProvider delayDuration={200}>
@@ -777,8 +826,9 @@ export function OverviewDashboard() {
 							<StatCard
 								label="Error Rate"
 								value={`${errorPct}%`}
-								icon={<AlertTriangle className="h-5 w-5 text-lv-red" />}
+								icon={<AlertTriangle className="h-5 w-5" />}
 								iconBg="bg-lv-red/15"
+								tone={worstLevel}
 							/>
 							<StatCard
 								label="URLs Purged"
@@ -794,31 +844,27 @@ export function OverviewDashboard() {
 							/>
 						</div>
 
-						{/* Row 2: Resource counts */}
-						<div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-							<StatCard
+						{/* Row 2: Resource counts -- dense strip, not four full cards */}
+						<div className="flex flex-col divide-y divide-border border border-border sm:flex-row sm:divide-x sm:divide-y-0">
+							<ResourceStat
 								label="Active Keys"
 								value={String(resourceCounts.activeKeys)}
-								icon={<Key className="h-5 w-5 text-lv-purple" />}
-								iconBg="bg-lv-purple/15"
+								icon={<Key className="h-4 w-4 text-lv-purple" />}
 							/>
-							<StatCard
+							<ResourceStat
 								label="S3 Credentials"
 								value={String(resourceCounts.activeS3Creds)}
-								icon={<Shield className="h-5 w-5 text-lv-cyan" />}
-								iconBg="bg-lv-cyan/15"
+								icon={<Shield className="h-4 w-4 text-lv-cyan" />}
 							/>
-							<StatCard
+							<ResourceStat
 								label="Upstream Tokens"
 								value={String(resourceCounts.activeUpstreamTokens)}
-								icon={<Zap className="h-5 w-5 text-lv-peach" />}
-								iconBg="bg-lv-peach/15"
+								icon={<Zap className="h-4 w-4 text-lv-peach" />}
 							/>
-							<StatCard
+							<ResourceStat
 								label="Upstream R2"
 								value={String(resourceCounts.activeUpstreamR2)}
-								icon={<Database className="h-5 w-5 text-lv-green" />}
-								iconBg="bg-lv-green/15"
+								icon={<Database className="h-4 w-4 text-lv-green" />}
 							/>
 						</div>
 
@@ -826,19 +872,15 @@ export function OverviewDashboard() {
 						{timeseries.length > 1 && (
 							<Card>
 								<CardHeader>
-									<CardTitle className={T.sectionHeading}>Request Volume (Last 7 Days)</CardTitle>
+									<CardTitle className={T.sectionHeading}>Request Volume ({chartRangeLabel})</CardTitle>
 								</CardHeader>
 								<CardContent>
 									<ResponsiveContainer width="100%" height={280}>
-										<AreaChart data={timeseries} margin={{ top: 4, right: 12, bottom: 0, left: 8 }}>
+										<ComposedChart data={timeseries} margin={{ top: 4, right: 12, bottom: 0, left: 8 }}>
 											<defs>
 												<linearGradient id="gradTotal" x1="0" y1="0" x2="0" y2="1">
 													<stop offset="0%" stopColor="#6fab58" stopOpacity={0.4} />
 													<stop offset="100%" stopColor="#6fab58" stopOpacity={0} />
-												</linearGradient>
-												<linearGradient id="gradErrors" x1="0" y1="0" x2="0" y2="1">
-													<stop offset="0%" stopColor="#ff5460" stopOpacity={0.4} />
-													<stop offset="100%" stopColor="#ff5460" stopOpacity={0} />
 												</linearGradient>
 											</defs>
 											<CartesianGrid strokeDasharray="3 3" stroke="#3a342a" />
@@ -847,12 +889,21 @@ export function OverviewDashboard() {
 												tick={{ fontSize: 10, fill: '#8c8474' }}
 												tickFormatter={(v: number) => {
 													const d = new Date(v);
-													return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+													// A chart spanning under a day formats every tick to the same
+													// calendar date (e.g. two ticks both showing "Jul 1") -- show
+													// time-of-day instead so ticks stay distinguishable.
+													return chartSpanUnderOneDay
+														? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+														: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 												}}
 												interval="preserveStartEnd"
 												minTickGap={60}
 											/>
-											<YAxis tick={{ fontSize: 10, fill: '#8c8474' }} width={50} />
+											<YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#8c8474' }} width={50} />
+											{/* Errors get their own scale -- on the shared axis a handful of errors
+											    against hundreds of total requests renders as a flat line pinned to
+											    zero, hiding the exact incident this chart most needs to surface. */}
+											<YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: '#ff5460' }} width={40} allowDecimals={false} />
 											<Tooltip
 												contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 												itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
@@ -868,9 +919,12 @@ export function OverviewDashboard() {
 												}
 												formatter={(value: number, name: string) => [formatNumber(value), name === 'total' ? 'Requests' : 'Errors']}
 											/>
-											<Area type="monotone" dataKey="total" stroke="#6fab58" fill="url(#gradTotal)" strokeWidth={2} dot={false} />
-											<Area type="monotone" dataKey="errors" stroke="#ff5460" fill="url(#gradErrors)" strokeWidth={1.5} dot={false} />
-										</AreaChart>
+											<Area yAxisId="left" type="monotone" dataKey="total" stroke="#6fab58" fill="url(#gradTotal)" strokeWidth={2} dot={false} />
+											{/* Line, not Area -- on its own independent right-axis scale, a filled
+											    Area would visually dominate the chart despite representing far
+											    fewer absolute requests than the total-volume series on the left. */}
+											<Line yAxisId="right" type="monotone" dataKey="errors" stroke="#ff5460" strokeWidth={1.5} dot={false} />
+										</ComposedChart>
 									</ResponsiveContainer>
 								</CardContent>
 							</Card>

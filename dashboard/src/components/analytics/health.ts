@@ -69,6 +69,18 @@ export interface HealthInputs {
  * Supabase gets extra signals (timeouts / 401 / upstream 5xx) layered on top
  * of the generic error-rate model, replacing the old Supabase-only banner.
  */
+/**
+ * Worst level across a set of surfaces (crit > warn > ok). Empty input is 'ok'.
+ * Used to escalate rollup KPI tiles (e.g. the blended Error Rate stat) even
+ * though the blended percentage itself may look fine while a single surface
+ * is on fire -- see OverviewDashboard's Error Rate StatCard.
+ */
+export function worstHealthLevel(surfaces: SurfaceHealth[]): HealthLevel {
+	if (surfaces.some((s) => s.level === 'crit')) return 'crit';
+	if (surfaces.some((s) => s.level === 'warn')) return 'warn';
+	return 'ok';
+}
+
 export function computeSurfaceHealth(inp: HealthInputs): SurfaceHealth[] {
 	const out: SurfaceHealth[] = [];
 	if (inp.purgeTotal > 0 && inp.purge) out.push(baseHealth('purge', 'Purge', inp.purgeTotal, inp.purge.by_status));
