@@ -171,12 +171,11 @@ interface StatCardProps {
 	value: string;
 	icon: React.ReactNode;
 	iconBg: string;
-	delay: number;
 }
 
-function StatCard({ label, value, icon, iconBg, delay }: StatCardProps) {
+function StatCard({ label, value, icon, iconBg }: StatCardProps) {
 	return (
-		<Card className="animate-fade-in-up opacity-0" style={{ animationDelay: `${delay}ms` }}>
+		<Card>
 			<CardContent className="flex items-center gap-4 p-5">
 				<div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg', iconBg)}>{icon}</div>
 				<div className="min-w-0">
@@ -768,35 +767,30 @@ export function OverviewDashboard() {
 								value={formatNumber(totalRequests)}
 								icon={<Activity className="h-5 w-5 text-lv-green" />}
 								iconBg="bg-lv-green/15"
-								delay={0}
 							/>
 							<StatCard
 								label="Avg Latency"
 								value={`${avgLatency} ms`}
 								icon={<Timer className="h-5 w-5 text-lv-blue" />}
 								iconBg="bg-lv-blue/15"
-								delay={180}
 							/>
 							<StatCard
 								label="Error Rate"
 								value={`${errorPct}%`}
 								icon={<AlertTriangle className="h-5 w-5 text-lv-red" />}
 								iconBg="bg-lv-red/15"
-								delay={240}
 							/>
 							<StatCard
 								label="URLs Purged"
 								value={formatNumber(purgeSummary?.total_urls_purged ?? 0)}
 								icon={<Link className="h-5 w-5 text-lv-peach" />}
 								iconBg="bg-lv-peach/15"
-								delay={300}
 							/>
 							<StatCard
 								label="Collapsed %"
 								value={`${collapsedPct}%`}
 								icon={<Layers className="h-5 w-5 text-lv-blue" />}
 								iconBg="bg-lv-blue/15"
-								delay={360}
 							/>
 						</div>
 
@@ -807,28 +801,24 @@ export function OverviewDashboard() {
 								value={String(resourceCounts.activeKeys)}
 								icon={<Key className="h-5 w-5 text-lv-purple" />}
 								iconBg="bg-lv-purple/15"
-								delay={80}
 							/>
 							<StatCard
 								label="S3 Credentials"
 								value={String(resourceCounts.activeS3Creds)}
 								icon={<Shield className="h-5 w-5 text-lv-cyan" />}
 								iconBg="bg-lv-cyan/15"
-								delay={140}
 							/>
 							<StatCard
 								label="Upstream Tokens"
 								value={String(resourceCounts.activeUpstreamTokens)}
 								icon={<Zap className="h-5 w-5 text-lv-peach" />}
 								iconBg="bg-lv-peach/15"
-								delay={200}
 							/>
 							<StatCard
 								label="Upstream R2"
 								value={String(resourceCounts.activeUpstreamR2)}
 								icon={<Database className="h-5 w-5 text-lv-green" />}
 								iconBg="bg-lv-green/15"
-								delay={260}
 							/>
 						</div>
 
