@@ -33,6 +33,33 @@
   --color-status-neutral: #8c8474; /* absent / disabled (== ink-muted) */
   --color-status-info: #7fa8c9; /* scope / secondary category -- muted steel blue */
   --color-status-info-alt: #6bbfae; /* alt category -- muted teal */
+  --color-status-accent: #b08fc4; /* brand / purge / d1 / keys category -- muted plum */
+
+  /* Backward-compat aliases: the pre-migration "Lovelace" palette's token
+     names are kept so every existing lv- and lovelace- prefixed Tailwind
+     class in the 21 component files resolves to the McMaster-Carr hexes
+     above, instead of silently going undefined (Tailwind v4 drops a
+     utility entirely when its color var is missing -- it does NOT fall
+     back to inherit-and-look-fine, it just renders with no color at all).
+     Do not add new lv- or lovelace- prefixed classNames going forward;
+     use the status- and bg-cream- prefixed names directly instead. */
+  --color-lovelace-950: var(--color-bg-cream);
+  --color-lovelace-900: var(--color-bg-cream);
+  --color-lovelace-800: var(--color-bg-cream-strong);
+  --color-lovelace-700: var(--color-bg-cream-strong);
+  --color-lovelace-600: var(--color-hairline-strong);
+  --color-lv-purple: var(--color-status-accent);
+  --color-lv-purple-dim: var(--color-status-accent);
+  --color-lv-green: var(--color-status-ok);
+  --color-lv-green-bright: var(--color-status-ok);
+  --color-lv-red: var(--color-status-danger);
+  --color-lv-red-bright: var(--color-status-danger);
+  --color-lv-peach: var(--color-status-warn);
+  --color-lv-peach-bright: var(--color-status-warn);
+  --color-lv-blue: var(--color-status-info);
+  --color-lv-blue-bright: var(--color-status-info);
+  --color-lv-cyan: var(--color-status-info-alt);
+  --color-lv-cyan-bright: var(--color-status-info-alt);
 
   --font-mono:
     "IBM Plex Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
