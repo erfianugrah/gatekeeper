@@ -778,7 +778,7 @@ export function OverviewDashboard() {
 									</CardTitle>
 								</CardHeader>
 								<CardContent className="p-0">
-									<Table className="w-auto">
+									<Table>
 										<TableHeader>
 											<TableRow>
 												<TableHead className={cn(T.sectionLabel, 'w-40')}>Surface</TableHead>
