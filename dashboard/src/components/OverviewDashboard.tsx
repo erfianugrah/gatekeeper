@@ -165,6 +165,20 @@ function truncateId(id: string, len = 12): string {
 	return id.length > len ? `${id.slice(0, len)}...` : id;
 }
 
+/**
+ * Build a deep link into a pre-filtered Analytics view. Mirrors the ?source=
+ * / ?status= / ?signal= / ?q= contract that AnalyticsPage reads on mount --
+ * see the comment above initialFilterFromUrl there for the other half.
+ */
+function analyticsLink(params: { source?: string; status?: string; signal?: string }): string {
+	const usp = new URLSearchParams();
+	if (params.source) usp.set('source', params.source);
+	if (params.status) usp.set('status', params.status);
+	if (params.signal) usp.set('signal', params.signal);
+	const qs = usp.toString();
+	return qs ? `/dashboard/analytics/?${qs}` : '/dashboard/analytics/';
+}
+
 // ─── Stat Card ──────────────────────────────────────────────────────
 
 interface StatCardProps {
@@ -780,23 +794,33 @@ export function OverviewDashboard() {
 													<TableCell>
 														<div className="flex items-center gap-2">
 															<span className={cn('h-2 w-2 rounded-full', HEALTH_DOT[h.level])} />
-															<span className={T.tableCellMono}>{h.label}</span>
+															<a href={analyticsLink({ source: h.surface })} className={cn(T.tableCellMono, 'hover:underline')}>
+																{h.label}
+															</a>
 														</div>
 													</TableCell>
 													<TableCell className={T.tableCellNumeric}>{formatNumber(h.total)}</TableCell>
 													<TableCell className={cn(T.tableCellNumeric, h.errorRate >= WARN_ERROR_PCT && 'text-lv-red')}>
 														{h.errorRate.toFixed(1)}%
 													</TableCell>
-													<TableCell className={cn(T.tableCellNumeric, h.count5xx > 0 && 'text-lv-red')}>{h.count5xx}</TableCell>
+													<TableCell className={cn(T.tableCellNumeric, h.count5xx > 0 && 'text-lv-red')}>
+														{h.count5xx > 0 ? (
+															<a href={analyticsLink({ source: h.surface, status: '5xx' })} className="hover:underline">
+																{h.count5xx}
+															</a>
+														) : (
+															h.count5xx
+														)}
+													</TableCell>
 													<TableCell className="pl-8">
 														{h.signals.length === 0 ? (
 															<span className="text-muted-foreground/40">{'\u2014'}</span>
 														) : (
 															<div className="flex flex-wrap gap-1.5">
 																{h.signals.map((sig) => (
-																	<Badge key={sig} className="bg-lv-peach/20 text-lv-peach border-lv-peach/30">
-																		{sig}
-																	</Badge>
+																	<a key={sig.id} href={analyticsLink({ source: 'supabase', signal: sig.id })}>
+																		<Badge className="bg-lv-peach/20 text-lv-peach border-lv-peach/30 hover:bg-lv-peach/30">{sig.label}</Badge>
+																	</a>
 																))}
 															</div>
 														)}

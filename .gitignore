@@ -170,3 +170,4 @@ test-results/
 # throwaway aesthetic-migration iteration harness (not shipped)
 _shots/
 dashboard/scripts/shoot.ts
+dashboard/scripts/shoot-drilldown.ts
