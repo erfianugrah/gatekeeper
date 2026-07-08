@@ -10,8 +10,20 @@ import type {
 
 export type HealthLevel = 'ok' | 'warn' | 'crit';
 
+/**
+ * A notable surface-specific signal (e.g. Supabase timeouts/401s/upstream
+ * 5xx). `id` matches AnalyticsPage's SupabaseQuickFilter values 1:1 so
+ * OverviewDashboard can link a signal badge straight into a pre-filtered
+ * Analytics view (?source=supabase&signal=<id>) without string-matching
+ * the display label.
+ */
+export interface HealthSignal {
+	id: 'unauthorized' | 'timeout' | 'upstream_5xx';
+	label: string;
+}
+
 export interface SurfaceHealth {
-	/** Stable surface id (used as React key). */
+	/** Stable surface id (used as React key, and as the Analytics ?source= value). */
 	surface: string;
 	/** Display label. */
 	label: string;
@@ -21,8 +33,8 @@ export interface SurfaceHealth {
 	errorRate: number;
 	count5xx: number;
 	level: HealthLevel;
-	/** Notable surface-specific signals (e.g. '401 18.2%'); does NOT include 5xx (own column). */
-	signals: string[];
+	/** Notable surface-specific signals; does NOT include 5xx (own column). */
+	signals: HealthSignal[];
 }
 
 // Generic thresholds (percentages of total requests).
@@ -69,6 +81,18 @@ export interface HealthInputs {
  * Supabase gets extra signals (timeouts / 401 / upstream 5xx) layered on top
  * of the generic error-rate model, replacing the old Supabase-only banner.
  */
+/**
+ * Worst level across a set of surfaces (crit > warn > ok). Empty input is 'ok'.
+ * Used to escalate rollup KPI tiles (e.g. the blended Error Rate stat) even
+ * though the blended percentage itself may look fine while a single surface
+ * is on fire -- see OverviewDashboard's Error Rate StatCard.
+ */
+export function worstHealthLevel(surfaces: SurfaceHealth[]): HealthLevel {
+	if (surfaces.some((s) => s.level === 'crit')) return 'crit';
+	if (surfaces.some((s) => s.level === 'warn')) return 'warn';
+	return 'ok';
+}
+
 export function computeSurfaceHealth(inp: HealthInputs): SurfaceHealth[] {
 	const out: SurfaceHealth[] = [];
 	if (inp.purgeTotal > 0 && inp.purge) out.push(baseHealth('purge', 'Purge', inp.purgeTotal, inp.purge.by_status));
@@ -81,15 +105,15 @@ export function computeSurfaceHealth(inp: HealthInputs): SurfaceHealth[] {
 		const timeoutRate = (s.timeout_count / inp.supaTotal) * 100;
 		const unauthorizedRate = (s.unauthorized_count / inp.supaTotal) * 100;
 		if (timeoutRate >= SUPABASE_TIMEOUT_WARN_PCT) {
-			h.signals.push(`Timeouts ${timeoutRate.toFixed(1)}%`);
+			h.signals.push({ id: 'timeout', label: `Timeouts ${timeoutRate.toFixed(1)}%` });
 			if (h.level === 'ok') h.level = 'warn';
 		}
 		if (unauthorizedRate >= SUPABASE_UNAUTHORIZED_WARN_PCT) {
-			h.signals.push(`401 ${unauthorizedRate.toFixed(1)}%`);
+			h.signals.push({ id: 'unauthorized', label: `401 ${unauthorizedRate.toFixed(1)}%` });
 			if (h.level === 'ok') h.level = 'warn';
 		}
 		if (s.upstream_5xx_count > 0) {
-			h.signals.push(`Upstream 5xx ${s.upstream_5xx_count}`);
+			h.signals.push({ id: 'upstream_5xx', label: `Upstream 5xx ${s.upstream_5xx_count}` });
 			if (h.level === 'ok') h.level = 'warn';
 		}
 		out.push(h);

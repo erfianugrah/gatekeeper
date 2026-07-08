@@ -38,6 +38,59 @@ import type { UnifiedEvent, FlightGroup, SortField, SortDir, TabFilter, StatusFi
 
 type SupabaseQuickFilter = 'all' | 'unauthorized' | 'timeout' | 'upstream_5xx';
 
+const VALID_STATUS_FILTERS: StatusFilter[] = ['all', '2xx', '4xx', '5xx'];
+const VALID_SUPABASE_QUICK_FILTERS: SupabaseQuickFilter[] = ['all', 'unauthorized', 'timeout', 'upstream_5xx'];
+
+/**
+ * Read initial filter state from the URL (?source=&status=&signal=&q=) so
+ * other pages (Overview's Health table "Signals" pills, surface names, 5xx
+ * counts) can deep-link straight into a pre-filtered Analytics view instead
+ * of dumping the operator on the unfiltered firehose. Read once at mount
+ * time via lazy useState initializers -- this page has no client-side
+ * router, so there's no navigation lifecycle to hook into beyond that.
+ */
+function initialFilterFromUrl<T extends string>(param: string, valid: readonly T[], fallback: T): T {
+	if (typeof window === 'undefined') return fallback;
+	const v = new URLSearchParams(window.location.search).get(param);
+	return v && (valid as readonly string[]).includes(v) ? (v as T) : fallback;
+}
+
+/**
+ * Source/tab has no fixed valid set (sourceTabs is derived from live data,
+ * e.g. per-CF-service tabs), so read the raw ?source= value unvalidated --
+ * a source that doesn't match any real tab just yields an empty result set,
+ * which is a safe failure mode, not a crash.
+ */
+function initialSourceFromUrl(): TabFilter {
+	if (typeof window === 'undefined') return 'all';
+	return new URLSearchParams(window.location.search).get('source') ?? 'all';
+}
+
+function initialSearchFromUrl(): string {
+	if (typeof window === 'undefined') return '';
+	return new URLSearchParams(window.location.search).get('q') ?? '';
+}
+
+/**
+ * Keep the URL's query string in sync with the current filter state via
+ * history.replaceState (no navigation, no reload -- this page has no
+ * client-side router). Makes the current filter bookmarkable/shareable and
+ * lets links elsewhere in the dashboard deep-link into a filtered view.
+ */
+function syncFiltersToUrl(params: { source: string; status: string; signal: string; q: string }) {
+	if (typeof window === 'undefined') return;
+	const usp = new URLSearchParams();
+	if (params.source !== 'all') usp.set('source', params.source);
+	if (params.status !== 'all') usp.set('status', params.status);
+	if (params.signal !== 'all') usp.set('signal', params.signal);
+	if (params.q.trim()) usp.set('q', params.q);
+	const qs = usp.toString();
+	const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+	if (next !== `${window.location.pathname}${window.location.search}`) {
+		window.history.replaceState(null, '', next);
+	}
+}
+
 // ─── Analytics Page ─────────────────────────────────────────────────
 
 export function AnalyticsPage() {
@@ -47,10 +100,12 @@ export function AnalyticsPage() {
 	const [cfEvents, setCfEvents] = useState<CfProxyEvent[]>([]);
 	const [supabaseEvents, setSupabaseEvents] = useState<SupabaseProxyEvent[]>([]);
 	const [limit, setLimit] = useState<number>(100);
-	const [tab, setTab] = useState<TabFilter>('all');
-	const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-	const [supabaseQuickFilter, setSupabaseQuickFilter] = useState<SupabaseQuickFilter>('all');
-	const [search, setSearch] = useState('');
+	const [tab, setTab] = useState<TabFilter>(initialSourceFromUrl);
+	const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => initialFilterFromUrl('status', VALID_STATUS_FILTERS, 'all'));
+	const [supabaseQuickFilter, setSupabaseQuickFilter] = useState<SupabaseQuickFilter>(() =>
+		initialFilterFromUrl('signal', VALID_SUPABASE_QUICK_FILTERS, 'all'),
+	);
+	const [search, setSearch] = useState(initialSearchFromUrl);
 	const [sortField, setSortField] = useState<SortField>('created_at');
 	const [sortDir, setSortDir] = useState<SortDir>('desc');
 	const [loading, setLoading] = useState(true);
@@ -123,6 +178,10 @@ export function AnalyticsPage() {
 			setSupabaseQuickFilter('all');
 		}
 	}, [tab, supabaseQuickFilter]);
+
+	useEffect(() => {
+		syncFiltersToUrl({ source: tab, status: statusFilter, signal: supabaseQuickFilter, q: search });
+	}, [tab, statusFilter, supabaseQuickFilter, search]);
 
 	// ── Sorting ─────────────────────────────────────────────────
 

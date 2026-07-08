@@ -1,61 +1,122 @@
 @import "tailwindcss";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+@import "@fontsource/ibm-plex-mono/700.css";
 
+/* ---------------------------------------------------------------
+   McMaster-Carr appliance-manual aesthetic (matches bonkled's spec).
+   No rounded corners, no shadows, no gradients, no glow. Hairlines
+   only. Gatekeeper has no light-mode toggle today, so this file
+   ships bonkled's warm-dark register as the single permanent theme
+   (rather than building an unrequested light/dark switch) -- add a
+   [data-theme="light"] block later if a toggle is ever wanted.
+--------------------------------------------------------------- */
 @theme {
-  /* Lovelace palette — warm charcoal base with pastel-neon accents */
-  --color-lovelace-950: #15161e;
-  --color-lovelace-900: #1d1f28;
-  --color-lovelace-800: #282a36;
-  --color-lovelace-700: #343647;
-  --color-lovelace-600: #414457;
+  --color-bg-cream: #14110d; /* warm near-black, slight brown */
+  --color-bg-cream-strong: #1f1b14; /* inset fill for chips/tags/code spans */
+  --color-ink: #e8e0ce; /* warm off-white */
+  --color-ink-muted: #8c8474;
+  --color-accent-red: #ff5460;
+  --color-hairline: #3a342a;
+  --color-hairline-strong: #5a5446;
 
-  --color-lv-purple: #c574dd;
-  --color-lv-purple-dim: #af43d1;
-  --color-lv-green: #5adecd;
-  --color-lv-green-bright: #17e2c7;
-  --color-lv-red: #f37e96;
-  --color-lv-red-bright: #ff4870;
-  --color-lv-peach: #f1a171;
-  --color-lv-peach-bright: #ff8037;
-  --color-lv-blue: #8796f4;
-  --color-lv-blue-bright: #546eff;
-  --color-lv-cyan: #79e6f3;
-  --color-lv-cyan-bright: #3edced;
+  /* Semantic status/category inks -- desaturated "rubber stamp" tones,
+     never neon. Gatekeeper's policy surfaces need distinguishable
+     allow/deny/read/write/scope categories, so we keep six hues but
+     flatten them to the same appliance-manual register bonkled uses
+     for tile-correct/tile-present/tile-absent, plus two extra muted
+     inks (steel-blue, teal) for the categories bonkled doesn't need. */
+  --color-status-ok: #6fab58; /* allow / read / success (bonkled tile-correct, dark) */
+  --color-status-warn: #d9b96a; /* write / present / pending (bonkled tile-present, dark) */
+  --color-status-danger: #ff5460; /* deny / destructive (== accent-red) */
+  --color-status-neutral: #8c8474; /* absent / disabled (== ink-muted) */
+  --color-status-info: #7fa8c9; /* scope / secondary category -- muted steel blue */
+  --color-status-info-alt: #6bbfae; /* alt category -- muted teal */
+  --color-status-accent: #b08fc4; /* brand / purge / d1 / keys category -- muted plum */
 
-  /* shadcn CSS variable mapping */
-  --color-background: #1d1f28;
-  --color-foreground: #fcfcfc;
-  --color-card: #282a36;
-  --color-card-foreground: #fcfcfc;
-  --color-popover: #282a36;
-  --color-popover-foreground: #fcfcfc;
-  --color-primary: #c574dd;
-  --color-primary-foreground: #15161e;
-  --color-secondary: #343647;
-  --color-secondary-foreground: #fcfcfc;
-  --color-muted: #343647;
-  --color-muted-foreground: #bdbdc1;
-  --color-accent: #414457;
-  --color-accent-foreground: #fcfcfc;
-  --color-destructive: #f37e96;
-  --color-destructive-foreground: #ffffff;
-  --color-border: #414457;
-  --color-input: #414457;
-  --color-ring: #c574dd;
+  /* Backward-compat aliases: the pre-migration "Lovelace" palette's token
+     names are kept so every existing lv- and lovelace- prefixed Tailwind
+     class in the 21 component files resolves to the McMaster-Carr hexes
+     above, instead of silently going undefined (Tailwind v4 drops a
+     utility entirely when its color var is missing -- it does NOT fall
+     back to inherit-and-look-fine, it just renders with no color at all).
+     Do not add new lv- or lovelace- prefixed classNames going forward;
+     use the status- and bg-cream- prefixed names directly instead. */
+  --color-lovelace-950: var(--color-bg-cream);
+  --color-lovelace-900: var(--color-bg-cream);
+  --color-lovelace-800: var(--color-bg-cream-strong);
+  --color-lovelace-700: var(--color-bg-cream-strong);
+  --color-lovelace-600: var(--color-hairline-strong);
+  --color-lv-purple: var(--color-status-accent);
+  --color-lv-purple-dim: var(--color-status-accent);
+  --color-lv-green: var(--color-status-ok);
+  --color-lv-green-bright: var(--color-status-ok);
+  --color-lv-red: var(--color-status-danger);
+  --color-lv-red-bright: var(--color-status-danger);
+  --color-lv-peach: var(--color-status-warn);
+  --color-lv-peach-bright: var(--color-status-warn);
+  --color-lv-blue: var(--color-status-info);
+  --color-lv-blue-bright: var(--color-status-info);
+  --color-lv-cyan: var(--color-status-info-alt);
+  --color-lv-cyan-bright: var(--color-status-info-alt);
 
-  /* Chart colors */
-  --color-chart-1: #c574dd;
-  --color-chart-2: #5adecd;
-  --color-chart-3: #f37e96;
-  --color-chart-4: #f1a171;
-  --color-chart-5: #8796f4;
+  --font-mono:
+    "IBM Plex Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
 
-  /* Radius */
-  --radius: 0.5rem;
+  --radius-*: initial; /* kill all rounding globally */
+
+  /* shadcn CSS variable mapping, remapped onto the ink/paper system */
+  --color-background: var(--color-bg-cream);
+  --color-foreground: var(--color-ink);
+  --color-card: var(--color-bg-cream);
+  --color-card-foreground: var(--color-ink);
+  --color-popover: var(--color-bg-cream-strong);
+  --color-popover-foreground: var(--color-ink);
+  --color-primary: var(--color-ink);
+  --color-primary-foreground: var(--color-bg-cream);
+  --color-secondary: var(--color-bg-cream-strong);
+  --color-secondary-foreground: var(--color-ink);
+  --color-muted: var(--color-bg-cream-strong);
+  --color-muted-foreground: var(--color-ink-muted);
+  --color-accent: var(--color-bg-cream-strong);
+  --color-accent-foreground: var(--color-ink);
+  --color-destructive: var(--color-status-danger);
+  --color-destructive-foreground: #14110d;
+  --color-border: var(--color-hairline);
+  --color-input: var(--color-hairline);
+  --color-ring: var(--color-ink);
+
+  /* Chart colors -- map straight onto the semantic status inks */
+  --color-chart-1: var(--color-status-ok);
+  --color-chart-2: var(--color-status-info);
+  --color-chart-3: var(--color-status-danger);
+  --color-chart-4: var(--color-status-warn);
+  --color-chart-5: var(--color-status-info-alt);
 }
 
 @layer base {
   * {
     border-color: var(--color-border);
+  }
+
+  html,
+  body {
+    background: var(--color-bg-cream);
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 1.5;
+    font-variant-ligatures: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  *,
+  *::before,
+  *::after {
+    border-radius: 0 !important;
+    box-shadow: none !important;
   }
 
   button,
@@ -66,74 +127,78 @@
     cursor: pointer;
   }
 
-  body {
-    background-color: var(--color-background);
-    color: var(--color-foreground);
-    font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system,
-      sans-serif;
-    font-size: 16px;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+  a {
+    color: var(--color-ink);
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
-  /* Monospace utility for data-oriented elements */
+  hr {
+    border: 0;
+    border-top: 1px solid var(--color-hairline);
+  }
+
+  /* Monospace utility retained for call sites that opted into a
+     separate data font -- now identical to the base font, kept so
+     existing className references stay valid no-ops. */
   .font-data {
-    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", ui-monospace,
-      SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--font-mono);
   }
 
-  /* Glow utilities — Lovelace purple */
-  .glow-purple {
-    text-shadow: 0 0 10px rgba(197, 116, 221, 0.5),
-      0 0 20px rgba(197, 116, 221, 0.3), 0 0 40px rgba(197, 116, 221, 0.1);
+  /* Respect prefers-reduced-motion -- disable all transitions */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 
-  .glow-green {
-    text-shadow: 0 0 10px rgba(90, 222, 205, 0.5),
-      0 0 20px rgba(90, 222, 205, 0.3), 0 0 40px rgba(90, 222, 205, 0.1);
+  /* Visible focus indicator everywhere (keyboard nav) */
+  :focus-visible {
+    outline: 2px solid var(--color-ink) !important;
+    outline-offset: 1px;
   }
 
-  /* Scrollbar styling */
+  /* Min 44px tap target on mobile for any interactive element */
+  @media (pointer: coarse) {
+    button,
+    a,
+    input,
+    [role="button"] {
+      min-height: 44px;
+      min-width: 44px;
+    }
+  }
+
+  /* Flat hairline scrollbar -- no rounding, no accent-color hover glow */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
 
   ::-webkit-scrollbar-track {
-    background: var(--color-lovelace-950);
+    background: var(--color-bg-cream);
   }
 
   ::-webkit-scrollbar-thumb {
-    background: var(--color-lovelace-600);
-    border-radius: 3px;
+    background: var(--color-hairline-strong);
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--color-lv-purple);
+    background: var(--color-ink-muted);
   }
 
-  /* Stat card fade-in animation */
-  @keyframes fadeInUp {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .animate-fade-in-up {
-    animation: fadeInUp 0.4s ease-out forwards;
-  }
-
-  /* Clickable table row press effect */
+  /* Clickable table row press effect -- kept, it's a flat background
+     flash (no transform/shadow), not an animation tax. */
   tr.cursor-pointer {
     transition: background-color 150ms ease-out;
   }
   tr.cursor-pointer:active {
-    background-color: rgba(65, 68, 87, 0.5);
+    background-color: var(--color-bg-cream-strong);
   }
 
   /* Hide native number input spinners */
@@ -145,4 +210,17 @@
   input[type="number"] {
     -moz-appearance: textfield;
   }
+}
+
+/* Screen-reader-only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

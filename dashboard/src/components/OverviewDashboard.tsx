@@ -5,8 +5,9 @@ import {
 	Cell,
 	BarChart,
 	Bar,
-	AreaChart,
+	ComposedChart,
 	Area,
+	Line,
 	XAxis,
 	YAxis,
 	Tooltip,
@@ -39,7 +40,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { computeSurfaceHealth, WARN_ERROR_PCT, type HealthLevel } from '@/components/analytics/health';
+import { computeSurfaceHealth, worstHealthLevel, WARN_ERROR_PCT, type HealthLevel } from '@/components/analytics/health';
 import { Tooltip as UiTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
 	getSummary,
@@ -126,9 +127,9 @@ function DonutPie({ data, colorFor }: { data: { name: string; value: number }[];
 					formatter={(value: string, entry: any) => {
 						const pct = entry?.payload?.percent;
 						return (
-							<span style={{ color: '#bdbdc1' }}>
+							<span style={{ color: '#8c8474' }}>
 								{value}
-								{typeof pct === 'number' ? <span style={{ color: '#6b6f7d' }}> {(pct * 100).toFixed(0)}%</span> : null}
+								{typeof pct === 'number' ? <span style={{ color: '#5a5446' }}> {(pct * 100).toFixed(0)}%</span> : null}
 							</span>
 						);
 					}}
@@ -164,6 +165,20 @@ function truncateId(id: string, len = 12): string {
 	return id.length > len ? `${id.slice(0, len)}...` : id;
 }
 
+/**
+ * Build a deep link into a pre-filtered Analytics view. Mirrors the ?source=
+ * / ?status= / ?signal= / ?q= contract that AnalyticsPage reads on mount --
+ * see the comment above initialFilterFromUrl there for the other half.
+ */
+function analyticsLink(params: { source?: string; status?: string; signal?: string }): string {
+	const usp = new URLSearchParams();
+	if (params.source) usp.set('source', params.source);
+	if (params.status) usp.set('status', params.status);
+	if (params.signal) usp.set('signal', params.signal);
+	const qs = usp.toString();
+	return qs ? `/dashboard/analytics/?${qs}` : '/dashboard/analytics/';
+}
+
 // ─── Stat Card ──────────────────────────────────────────────────────
 
 interface StatCardProps {
@@ -171,20 +186,54 @@ interface StatCardProps {
 	value: string;
 	icon: React.ReactNode;
 	iconBg: string;
-	delay: number;
+	/**
+	 * Optional severity override. When set, replaces iconBg/value coloring
+	 * with the shared health palette regardless of the icon/iconBg passed in --
+	 * used by rollup KPIs (e.g. Error Rate) so a blended-looking-fine number
+	 * still escalates visually when the WORST underlying surface is warn/crit.
+	 */
+	tone?: HealthLevel;
 }
 
-function StatCard({ label, value, icon, iconBg, delay }: StatCardProps) {
+const TONE_ICON_BG: Record<HealthLevel, string> = {
+	ok: 'bg-status-ok/15 text-status-ok',
+	warn: 'bg-status-warn/15 text-status-warn',
+	crit: 'bg-status-danger/15 text-status-danger',
+};
+const TONE_VALUE: Record<HealthLevel, string> = {
+	ok: '',
+	warn: 'text-status-warn',
+	crit: 'text-status-danger',
+};
+
+function StatCard({ label, value, icon, iconBg, tone }: StatCardProps) {
 	return (
-		<Card className="animate-fade-in-up opacity-0" style={{ animationDelay: `${delay}ms` }}>
+		<Card>
 			<CardContent className="flex items-center gap-4 p-5">
-				<div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg', iconBg)}>{icon}</div>
+				<div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg', tone ? TONE_ICON_BG[tone] : iconBg)}>{icon}</div>
 				<div className="min-w-0">
 					<p className={T.statLabelUpper}>{label}</p>
-					<p className={T.statValue}>{value}</p>
+					<p className={cn(T.statValue, tone && TONE_VALUE[tone])}>{value}</p>
 				</div>
 			</CardContent>
 		</Card>
+	);
+}
+
+/**
+ * Dense inline resource-count strip. These are plain counts (no good/bad
+ * reading), so a full StatCard per number wastes two rows of vertical space
+ * on four small integers -- a single hairline-divided bar is the same
+ * information at a fraction of the height, matching the "tables over card
+ * grids" ethos elsewhere in this dashboard.
+ */
+function ResourceStat({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
+	return (
+		<div className="flex flex-1 items-center gap-2 px-4 py-2.5">
+			<span className="shrink-0">{icon}</span>
+			<span className={T.statLabelUpper}>{label}</span>
+			<span className="ml-auto font-semibold text-foreground">{value}</span>
+		</div>
 	);
 }
 
@@ -612,12 +661,12 @@ export function OverviewDashboard() {
 		: [];
 
 	const CF_SERVICE_COLORS: Record<string, string> = {
-		D1: '#c574dd',
-		KV: '#79e6f3',
-		Workers: '#a6e3a1',
-		Queues: '#fab387',
-		Vectorize: '#8796f4',
-		Hyperdrive: '#f38ba8',
+		D1: '#b08fc4',
+		KV: '#6bbfae',
+		Workers: '#6fab58',
+		Queues: '#d9b96a',
+		Vectorize: '#7fa8c9',
+		Hyperdrive: '#ff5460',
 	};
 
 	// Supabase category breakdown
@@ -640,16 +689,16 @@ export function OverviewDashboard() {
 		...(supaTotal > 0 ? [{ name: 'Supabase', value: supaTotal }] : []),
 	];
 	const TRAFFIC_COLORS: Record<string, string> = {
-		Purge: '#c574dd',
-		S3: '#79e6f3',
-		DNS: '#a6e3a1',
-		D1: '#c574dd',
-		KV: '#79e6f3',
-		Workers: '#a6e3a1',
-		Queues: '#fab387',
-		Vectorize: '#8796f4',
-		Hyperdrive: '#f38ba8',
-		Supabase: '#f1a171',
+		Purge: '#b08fc4',
+		S3: '#6bbfae',
+		DNS: '#6fab58',
+		D1: '#b08fc4',
+		KV: '#6bbfae',
+		Workers: '#6fab58',
+		Queues: '#d9b96a',
+		Vectorize: '#7fa8c9',
+		Hyperdrive: '#ff5460',
+		Supabase: '#d9b96a',
 	};
 
 	// Combined avg latency
@@ -670,8 +719,21 @@ export function OverviewDashboard() {
 		.filter(([s]) => Number(s) >= 400)
 		.reduce((acc, [, v]) => acc + v, 0);
 	const errorPct = totalRequests > 0 ? ((errorCount / totalRequests) * 100).toFixed(1) : '0';
+	// The blended errorPct above can look fine (e.g. 10%) while one surface is
+	// actually on fire (e.g. Supabase at 39%) -- escalate the tile's color to
+	// the WORST underlying surface, not the diluted average, so a real incident
+	// is never masked by good numbers from unrelated surfaces.
+	const worstLevel = worstHealthLevel(surfaceHealth);
 
 	const collapsedPct = purgeTotal > 0 ? (((purgeSummary?.collapsed_count ?? 0) / purgeTotal) * 100).toFixed(1) : '0';
+
+	// The query defaults to a 7-day window, but real data is often much
+	// narrower (e.g. a fresh deployment, or a short test burst) -- title and
+	// x-axis tick format should reflect the ACTUAL span, not the query default,
+	// or a short-span chart shows misleading duplicate-looking date ticks.
+	const chartSpanMs = timeseries.length > 1 ? timeseries[timeseries.length - 1].bucket - timeseries[0].bucket : 0;
+	const chartSpanUnderOneDay = chartSpanMs > 0 && chartSpanMs < 24 * 60 * 60 * 1000;
+	const chartRangeLabel = chartSpanUnderOneDay ? 'Last 24 Hours' : 'Last 7 Days';
 
 	return (
 		<TooltipProvider delayDuration={200}>
@@ -716,7 +778,7 @@ export function OverviewDashboard() {
 									</CardTitle>
 								</CardHeader>
 								<CardContent className="p-0">
-									<Table className="w-auto">
+									<Table>
 										<TableHeader>
 											<TableRow>
 												<TableHead className={cn(T.sectionLabel, 'w-40')}>Surface</TableHead>
@@ -732,23 +794,33 @@ export function OverviewDashboard() {
 													<TableCell>
 														<div className="flex items-center gap-2">
 															<span className={cn('h-2 w-2 rounded-full', HEALTH_DOT[h.level])} />
-															<span className={T.tableCellMono}>{h.label}</span>
+															<a href={analyticsLink({ source: h.surface })} className={cn(T.tableCellMono, 'hover:underline')}>
+																{h.label}
+															</a>
 														</div>
 													</TableCell>
 													<TableCell className={T.tableCellNumeric}>{formatNumber(h.total)}</TableCell>
 													<TableCell className={cn(T.tableCellNumeric, h.errorRate >= WARN_ERROR_PCT && 'text-lv-red')}>
 														{h.errorRate.toFixed(1)}%
 													</TableCell>
-													<TableCell className={cn(T.tableCellNumeric, h.count5xx > 0 && 'text-lv-red')}>{h.count5xx}</TableCell>
+													<TableCell className={cn(T.tableCellNumeric, h.count5xx > 0 && 'text-lv-red')}>
+														{h.count5xx > 0 ? (
+															<a href={analyticsLink({ source: h.surface, status: '5xx' })} className="hover:underline">
+																{h.count5xx}
+															</a>
+														) : (
+															h.count5xx
+														)}
+													</TableCell>
 													<TableCell className="pl-8">
 														{h.signals.length === 0 ? (
 															<span className="text-muted-foreground/40">{'\u2014'}</span>
 														) : (
 															<div className="flex flex-wrap gap-1.5">
 																{h.signals.map((sig) => (
-																	<Badge key={sig} className="bg-lv-peach/20 text-lv-peach border-lv-peach/30">
-																		{sig}
-																	</Badge>
+																	<a key={sig.id} href={analyticsLink({ source: 'supabase', signal: sig.id })}>
+																		<Badge className="bg-lv-peach/20 text-lv-peach border-lv-peach/30 hover:bg-lv-peach/30">{sig.label}</Badge>
+																	</a>
 																))}
 															</div>
 														)}
@@ -768,67 +840,55 @@ export function OverviewDashboard() {
 								value={formatNumber(totalRequests)}
 								icon={<Activity className="h-5 w-5 text-lv-green" />}
 								iconBg="bg-lv-green/15"
-								delay={0}
 							/>
 							<StatCard
 								label="Avg Latency"
 								value={`${avgLatency} ms`}
 								icon={<Timer className="h-5 w-5 text-lv-blue" />}
 								iconBg="bg-lv-blue/15"
-								delay={180}
 							/>
 							<StatCard
 								label="Error Rate"
 								value={`${errorPct}%`}
-								icon={<AlertTriangle className="h-5 w-5 text-lv-red" />}
+								icon={<AlertTriangle className="h-5 w-5" />}
 								iconBg="bg-lv-red/15"
-								delay={240}
+								tone={worstLevel}
 							/>
 							<StatCard
 								label="URLs Purged"
 								value={formatNumber(purgeSummary?.total_urls_purged ?? 0)}
 								icon={<Link className="h-5 w-5 text-lv-peach" />}
 								iconBg="bg-lv-peach/15"
-								delay={300}
 							/>
 							<StatCard
 								label="Collapsed %"
 								value={`${collapsedPct}%`}
 								icon={<Layers className="h-5 w-5 text-lv-blue" />}
 								iconBg="bg-lv-blue/15"
-								delay={360}
 							/>
 						</div>
 
-						{/* Row 2: Resource counts */}
-						<div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-							<StatCard
+						{/* Row 2: Resource counts -- dense strip, not four full cards */}
+						<div className="flex flex-col divide-y divide-border border border-border sm:flex-row sm:divide-x sm:divide-y-0">
+							<ResourceStat
 								label="Active Keys"
 								value={String(resourceCounts.activeKeys)}
-								icon={<Key className="h-5 w-5 text-lv-purple" />}
-								iconBg="bg-lv-purple/15"
-								delay={80}
+								icon={<Key className="h-4 w-4 text-lv-purple" />}
 							/>
-							<StatCard
+							<ResourceStat
 								label="S3 Credentials"
 								value={String(resourceCounts.activeS3Creds)}
-								icon={<Shield className="h-5 w-5 text-lv-cyan" />}
-								iconBg="bg-lv-cyan/15"
-								delay={140}
+								icon={<Shield className="h-4 w-4 text-lv-cyan" />}
 							/>
-							<StatCard
+							<ResourceStat
 								label="Upstream Tokens"
 								value={String(resourceCounts.activeUpstreamTokens)}
-								icon={<Zap className="h-5 w-5 text-lv-peach" />}
-								iconBg="bg-lv-peach/15"
-								delay={200}
+								icon={<Zap className="h-4 w-4 text-lv-peach" />}
 							/>
-							<StatCard
+							<ResourceStat
 								label="Upstream R2"
 								value={String(resourceCounts.activeUpstreamR2)}
-								icon={<Database className="h-5 w-5 text-lv-green" />}
-								iconBg="bg-lv-green/15"
-								delay={260}
+								icon={<Database className="h-4 w-4 text-lv-green" />}
 							/>
 						</div>
 
@@ -836,33 +896,38 @@ export function OverviewDashboard() {
 						{timeseries.length > 1 && (
 							<Card>
 								<CardHeader>
-									<CardTitle className={T.sectionHeading}>Request Volume (Last 7 Days)</CardTitle>
+									<CardTitle className={T.sectionHeading}>Request Volume ({chartRangeLabel})</CardTitle>
 								</CardHeader>
 								<CardContent>
 									<ResponsiveContainer width="100%" height={280}>
-										<AreaChart data={timeseries} margin={{ top: 4, right: 12, bottom: 0, left: 8 }}>
+										<ComposedChart data={timeseries} margin={{ top: 4, right: 12, bottom: 0, left: 8 }}>
 											<defs>
 												<linearGradient id="gradTotal" x1="0" y1="0" x2="0" y2="1">
-													<stop offset="0%" stopColor="#a6e3a1" stopOpacity={0.4} />
-													<stop offset="100%" stopColor="#a6e3a1" stopOpacity={0} />
-												</linearGradient>
-												<linearGradient id="gradErrors" x1="0" y1="0" x2="0" y2="1">
-													<stop offset="0%" stopColor="#f38ba8" stopOpacity={0.4} />
-													<stop offset="100%" stopColor="#f38ba8" stopOpacity={0} />
+													<stop offset="0%" stopColor="#6fab58" stopOpacity={0.4} />
+													<stop offset="100%" stopColor="#6fab58" stopOpacity={0} />
 												</linearGradient>
 											</defs>
-											<CartesianGrid strokeDasharray="3 3" stroke="#313244" />
+											<CartesianGrid strokeDasharray="3 3" stroke="#3a342a" />
 											<XAxis
 												dataKey="bucket"
-												tick={{ fontSize: 10, fill: '#bdbdc1' }}
+												tick={{ fontSize: 10, fill: '#8c8474' }}
 												tickFormatter={(v: number) => {
 													const d = new Date(v);
-													return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+													// A chart spanning under a day formats every tick to the same
+													// calendar date (e.g. two ticks both showing "Jul 1") -- show
+													// time-of-day instead so ticks stay distinguishable.
+													return chartSpanUnderOneDay
+														? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+														: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 												}}
 												interval="preserveStartEnd"
 												minTickGap={60}
 											/>
-											<YAxis tick={{ fontSize: 10, fill: '#bdbdc1' }} width={50} />
+											<YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#8c8474' }} width={50} />
+											{/* Errors get their own scale -- on the shared axis a handful of errors
+											    against hundreds of total requests renders as a flat line pinned to
+											    zero, hiding the exact incident this chart most needs to surface. */}
+											<YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: '#ff5460' }} width={40} allowDecimals={false} />
 											<Tooltip
 												contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 												itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
@@ -878,9 +943,12 @@ export function OverviewDashboard() {
 												}
 												formatter={(value: number, name: string) => [formatNumber(value), name === 'total' ? 'Requests' : 'Errors']}
 											/>
-											<Area type="monotone" dataKey="total" stroke="#a6e3a1" fill="url(#gradTotal)" strokeWidth={2} dot={false} />
-											<Area type="monotone" dataKey="errors" stroke="#f38ba8" fill="url(#gradErrors)" strokeWidth={1.5} dot={false} />
-										</AreaChart>
+											<Area yAxisId="left" type="monotone" dataKey="total" stroke="#6fab58" fill="url(#gradTotal)" strokeWidth={2} dot={false} />
+											{/* Line, not Area -- on its own independent right-axis scale, a filled
+											    Area would visually dominate the chart despite representing far
+											    fewer absolute requests than the total-volume series on the left. */}
+											<Line yAxisId="right" type="monotone" dataKey="errors" stroke="#ff5460" strokeWidth={1.5} dot={false} />
+										</ComposedChart>
 									</ResponsiveContainer>
 								</CardContent>
 							</Card>
@@ -908,7 +976,7 @@ export function OverviewDashboard() {
 											{trafficPie.length === 0 ? (
 												<p className={cn(T.muted, 'py-12 text-center')}>No data</p>
 											) : (
-												<DonutPie data={trafficPie} colorFor={(name) => TRAFFIC_COLORS[name] ?? '#8796f4'} />
+												<DonutPie data={trafficPie} colorFor={(name) => TRAFFIC_COLORS[name] ?? '#7fa8c9'} />
 											)}
 										</CardContent>
 									</Card>
@@ -924,8 +992,8 @@ export function OverviewDashboard() {
 											) : (
 												<ResponsiveContainer width="100%" height={260}>
 													<BarChart data={barData} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
-														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
-														<YAxis type="category" dataKey="status" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={40} />
+														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} />
+														<YAxis type="category" dataKey="status" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} width={40} />
 														<Tooltip
 															contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 															itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
@@ -958,7 +1026,7 @@ export function OverviewDashboard() {
 												) : (
 													<DonutPie
 														data={purgeTypePie}
-														colorFor={(name) => PURGE_TYPE_COLORS[name as keyof typeof PURGE_TYPE_COLORS] ?? '#8796f4'}
+														colorFor={(name) => PURGE_TYPE_COLORS[name as keyof typeof PURGE_TYPE_COLORS] ?? '#7fa8c9'}
 													/>
 												)}
 											</CardContent>
@@ -977,8 +1045,8 @@ export function OverviewDashboard() {
 												) : (
 													<ResponsiveContainer width="100%" height={260}>
 														<BarChart data={s3OpPie} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
-															<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
-															<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={100} />
+															<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} />
+															<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} width={100} />
 															<Tooltip
 																contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 																itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
@@ -1020,8 +1088,8 @@ export function OverviewDashboard() {
 												) : (
 													<ResponsiveContainer width="100%" height={260}>
 														<BarChart data={dnsActionPie} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
-															<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
-															<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={100} />
+															<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} />
+															<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} width={100} />
 															<Tooltip
 																contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 																itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
@@ -1047,7 +1115,7 @@ export function OverviewDashboard() {
 												<CardTitle className={T.sectionHeading}>CF Services</CardTitle>
 											</CardHeader>
 											<CardContent>
-												<DonutPie data={cfServicePie} colorFor={(name) => CF_SERVICE_COLORS[name] ?? '#8796f4'} />
+												<DonutPie data={cfServicePie} colorFor={(name) => CF_SERVICE_COLORS[name] ?? '#7fa8c9'} />
 											</CardContent>
 										</Card>
 									)}
@@ -1061,8 +1129,8 @@ export function OverviewDashboard() {
 											<CardContent>
 												<ResponsiveContainer width="100%" height={260}>
 													<BarChart data={cfActionPie} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
-														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
-														<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={120} />
+														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} />
+														<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} width={120} />
 														<Tooltip
 															contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 															itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
@@ -1087,8 +1155,8 @@ export function OverviewDashboard() {
 											<CardContent>
 												<ResponsiveContainer width="100%" height={260}>
 													<BarChart data={supaCategoryPie} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
-														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
-														<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={120} />
+														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} />
+														<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} width={120} />
 														<Tooltip
 															contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 															itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
