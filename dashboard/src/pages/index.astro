@@ -1,125 +1,94 @@
 ---
-// Splash page — shown briefly before redirecting to /dashboard/
+// Splash page - shown briefly before redirecting to /dashboard/
 ---
 
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gatekeeper</title>
     <meta name="robots" content="noindex" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
     <style>
+      @import "@fontsource/ibm-plex-mono/400.css";
+      @import "@fontsource/ibm-plex-mono/600.css";
+      @import "@fontsource/ibm-plex-mono/700.css";
+
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
       body {
-        background-color: #15161e;
-        color: #fcfcfc;
-        font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+        background-color: #14110d;
+        color: #e8e0ce;
+        font-family: "IBM Plex Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         min-height: 100vh;
-        overflow: hidden;
-        -webkit-font-smoothing: antialiased;
-      }
-
-      /* Subtle radial glow behind the logo */
-      .backdrop-glow {
-        position: fixed;
-        inset: 0;
-        background: radial-gradient(ellipse 600px 400px at 50% 45%, rgba(197,116,221,0.08) 0%, transparent 70%);
-        pointer-events: none;
-        z-index: 0;
       }
 
       .splash {
-        position: relative;
-        z-index: 1;
         display: flex;
         flex-direction: column;
         align-items: center;
         gap: 2rem;
-        animation: fadeIn 0.6s ease-out both;
+        border: 1px solid #3a342a;
+        padding: 3rem 4rem;
       }
 
       /* Shield icon */
       .shield {
-        width: 64px;
-        height: 64px;
-        animation: floatIn 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+        width: 56px;
+        height: 56px;
       }
-      .shield path { stroke: #c574dd; }
-      .shield circle, .shield rect { fill: #c574dd; }
+      .shield path { stroke: #b08fc4; }
+      .shield circle, .shield rect { fill: #b08fc4; }
 
       /* Title */
       .title {
-        font-size: 1.5rem;
+        font-size: 1.25rem;
         font-weight: 700;
         letter-spacing: 0.2em;
         text-transform: uppercase;
-        color: #c574dd;
-        text-shadow:
-          0 0 10px rgba(197,116,221,0.5),
-          0 0 20px rgba(197,116,221,0.3),
-          0 0 40px rgba(197,116,221,0.1);
-        animation: fadeIn 0.8s ease-out 0.2s both;
+        color: #e8e0ce;
       }
 
-      /* Progress bar */
+      /* Progress bar -- functional timer for the redirect, not decoration */
       .progress-track {
         width: 160px;
         height: 2px;
-        background: #343647;
-        border-radius: 1px;
+        background: #3a342a;
         overflow: hidden;
-        animation: fadeIn 0.6s ease-out 0.4s both;
       }
       .progress-fill {
         height: 100%;
         width: 0%;
-        background: linear-gradient(90deg, #c574dd, #8796f4);
-        border-radius: 1px;
-        animation: fill 1.2s ease-in-out 0.5s forwards;
+        background: #b08fc4;
+        animation: fill 1.2s linear 0.3s forwards;
       }
 
       /* Subtitle / link */
       .subtitle {
         font-size: 0.75rem;
-        color: #bdbdc1;
-        animation: fadeIn 0.6s ease-out 0.5s both;
+        color: #8c8474;
       }
       .subtitle a {
-        color: #c574dd;
-        text-decoration: none;
-        border-bottom: 1px solid transparent;
-        transition: border-color 0.2s;
-      }
-      .subtitle a:hover {
-        border-bottom-color: #c574dd;
+        color: #e8e0ce;
+        text-decoration: underline;
+        text-underline-offset: 2px;
       }
 
-      @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(8px); }
-        to   { opacity: 1; transform: translateY(0); }
-      }
-      @keyframes floatIn {
-        from { opacity: 0; transform: translateY(-12px) scale(0.9); }
-        to   { opacity: 1; transform: translateY(0) scale(1); }
-      }
       @keyframes fill {
         to { width: 100%; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .progress-fill { animation: none; width: 100%; }
       }
     </style>
   </head>
   <body>
-    <div class="backdrop-glow"></div>
-
     <div class="splash">
       <!-- Shield logo (matches sidebar) -->
       <svg class="shield" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linejoin="round">
@@ -145,7 +114,7 @@
 
     <script is:inline>
       var quips = [
-        'You shall not pass... without valid credentials.',         // LotR — used in auth guards everywhere
+        'You shall not pass... without valid credentials.',         // LotR - used in auth guards everywhere
         'sudo make me a sandwich.',                                 // xkcd #149
         'correct horse battery staple.',                            // xkcd #936
         'All your base are belong to us.',                          // Zero Wing
@@ -157,15 +126,15 @@
         'Have you tried turning it off and on again?',              // IT Crowd
         'Authorization: Bearer of good news.',                      // HTTP header pun
         'There are only 10 types of people in the world.',          // Binary joke
-        'The cloud is just someone else\u2019s computer.',          // Infosec proverb
+        "The cloud is just someone else's computer.",               // Infosec proverb
         '// TODO: fix this later.',                                 // Found in every codebase
         'rm -rf / for free WiFi.',                                  // Hak5 SSID payloads
         'SELECT * FROM users WHERE clue > 0; -- 0 rows returned.', // SQL humor
         'Roses are #FF0000, violets are #0000FF.',                  // Programmer poetry
         'Works as designed. Not as expected.',                       // QA proverb
         'The S in IoT stands for Security.',                        // Infosec truism
-        'HTTP 418: I\u2019m a teapot.',                             // RFC 2324
-        'It\u2019s not DNS. There\u2019s no way it\u2019s DNS. It was DNS.', // Every sysadmin ever
+        "HTTP 418: I'm a teapot.",                                  // RFC 2324
+        "It's not DNS. There's no way it's DNS. It was DNS.",       // Every sysadmin ever
       ];
       document.getElementById('quip').textContent = quips[Math.floor(Math.random() * quips.length)];
       setTimeout(function () { window.location.href = '/dashboard/'; }, 1700);

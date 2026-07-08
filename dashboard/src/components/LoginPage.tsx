@@ -150,7 +150,7 @@ export function LoginPage() {
 	if (mode === 'loading') {
 		return (
 			<div className="flex min-h-screen items-center justify-center bg-lovelace-950">
-				<div className="text-muted-foreground text-sm animate-pulse">Loading...</div>
+				<div className="text-muted-foreground text-sm">Loading...</div>
 			</div>
 		);
 	}
@@ -160,14 +160,6 @@ export function LoginPage() {
 
 	return (
 		<div className="flex min-h-screen items-center justify-center bg-lovelace-950 p-4">
-			{/* Backdrop glow */}
-			<div
-				className="pointer-events-none fixed inset-0"
-				style={{
-					background: 'radial-gradient(ellipse 600px 400px at 50% 45%, rgba(197,116,221,0.08) 0%, transparent 70%)',
-				}}
-			/>
-
 			<Card className="relative z-10 w-full max-w-sm border-lovelace-700 bg-lovelace-900">
 				<CardHeader className="items-center text-center">
 					{/* Shield icon */}
