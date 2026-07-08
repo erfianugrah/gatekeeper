@@ -166,3 +166,4 @@ dist
 !.env.sops
 .wrangler/
 test-results/
+.worktrees/
