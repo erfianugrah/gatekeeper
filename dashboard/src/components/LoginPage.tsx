@@ -172,9 +172,9 @@ export function LoginPage() {
 				<CardHeader className="items-center text-center">
 					{/* Shield icon */}
 					<svg className="mb-2 h-12 w-12" viewBox="0 0 24 24" fill="none" strokeWidth="1.6" strokeLinejoin="round">
-						<path d="M12 2 L3 6.5 L3 12 C3 18.5 6.8 23 12 24.5 C17.2 23 21 18.5 21 12 L21 6.5 Z" stroke="#c574dd" />
-						<circle cx="12" cy="11" r="2.5" fill="#c574dd" />
-						<rect x="11" y="13" width="2" height="4" rx="0.8" fill="#c574dd" />
+						<path d="M12 2 L3 6.5 L3 12 C3 18.5 6.8 23 12 24.5 C17.2 23 21 18.5 21 12 L21 6.5 Z" stroke="#b08fc4" />
+						<circle cx="12" cy="11" r="2.5" fill="#b08fc4" />
+						<rect x="11" y="13" width="2" height="4" rx="0.8" fill="#b08fc4" />
 					</svg>
 					<CardTitle className="text-xl">{isBootstrap ? 'Welcome' : 'Sign in'}</CardTitle>
 					<CardDescription>{isBootstrap ? 'Create your admin account to get started' : 'Gatekeeper Dashboard'}</CardDescription>

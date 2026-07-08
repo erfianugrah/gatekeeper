@@ -126,9 +126,9 @@ function DonutPie({ data, colorFor }: { data: { name: string; value: number }[];
 					formatter={(value: string, entry: any) => {
 						const pct = entry?.payload?.percent;
 						return (
-							<span style={{ color: '#bdbdc1' }}>
+							<span style={{ color: '#8c8474' }}>
 								{value}
-								{typeof pct === 'number' ? <span style={{ color: '#6b6f7d' }}> {(pct * 100).toFixed(0)}%</span> : null}
+								{typeof pct === 'number' ? <span style={{ color: '#5a5446' }}> {(pct * 100).toFixed(0)}%</span> : null}
 							</span>
 						);
 					}}
@@ -612,12 +612,12 @@ export function OverviewDashboard() {
 		: [];
 
 	const CF_SERVICE_COLORS: Record<string, string> = {
-		D1: '#c574dd',
-		KV: '#79e6f3',
-		Workers: '#a6e3a1',
-		Queues: '#fab387',
-		Vectorize: '#8796f4',
-		Hyperdrive: '#f38ba8',
+		D1: '#b08fc4',
+		KV: '#6bbfae',
+		Workers: '#6fab58',
+		Queues: '#d9b96a',
+		Vectorize: '#7fa8c9',
+		Hyperdrive: '#ff5460',
 	};
 
 	// Supabase category breakdown
@@ -640,16 +640,16 @@ export function OverviewDashboard() {
 		...(supaTotal > 0 ? [{ name: 'Supabase', value: supaTotal }] : []),
 	];
 	const TRAFFIC_COLORS: Record<string, string> = {
-		Purge: '#c574dd',
-		S3: '#79e6f3',
-		DNS: '#a6e3a1',
-		D1: '#c574dd',
-		KV: '#79e6f3',
-		Workers: '#a6e3a1',
-		Queues: '#fab387',
-		Vectorize: '#8796f4',
-		Hyperdrive: '#f38ba8',
-		Supabase: '#f1a171',
+		Purge: '#b08fc4',
+		S3: '#6bbfae',
+		DNS: '#6fab58',
+		D1: '#b08fc4',
+		KV: '#6bbfae',
+		Workers: '#6fab58',
+		Queues: '#d9b96a',
+		Vectorize: '#7fa8c9',
+		Hyperdrive: '#ff5460',
+		Supabase: '#d9b96a',
 	};
 
 	// Combined avg latency
@@ -843,18 +843,18 @@ export function OverviewDashboard() {
 										<AreaChart data={timeseries} margin={{ top: 4, right: 12, bottom: 0, left: 8 }}>
 											<defs>
 												<linearGradient id="gradTotal" x1="0" y1="0" x2="0" y2="1">
-													<stop offset="0%" stopColor="#a6e3a1" stopOpacity={0.4} />
-													<stop offset="100%" stopColor="#a6e3a1" stopOpacity={0} />
+													<stop offset="0%" stopColor="#6fab58" stopOpacity={0.4} />
+													<stop offset="100%" stopColor="#6fab58" stopOpacity={0} />
 												</linearGradient>
 												<linearGradient id="gradErrors" x1="0" y1="0" x2="0" y2="1">
-													<stop offset="0%" stopColor="#f38ba8" stopOpacity={0.4} />
-													<stop offset="100%" stopColor="#f38ba8" stopOpacity={0} />
+													<stop offset="0%" stopColor="#ff5460" stopOpacity={0.4} />
+													<stop offset="100%" stopColor="#ff5460" stopOpacity={0} />
 												</linearGradient>
 											</defs>
-											<CartesianGrid strokeDasharray="3 3" stroke="#313244" />
+											<CartesianGrid strokeDasharray="3 3" stroke="#3a342a" />
 											<XAxis
 												dataKey="bucket"
-												tick={{ fontSize: 10, fill: '#bdbdc1' }}
+												tick={{ fontSize: 10, fill: '#8c8474' }}
 												tickFormatter={(v: number) => {
 													const d = new Date(v);
 													return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -862,7 +862,7 @@ export function OverviewDashboard() {
 												interval="preserveStartEnd"
 												minTickGap={60}
 											/>
-											<YAxis tick={{ fontSize: 10, fill: '#bdbdc1' }} width={50} />
+											<YAxis tick={{ fontSize: 10, fill: '#8c8474' }} width={50} />
 											<Tooltip
 												contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 												itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
@@ -878,8 +878,8 @@ export function OverviewDashboard() {
 												}
 												formatter={(value: number, name: string) => [formatNumber(value), name === 'total' ? 'Requests' : 'Errors']}
 											/>
-											<Area type="monotone" dataKey="total" stroke="#a6e3a1" fill="url(#gradTotal)" strokeWidth={2} dot={false} />
-											<Area type="monotone" dataKey="errors" stroke="#f38ba8" fill="url(#gradErrors)" strokeWidth={1.5} dot={false} />
+											<Area type="monotone" dataKey="total" stroke="#6fab58" fill="url(#gradTotal)" strokeWidth={2} dot={false} />
+											<Area type="monotone" dataKey="errors" stroke="#ff5460" fill="url(#gradErrors)" strokeWidth={1.5} dot={false} />
 										</AreaChart>
 									</ResponsiveContainer>
 								</CardContent>
@@ -908,7 +908,7 @@ export function OverviewDashboard() {
 											{trafficPie.length === 0 ? (
 												<p className={cn(T.muted, 'py-12 text-center')}>No data</p>
 											) : (
-												<DonutPie data={trafficPie} colorFor={(name) => TRAFFIC_COLORS[name] ?? '#8796f4'} />
+												<DonutPie data={trafficPie} colorFor={(name) => TRAFFIC_COLORS[name] ?? '#7fa8c9'} />
 											)}
 										</CardContent>
 									</Card>
@@ -924,8 +924,8 @@ export function OverviewDashboard() {
 											) : (
 												<ResponsiveContainer width="100%" height={260}>
 													<BarChart data={barData} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
-														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
-														<YAxis type="category" dataKey="status" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={40} />
+														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} />
+														<YAxis type="category" dataKey="status" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} width={40} />
 														<Tooltip
 															contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 															itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
@@ -958,7 +958,7 @@ export function OverviewDashboard() {
 												) : (
 													<DonutPie
 														data={purgeTypePie}
-														colorFor={(name) => PURGE_TYPE_COLORS[name as keyof typeof PURGE_TYPE_COLORS] ?? '#8796f4'}
+														colorFor={(name) => PURGE_TYPE_COLORS[name as keyof typeof PURGE_TYPE_COLORS] ?? '#7fa8c9'}
 													/>
 												)}
 											</CardContent>
@@ -977,8 +977,8 @@ export function OverviewDashboard() {
 												) : (
 													<ResponsiveContainer width="100%" height={260}>
 														<BarChart data={s3OpPie} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
-															<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
-															<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={100} />
+															<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} />
+															<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} width={100} />
 															<Tooltip
 																contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 																itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
@@ -1020,8 +1020,8 @@ export function OverviewDashboard() {
 												) : (
 													<ResponsiveContainer width="100%" height={260}>
 														<BarChart data={dnsActionPie} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
-															<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
-															<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={100} />
+															<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} />
+															<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} width={100} />
 															<Tooltip
 																contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 																itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
@@ -1047,7 +1047,7 @@ export function OverviewDashboard() {
 												<CardTitle className={T.sectionHeading}>CF Services</CardTitle>
 											</CardHeader>
 											<CardContent>
-												<DonutPie data={cfServicePie} colorFor={(name) => CF_SERVICE_COLORS[name] ?? '#8796f4'} />
+												<DonutPie data={cfServicePie} colorFor={(name) => CF_SERVICE_COLORS[name] ?? '#7fa8c9'} />
 											</CardContent>
 										</Card>
 									)}
@@ -1061,8 +1061,8 @@ export function OverviewDashboard() {
 											<CardContent>
 												<ResponsiveContainer width="100%" height={260}>
 													<BarChart data={cfActionPie} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
-														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
-														<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={120} />
+														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} />
+														<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} width={120} />
 														<Tooltip
 															contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 															itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
@@ -1087,8 +1087,8 @@ export function OverviewDashboard() {
 											<CardContent>
 												<ResponsiveContainer width="100%" height={260}>
 													<BarChart data={supaCategoryPie} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 8 }}>
-														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} />
-														<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#bdbdc1' }} width={120} />
+														<XAxis type="number" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} />
+														<YAxis type="category" dataKey="name" tick={{ fontSize: T.chartAxisTick, fill: '#8c8474' }} width={120} />
 														<Tooltip
 															contentStyle={CHART_TOOLTIP_STYLE.contentStyle}
 															itemStyle={CHART_TOOLTIP_STYLE.itemStyle}
