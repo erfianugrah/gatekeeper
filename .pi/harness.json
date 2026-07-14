@@ -1,0 +1,35 @@
+{
+	"task": "UI/UX review follow-up: the dashboard already went through a McMaster-Carr aesthetic migration (see git log: 'McMaster-Carr aesthetic migration'), but two defects survived that pass. Fix BOTH, nothing else:\n\n1. `dashboard/src/lib/utils.ts` still exports the pre-migration 'Lovelace' neon color palette (STATUS_COLORS, PURGE_TYPE_COLORS, S3_OP_COLORS, CHART_PALETTE, CHART_TOOLTIP_STYLE) with literal hex values like #5adecd, #f37e96, #f1a171, #8796f4, #ff4870, #c574dd, #79e6f3, #ffd866, and a tooltip style using #282a36/#414457/#fcfcfc/#bdbdc1. These are consumed by OverviewDashboard.tsx charts (Status Breakdown bars, Traffic Split donut, Purge Type donut, S3 bucket/CF-service bars) and render bright neon pink/cyan/purple instead of the muted McMaster-Carr palette used everywhere else in the app. Remap every hex in that file to the McMaster semantic tokens already defined in `dashboard/src/styles/globals.css` under `@theme` (and already used correctly elsewhere in OverviewDashboard.tsx for CF_SERVICE_COLORS/TRAFFIC_COLORS and the Request Volume chart): --color-status-ok #6fab58 (green), --color-status-warn #d9b96a (tan), --color-status-danger #ff5460 (red), --color-status-neutral #8c8474 (muted), --color-status-info #7fa8c9 (steel blue), --color-status-info-alt #6bbfae (teal), --color-status-accent #b08fc4 (plum). Pick a sensible 1:1 mapping per key (e.g. success->ok, error/denied->danger, rate_limited->warn, collapsed->info; purge url->accent, host->info-alt, tag->ok, prefix->warn, everything->danger; s3 read->ok, write->accent, list->info-alt, other->info). CHART_PALETTE should cycle through the 7 semantic tokens instead of the 8 neon hexes. CHART_TOOLTIP_STYLE's contentStyle should use the ink/paper tokens (background var(--color-bg-cream-strong) #1f1b14, border 1px solid var(--color-hairline) #3a342a, text var(--color-ink) #e8e0ce), and labelStyle should use var(--color-ink-muted) #8c8474. Also update the stale '// Lovelace palette' comment header to describe it as the McMaster status palette. Do not change any other file's colors -- everything else already matches.\n\n2. Two dashboard page titles use a plain hyphen instead of the em-dash separator that every other page uses: `dashboard/src/pages/dashboard/metering.astro` and `dashboard/src/pages/dashboard/admin-tokens.astro` both have `title=\"gatekeeper - X\"` where every other page (index.astro, keys.astro, purge.astro, analytics.astro, upstream-tokens.astro, upstream-r2.astro, s3-credentials.astro, settings.astro) has `title=\"gatekeeper \u2014 X\"` (em-dash, U+2014). Change both to use the em-dash for consistency.\n\nDo not touch skeleton loaders, border-radius, shadows, or any other file -- this is a scoped fix for exactly these two defects. Do not weaken or delete the sensors to make them pass.",
+	"maxIterations": 6,
+	"models": [""],
+	"stallPatience": 2,
+	"tools": ["read", "edit", "write", "bash"],
+	"writeScope": ["dashboard/src/lib/utils.ts", "dashboard/src/pages/dashboard/metering.astro", "dashboard/src/pages/dashboard/admin-tokens.astro"],
+	"sensors": [
+		{
+			"name": "no-lovelace-hex",
+			"cmd": "bash .pi/harness-scripts/no-lovelace-hex.sh",
+			"hint": "Remap every literal neon hex in dashboard/src/lib/utils.ts to the McMaster status-* / ink tokens from globals.css. See the task description for the exact mapping."
+		},
+		{
+			"name": "title-dash-consistency",
+			"cmd": "bash .pi/harness-scripts/title-dash-consistency.sh",
+			"hint": "metering.astro and admin-tokens.astro must use the em-dash (U+2014) separator like every other dashboard page title."
+		},
+		{
+			"name": "typecheck",
+			"cmd": "cd dashboard && bunx tsc --noEmit",
+			"hint": "Keep utils.ts exports type-compatible -- do not change key names, only hex values."
+		},
+		{
+			"name": "lint",
+			"cmd": "bunx prettier --check 'dashboard/src/lib/utils.ts'",
+			"hint": "Run `bunx prettier --write dashboard/src/lib/utils.ts` if this fails -- repo uses tabs, single quotes, 140 print width. Note: the repo has no prettier-plugin-astro, so .astro files are not prettier-checked -- match the surrounding file's existing indentation by hand."
+		},
+		{
+			"name": "build",
+			"cmd": "cd dashboard && bun run build",
+			"hint": "Astro build must still succeed after the edits."
+		}
+	]
+}
