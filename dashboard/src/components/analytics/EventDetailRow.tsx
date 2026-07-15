@@ -223,18 +223,27 @@ export function EventDetailRow({ event }: { event: UnifiedEvent }) {
 		];
 	}
 
+	const scalarFields = fields.filter((field) => field.key !== 'response_detail');
+	const responseDetail = fields.find((field) => field.key === 'response_detail');
+
 	return (
 		<TableRow className="bg-muted/30 hover:bg-muted/40 border-b border-border/50">
 			<TableCell colSpan={7} className="px-6 py-3">
-				<div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 max-w-2xl">
-					{fields.map((field) => (
-						<div key={field.key} className="contents">
-							<span className="text-[11px] font-data text-muted-foreground/70 select-none">{field.key}</span>
-							<span className="text-[11px] font-data break-all select-all">
-								{field.key === 'response_detail' ? renderResponseDetailField(field.value) : coloredValue(field)}
-							</span>
+				<div className="grid gap-x-8 gap-y-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
+					<div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 self-start">
+						{scalarFields.map((field) => (
+							<div key={field.key} className="contents">
+								<span className="text-[11px] font-data text-muted-foreground/70 select-none">{field.key}</span>
+								<span className="text-[11px] font-data break-all select-all">{coloredValue(field)}</span>
+							</div>
+						))}
+					</div>
+					{responseDetail ? (
+						<div className="min-w-0 self-start">
+							<span className="mb-1.5 block text-[11px] font-data text-muted-foreground/70 select-none">{responseDetail.key}</span>
+							<div className="text-[11px] font-data break-all select-all">{renderResponseDetailField(responseDetail.value)}</div>
 						</div>
-					))}
+					) : null}
 				</div>
 			</TableCell>
 		</TableRow>
