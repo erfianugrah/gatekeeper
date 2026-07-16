@@ -28,10 +28,15 @@ import {
 	extractResponseDetail,
 } from './proxy-helpers';
 import { logSupabaseProxyEvent, type SupabaseProxyEvent } from './analytics';
+import { memberApp } from './member-router';
 
 type SupabaseEnv = { Bindings: Env };
 
 export const supabaseApp = new Hono<SupabaseEnv>();
+
+// ─── Gatekeeper-owned member-write surface ──────────────────────────────────
+// Mounted BEFORE the /v1 and /v0 Management API catch-alls so it is matched first.
+supabaseApp.route('/members', memberApp);
 
 /** Map an AuthResult error to the right HTTP status (invalid key → 401, otherwise 403). */
 function authErrorStatus(error: string | undefined): number {
