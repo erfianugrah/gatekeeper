@@ -93,15 +93,24 @@ The Supabase router today passes a single `[ctx]` (`src/supabase/router.ts:157`)
 
 ---
 
-## Resolved transport (fill in Task 0)
+## Resolved transport (Task 0 - VERIFIED live against a real Management API PAT)
 
-| Member verb | Gatekeeper action | Upstream method + path | Auth | Body schema | Stability |
-|---|---|---|---|---|---|
-| list | `supabase:members:list` | `GET /v1/organizations/{slug}/members` | Bearer PAT | - | public/stable |
-| invite | `supabase:members:invite` | _TBD_ | _TBD_ | _TBD_ | _internal?_ |
-| update_role | `supabase:members:update_role` | _TBD_ | _TBD_ | _TBD_ | _internal?_ |
-| assign_projects | `supabase:members:assign_projects` | _TBD_ | _TBD_ | _TBD_ | _internal?_ |
-| remove | `supabase:members:remove` | _TBD_ | _TBD_ | _TBD_ | _internal?_ |
+| Member verb | Gatekeeper action | Upstream method + path | Auth | PAT-drivable? |
+|---|---|---|---|---|
+| list | `supabase:members:list` | `GET /v1/organizations/{slug}/members` | Bearer PAT | YES (200; returns email + role_name) |
+| invite | `supabase:members:invite` | none in public v1; internal `/platform/...` | dashboard session JWT | **NO** |
+| update_role | `supabase:members:update_role` | none in public v1; internal `/platform/...` | dashboard session JWT | **NO** |
+| assign_projects | `supabase:members:assign_projects` | none in public v1; internal `/platform/...` | dashboard session JWT | **NO** |
+| remove | `supabase:members:remove` | none in public v1; internal `/platform/...` | dashboard session JWT | **NO** |
+
+### Task 0 result: member WRITES are not PAT-drivable (verified)
+
+Two independent live confirmations:
+
+1. **Not in the public Management API.** The v1 OpenAPI spec (`GET https://api.supabase.com/api/v1-json`, `info.version 1.0.0`) has exactly ONE org-member route: `GET /v1/organizations/{slug}/members`. No invite/role/remove path exists under `/v1/organizations/...` (the only org write methods are `POST /v1/organizations` = create-org and `POST /v1/organizations/{slug}/project-claim/{token}`). The `/database/jit/invite` paths are project-level JIT DB access, unrelated to org membership.
+2. **The internal surface rejects the PAT.** Invite/remove/role-change live on the internal dashboard API (`api.supabase.com/platform/...`). A valid Management API PAT returns `401 {"message":"JWT could not be decoded"}` on every `/platform` GET - that surface requires a browser dashboard **session JWT**, not a PAT. (The same PAT succeeds on `/v1` orgs-list and members-list, so the token is valid; `/platform` simply does not accept PATs.)
+
+**Decision:** there is NO PAT-drivable member-write transport. Per the Task 0 decision checkpoint, the write path stays `501` (correct + permanent with the current credential model); the invitations route remains an authorization + dry-run PREVIEW surface. Section 6 (lifecycle webhook) is blocked by the same wall - its terminal action (remove) is not PAT-drivable either. Member execution becomes possible only if (a) Supabase adds member management to the PUBLIC Management API, or (b) a non-PAT credential (dashboard session) is stored - not viable for an unattended gateway (session JWTs are short-lived and browser-login-bound). Re-run this probe when the Management API version advances.
 
 ---
 
