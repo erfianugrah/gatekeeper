@@ -235,3 +235,59 @@ describe('supabase token binding validation (key policy ↔ token scope)', () =>
 		expect(b.status).toBe(200);
 	});
 });
+
+// Membership-provisioning binding: a key that only manages org members carries
+// `supabase:members:*` actions on an `org:<slug>` resource. Account-wide reach
+// (`project:*` / `supabase:account`) still requires a wildcard token, so a ref-scoped
+// token cannot mint a key that enumerates or mutates membership across the whole account.
+// (Regression lock - the behavior already follows from the `supabase:` action prefix +
+// the account-wide resource guard; this pins it so a refactor can't silently loosen it.)
+describe('supabase members binding validation', () => {
+	afterEach(() => cleanupCreatedResources());
+
+	const V = '2025-01-01' as const;
+	const SLUG = 'acme-org';
+
+	async function createKeyRaw(upstreamTokenId: string, actions: string[], resources: string[]) {
+		const res = await SELF.fetch('https://gk/admin/keys', {
+			method: 'POST',
+			headers: adminHeaders(),
+			body: JSON.stringify({
+				name: 'members-bind-test',
+				upstream_token_id: upstreamTokenId,
+				policy: { version: V, statements: [{ effect: 'allow', actions, resources }] },
+			}),
+		});
+		return { status: res.status, data: await res.json<any>() };
+	}
+
+	it('allows supabase:members:list on org:<slug> for a ref-scoped token -> 200', async () => {
+		const tid = await registerSupabaseToken([REF]);
+		const { status } = await createKeyRaw(tid, ['supabase:members:list'], [`org:${SLUG}`]);
+		expect(status).toBe(200);
+	});
+
+	it('allows the full supabase:members:* set on org:<slug> -> 200', async () => {
+		const tid = await registerSupabaseToken([REF]);
+		const { status } = await createKeyRaw(tid, ['supabase:members:*'], [`org:${SLUG}`]);
+		expect(status).toBe(200);
+	});
+
+	it('rejects supabase:members:* on project:* for a ref-scoped token -> 400', async () => {
+		const tid = await registerSupabaseToken([REF]);
+		const { status } = await createKeyRaw(tid, ['supabase:members:*'], ['project:*']);
+		expect(status).toBe(400);
+	});
+
+	it('rejects supabase:members:* on supabase:account for a ref-scoped token -> 400', async () => {
+		const tid = await registerSupabaseToken([REF]);
+		const { status } = await createKeyRaw(tid, ['supabase:members:*'], ['supabase:account']);
+		expect(status).toBe(400);
+	});
+
+	it('allows supabase:members:* on supabase:account for a wildcard token -> 200', async () => {
+		const tid = await registerSupabaseToken(['*']);
+		const { status } = await createKeyRaw(tid, ['supabase:members:*'], ['supabase:account']);
+		expect(status).toBe(200);
+	});
+});
