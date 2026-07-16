@@ -135,6 +135,12 @@ export function classifySupabaseRequest(method: string, path: string): SupabaseC
 
 	if (root === 'organizations') {
 		const slug = segs[2];
+		// Surgical special-case: GET /v1/organizations/{slug}/members is the only member route
+		// classified here. The org root and a POST to the members path keep the generic
+		// 'organizations' mapping (member write transport is internal/unstable, deferred).
+		if (slug && segs.length === 4 && segs[3] === 'members' && (method === 'GET' || method === 'HEAD')) {
+			return { action: 'supabase:members:list', category: 'members', write: false, projectRef: null, resource: `org:${slug}` };
+		}
 		return mk('organizations', null, slug ? `org:${slug}` : 'supabase:account');
 	}
 

@@ -25,6 +25,7 @@ export type SupabaseCategory =
 	| 'domains'
 	| 'edge_functions'
 	| 'environment'
+	| 'members'
 	| 'metrics'
 	| 'networking'
 	| 'oauth'
