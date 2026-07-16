@@ -15,9 +15,10 @@ import { Hono } from 'hono';
 import { getStub } from '../do-stub';
 import { extractRequestFields } from '../request-fields';
 import type { RequestContext } from '../policy-types';
-import { extractBearerKey, sbJsonError } from './proxy-helpers';
-import { parseMemberRequest } from './member-schema';
+import { extractBearerKey, sbJsonError, proxyToManagementApi } from './proxy-helpers';
+import { parseMemberRequest, normalizeRoleLenient } from './member-schema';
 import { buildMemberContexts } from './member-context';
+import { planMembershipChange, type CurrentMember } from './member-plan';
 
 type SupabaseEnv = { Bindings: Env };
 
@@ -77,6 +78,64 @@ memberApp.post('/:slug/invitations', async (c) => {
 		log.error = e?.message;
 		console.log(JSON.stringify(log));
 		return sbJsonError(400, e?.message ?? 'Invalid request body');
+	}
+
+	// 3b. DRY-RUN preview branch: diff against current membership, authorize each planned change,
+	// and return a 200 preview - NO write, NO 501. Out-of-policy items surface in `denied`.
+	if (c.req.query('dry_run') === 'true') {
+		const pat = coarse.upstreamTokenId ? await stub.resolveUpstreamTokenById(coarse.upstreamTokenId) : null;
+		if (!pat) {
+			log.breadcrumb = coarse.upstreamTokenId ? 'supabase-members-invite-pinned-pat-not-found' : 'supabase-members-invite-pat-not-found';
+			log.status = 502;
+			console.log(JSON.stringify(log));
+			return sbJsonError(
+				502,
+				coarse.upstreamTokenId
+					? `Pinned upstream token ${coarse.upstreamTokenId} not found`
+					: 'No Supabase Personal Access Token registered for this organization',
+			);
+		}
+
+		// Fetch CURRENT membership via the (upstream-supported) List endpoint.
+		const listRes = await proxyToManagementApi(`/v1/organizations/${slug}/members`, pat, 'GET');
+		const listBody = (await listRes.json().catch(() => [])) as Array<{ email?: string; role_name?: string }>;
+		const current: CurrentMember[] = [];
+		for (const entry of Array.isArray(listBody) ? listBody : []) {
+			if (!entry || typeof entry.email !== 'string' || typeof entry.role_name !== 'string') continue;
+			const role = normalizeRoleLenient(entry.role_name);
+			if (!role) continue; // skip members whose role does not normalize
+			current.push({ email: entry.email, role });
+		}
+
+		const plan = planMembershipChange(current, assignments);
+
+		// Authorize each planned change; collect denials but do NOT fail the request.
+		const denied: string[] = [];
+		for (const change of plan.changes) {
+			const fields: Record<string, string> = {
+				'supabase.requested_role': change.toRole,
+				'supabase.target_email': change.targetEmail,
+				'supabase.batch_size': String(plan.changes.length),
+			};
+			if (change.requestedProject !== null) fields['supabase.requested_project'] = change.requestedProject;
+			const ctx: RequestContext = { action: change.action, resource, fields };
+			const decision = await stub.authorize(keyId, '', [ctx]);
+			if (!decision.authorized) {
+				denied.push(`${change.action} ${change.targetEmail} -> ${change.toRole}: ${decision.error ?? 'Forbidden'}`);
+			}
+		}
+
+		log.breadcrumb = 'supabase-members-invite-dry-run';
+		log.status = 200;
+		log.changes = plan.changes.length;
+		log.noops = plan.noops.length;
+		log.denied = denied.length;
+		log.durationMs = Date.now() - start;
+		console.log(JSON.stringify(log));
+		return new Response(JSON.stringify({ dry_run: true, plan, denied }), {
+			status: 200,
+			headers: { 'Content-Type': 'application/json' },
+		});
 	}
 
 	// 4. FINE authorize: one context per assignment. evaluatePolicy ANDs all contexts, so a single

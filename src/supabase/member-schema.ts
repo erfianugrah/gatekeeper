@@ -48,9 +48,14 @@ function domainOf(email: string): string {
 	return domain.toLowerCase();
 }
 
+/** Normalize a role case-insensitively to its canonical name, or null on an unknown role. */
+export function normalizeRoleLenient(role: string): MemberRole | null {
+	return CANONICAL_ROLES[role.toLowerCase()] ?? null;
+}
+
 /** Normalize a role case-insensitively to its canonical name, throwing on an unknown role. */
 function normalizeRole(role: string): MemberRole {
-	const canonical = CANONICAL_ROLES[role.toLowerCase()];
+	const canonical = normalizeRoleLenient(role);
 	if (!canonical) throw new Error(`unknown role: ${role}`);
 	return canonical;
 }
