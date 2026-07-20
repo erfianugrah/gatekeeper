@@ -235,6 +235,12 @@
 	},
 	{
 		"method": "GET",
+		"path": "/v1/projects/{ref}/analytics/endpoints/metrics",
+		"summary": "Scrape a project's metrics",
+		"covered": true
+	},
+	{
+		"method": "GET",
 		"path": "/v1/projects/{ref}/analytics/endpoints/usage.api-counts",
 		"summary": "Gets project's usage api counts",
 		"covered": true
