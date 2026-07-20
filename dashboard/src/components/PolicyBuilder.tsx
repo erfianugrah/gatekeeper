@@ -439,7 +439,7 @@ const ACTION_GROUPS: readonly ActionGroup[] = [
 				description: 'Modify network bans & IP restrictions',
 				category: 'Networking',
 			},
-			{ value: 'supabase:metrics:read', label: 'Metrics Read', description: 'Read project metrics (Management /v0)', category: 'Metrics' },
+			{ value: 'supabase:metrics:read', label: 'Metrics Read', description: 'Read project metrics (Management /v0 + /v1)', category: 'Metrics' },
 		],
 	},
 	{

@@ -46,6 +46,9 @@ const PROJECT_TAIL_CATEGORIES: Array<[string, SupabaseCategory]> = [
 	['branches', 'environment'],
 	['actions', 'environment'],
 	['billing', 'billing'],
+	// The v1 metrics scrape does the same job as the v0 + Basic-auth metrics paths,
+	// so it maps to the same `metrics` category (longest prefix beats 'analytics').
+	['analytics/endpoints/metrics', 'metrics'],
 	['analytics', 'analytics'],
 	['network-bans', 'networking'],
 	['network-restrictions', 'networking'],

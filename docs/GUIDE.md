@@ -562,9 +562,10 @@ curl "$GATEKEEPER_URL/supabase/v1/projects/$REF/database/query" \
 curl "$GATEKEEPER_URL/supabase/metrics/$REF" -H "Authorization: Bearer $GATEKEEPER_KEY"
 ```
 
-**Metrics without handing out a god-mode key.** Scraping Supabase metrics traditionally means giving the scraper the project's `service_role` secret. The overlay removes that: store the secret (or a PAT) once, and hand scrapers a Gatekeeper key scoped to `supabase:metrics:read` only. Two backends satisfy that action -- pick whichever credential you have on file:
+**Metrics without handing out a god-mode key.** Scraping Supabase metrics traditionally means giving the scraper the project's `service_role` secret. The overlay removes that: store the secret (or a PAT) once, and hand scrapers a Gatekeeper key scoped to `supabase:metrics:read` only. Three backends satisfy that action -- pick whichever credential you have on file:
 
 - `GET /supabase/metrics/:ref` -- the Basic-auth path above (swaps in the bound `supabase_metrics` secret).
+- `GET /supabase/v1/projects/:ref/analytics/endpoints/metrics` -- the **stable** Management API path, proxied with the stored `supabase` PAT. Classified as `supabase:metrics:read` (not `analytics:read`) so metrics-only keys cover it.
 - `GET /supabase/v0/projects/:ref/analytics/metrics` -- an **experimental** path that uses the stored `supabase` PAT instead. The `/v0` surface is treated as external/unstable: only this metrics endpoint is classified, everything else under `/v0` denies by default.
 
 #### Driving the official `supabase` CLI through the proxy
@@ -2882,7 +2883,7 @@ the bound token's real resources at key-creation time.
 | **Edge Functions - deploy**<br><span>Read and deploy/modify Edge Functions.</span> | Edge Functions | **allow** `supabase:edge_functions:read, supabase:edge_functions:write` on `project:<ref>` |
 | **Auth - admin**<br><span>Read and modify auth config, SSO, and users.</span> | Auth | **allow** `supabase:auth:read, supabase:auth:write` on `project:<ref>` |
 | **Secrets - manage**<br><span>Read and write project secrets/env only.</span> | Secrets | **allow** `supabase:secrets:read, supabase:secrets:write` on `project:<ref>` |
-| **Metrics - read (v0)**<br><span>Read the per-project analytics metrics endpoint (Management /v0).</span> | Metrics | **allow** `supabase:metrics:read` on `project:<ref>` |
+| **Metrics - read**<br><span>Read the per-project analytics metrics endpoints (Management /v0 + /v1).</span> | Metrics | **allow** `supabase:metrics:read` on `project:<ref>` |
 
 #### supabase_metrics
 

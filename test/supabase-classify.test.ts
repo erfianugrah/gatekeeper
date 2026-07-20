@@ -282,6 +282,22 @@ describe('classifySupabaseRequest', () => {
 		expect(r?.action).toBe('supabase:analytics:read');
 	});
 
+	it('classifies the v1 analytics/endpoints/metrics scrape as metrics:read (same action as v0 + Basic-auth paths)', () => {
+		for (const method of ['GET', 'HEAD']) {
+			const r = classifySupabaseRequest(method, `/v1/projects/${REF}/analytics/endpoints/metrics`);
+			expect(r).toEqual({
+				action: 'supabase:metrics:read',
+				category: 'metrics',
+				write: false,
+				projectRef: REF,
+				resource: `project:${REF}`,
+			});
+		}
+		// Longest-prefix win must not swallow sibling analytics endpoints.
+		expect(classifySupabaseRequest('GET', `/v1/projects/${REF}/analytics/endpoints/usage.api-counts`)?.category).toBe('analytics');
+		expect(classifySupabaseRequest('GET', `/v1/projects/${REF}/analytics/endpoints/logs.all`)?.category).toBe('analytics');
+	});
+
 	it('classifies GET network-restrictions as networking:read', () => {
 		expect(classifySupabaseRequest('GET', `/v1/projects/${REF}/network-restrictions`)?.category).toBe('networking');
 	});

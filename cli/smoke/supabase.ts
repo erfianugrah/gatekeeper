@@ -508,6 +508,13 @@ async function runLiveApiTier(): Promise<void> {
 			v0Metrics.status === 200 || v0Unauthorized,
 		);
 
+		// Stable v1 metrics scrape - classified as supabase:metrics:read (not analytics:read).
+		const v1Metrics = await sb(ALL_KEY, 'GET', `/v1/projects/${liveRef}/analytics/endpoints/metrics`);
+		assertReached('live: /v1/projects/:ref/analytics/endpoints/metrics reaches Supabase', v1Metrics);
+		if (v1Metrics.status === 200) {
+			assertTruthy('live: v1 metrics response looks like Prometheus text', looksLikePrometheusText(v1Metrics.raw));
+		}
+
 		// ─── Live scope isolation (network-free 403s, no upstream call) ─
 		// Prove on the REAL deployment that a key can't reach a resource its policy omits.
 		section('Supabase Proxy — Live scope isolation');
