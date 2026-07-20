@@ -2208,7 +2208,7 @@ curl -H "X-Admin-Key: $ADMIN_KEY" \
 
 Summary returns: `total_requests`, `by_status`, `by_category`, `by_action`, `avg_duration_ms`, `avg_upstream_latency_ms`, `avg_response_size`. A `timeseries` endpoint (hourly buckets) is also available at `/admin/supabase/analytics/timeseries`.
 
-**Membership audit** (`supabase_membership_events`, §2.4 membership provisioning) has the same three-endpoint shape at `/admin/supabase/membership/{events,summary,timeseries}`, filtered by `org_slug`, `key_id`, `action`, `outcome`, `target_email`, `since`, `until`. Summary returns `total_events`, `by_outcome`, `by_action`, `by_org`, `denied_count`; timeseries counts `denied`/`failed` outcomes in the `errors` field.
+**Membership audit** (`supabase_membership_events`, §2.4 membership provisioning) has the same three-endpoint shape at `/admin/supabase/membership/{events,summary,timeseries}`, filtered by `org_slug`, `key_id`, `action`, `outcome`, `target_email`, `since`, `until`. Summary returns `total_events`, `by_outcome`, `by_action`, `by_org`, `denied_count`; timeseries counts `denied`/`failed` outcomes in the `errors` field. CLI: `gk supabase-membership {events,summary,timeseries}` with `--org-slug` / `--outcome` / `--target-email` filters. The dashboard Analytics page surfaces these as the **Members** source (outcome badge + role transition per row).
 
 ---
 

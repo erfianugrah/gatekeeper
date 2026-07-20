@@ -1,9 +1,9 @@
-import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent } from '@/lib/api';
+import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent, SupabaseMembershipEvent } from '@/lib/api';
 
 // ─── Unified event type ─────────────────────────────────────────────
 
 /** Known sources for display. CF proxy events use their service name directly (d1, kv, workers, etc.). */
-export type KnownSource = 'purge' | 's3' | 'dns' | 'supabase' | 'd1' | 'kv' | 'workers' | 'queues' | 'vectorize' | 'hyperdrive';
+export type KnownSource = 'purge' | 's3' | 'dns' | 'supabase' | 'supabase_membership' | 'd1' | 'kv' | 'workers' | 'queues' | 'vectorize' | 'hyperdrive';
 
 export type UnifiedEvent = {
 	id: number;
@@ -11,7 +11,7 @@ export type UnifiedEvent = {
 	status: number;
 	duration_ms: number;
 	created_at: number;
-	raw: PurgeEvent | S3Event | DnsEvent | CfProxyEvent | SupabaseProxyEvent;
+	raw: PurgeEvent | S3Event | DnsEvent | CfProxyEvent | SupabaseProxyEvent | SupabaseMembershipEvent;
 	key_id?: string;
 	zone_id?: string;
 	purge_type?: string;
@@ -34,6 +34,11 @@ export type UnifiedEvent = {
 	sb_category?: string;
 	sb_action?: string;
 	sb_project_ref?: string | null;
+	mbr_outcome?: string;
+	mbr_org_slug?: string;
+	mbr_target_email?: string | null;
+	mbr_from_role?: string | null;
+	mbr_requested_role?: string | null;
 };
 
 /** A flight group: one leader event with zero or more collapsed followers. */
@@ -67,6 +72,9 @@ export const CF_EVENT_ID_OFFSET = 3_000_000_000;
 
 /** Offset to avoid ID collisions for Supabase proxy events in the unified view. */
 export const SUPABASE_EVENT_ID_OFFSET = 4_000_000_000;
+
+/** Offset to avoid ID collisions for Supabase membership audit events in the unified view. */
+export const SUPABASE_MEMBERSHIP_EVENT_ID_OFFSET = 5_000_000_000;
 
 export const LIMIT_OPTIONS = [50, 100, 500] as const;
 
@@ -160,6 +168,37 @@ export function fromSupabase(ev: SupabaseProxyEvent): UnifiedEvent {
 		sb_category: ev.category,
 		sb_action: ev.action,
 		sb_project_ref: ev.project_ref,
+	};
+}
+
+/** Map an audit outcome to the pseudo-status the invitations route returned (drives the 2xx/4xx/5xx filters). */
+function membershipOutcomeStatus(outcome: string): number {
+	switch (outcome) {
+		case 'denied':
+			return 403;
+		case 'blocked':
+			return 501;
+		case 'failed':
+			return 500;
+		default:
+			return 200; // preview | noop | executed
+	}
+}
+
+export function fromSupabaseMembership(ev: SupabaseMembershipEvent): UnifiedEvent {
+	return {
+		id: ev.id + SUPABASE_MEMBERSHIP_EVENT_ID_OFFSET,
+		source: 'supabase_membership',
+		status: membershipOutcomeStatus(ev.outcome),
+		duration_ms: 0,
+		created_at: ev.created_at,
+		raw: ev,
+		key_id: ev.key_id,
+		mbr_outcome: ev.outcome,
+		mbr_org_slug: ev.org_slug,
+		mbr_target_email: ev.target_email,
+		mbr_from_role: ev.from_role,
+		mbr_requested_role: ev.requested_role,
 	};
 }
 

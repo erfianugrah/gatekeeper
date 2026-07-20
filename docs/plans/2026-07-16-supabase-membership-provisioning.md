@@ -126,32 +126,32 @@ Two independent live confirmations:
 
 ---
 
-## Task 1: Member classifier (TDD)
+## Task 1: Member classifier (TDD) - DONE
 
 **Files:** Modify `src/supabase/constants.ts`, `src/supabase/classify.ts`; create `test/supabase-members.test.ts`.
 
-- [ ] **Step 1: Write the failing test.** Assert each member verb resolves to its distinct action (not method-derived `organizations:read|write`), the resource is `org:<slug>`, and any non-member path on the surface returns `null` (deny). Include a test that the route glob is present in `run_worker_first` (parse `wrangler.jsonc`).
-- [ ] **Step 2: Implement.** Add `'members'` to `SupabaseCategory`; add the member branch to `classifySupabaseRequest` keyed off the resolved transport from Task 0. Keep verbs explicit (a `PUT .../roles/{id}` must map to a *named* action, not inherit `write`).
-- [ ] **Step 3: Verify.** `bunx vitest run test/supabase-members.test.ts` green; add member ops to the api-coverage snapshot (`bun run api-coverage:write`) and confirm `test/api-coverage.test.ts` still passes.
+- [x] **Step 1: Write the failing test.** Assert each member verb resolves to its distinct action (not method-derived `organizations:read|write`), the resource is `org:<slug>`, and any non-member path on the surface returns `null` (deny). Include a test that the route glob is present in `run_worker_first` (parse `wrangler.jsonc`).
+- [x] **Step 2: Implement.** Add `'members'` to `SupabaseCategory`; add the member branch to `classifySupabaseRequest` keyed off the resolved transport from Task 0. Keep verbs explicit (a `PUT .../roles/{id}` must map to a *named* action, not inherit `write`).
+- [x] **Step 3: Verify.** `bunx vitest run test/supabase-members.test.ts` green; add member ops to the api-coverage snapshot (`bun run api-coverage:write`) and confirm `test/api-coverage.test.ts` still passes.
 
-## Task 2: Bind-time guard + PolicyBuilder group (TDD)
+## Task 2: Bind-time guard + PolicyBuilder group (TDD) - DONE
 
-- [ ] Test: a `members`-only key bound to a ref-scoped token is accepted; a `members` action bound with `project:*` / `supabase:account` resource requires a wildcard token (reuse the existing account-wide guard in `validateSupabaseResources`).
-- [ ] Implement the `members` action group in `PolicyBuilder.tsx` (scope-gated to `supabase`), thread defaults through `KeysPage.tsx`.
-- [ ] e2e (`e2e/supabase-ui.spec.ts`): the `members` group appears only when a `supabase` upstream token is selected.
+- [x] Test: a `members`-only key bound to a ref-scoped token is accepted; a `members` action bound with `project:*` / `supabase:account` resource requires a wildcard token (reuse the existing account-wide guard in `validateSupabaseResources`).
+- [x] Implement the `members` action group in `PolicyBuilder.tsx` (scope-gated to `supabase`), thread defaults through `KeysPage.tsx`.
+- [x] e2e (`e2e/supabase-ui.spec.ts`): the `members` group appears only when a `supabase` upstream token is selected.
 
-## Task 3: Body-authorization (TDD, the core)
+## Task 3: Body-authorization (TDD, the core) - DONE
 
-- [ ] Test the deny paths explicitly: invite `Owner` denied when policy allows only `Developer`/`Read-Only`; invite to an unlisted project denied; batch over configured max denied; non-corporate target domain denied; **one bad item in a batch rejects the whole request** (assert via the multi-context `authorize` returning `denied[]`).
-- [ ] Test the allow path: a well-formed invite of an allowed role to an in-scope project reaches upstream.
-- [ ] Implement `member-schema.ts` (zod, at the boundary) + `member-context.ts` (flatten to per-assignment `RequestContext[]`) + router wiring. No policy-engine change - only new field names in `ctx.fields`.
-- [ ] Document the new condition fields in `policy-types.ts` and `docs/SECURITY.md`.
+- [x] Test the deny paths explicitly: invite `Owner` denied when policy allows only `Developer`/`Read-Only`; invite to an unlisted project denied; batch over configured max denied; non-corporate target domain denied; **one bad item in a batch rejects the whole request** (assert via the multi-context `authorize` returning `denied[]`).
+- [x] Test the allow path: a well-formed invite of an allowed role to an in-scope project reaches upstream.
+- [x] Implement `member-schema.ts` (zod, at the boundary) + `member-context.ts` (flatten to per-assignment `RequestContext[]`) + router wiring. No policy-engine change - only new field names in `ctx.fields`.
+- [x] Document the new condition fields in `policy-types.ts` and `docs/SECURITY.md`.
 
-## Task 4: Dry-run + idempotency (TDD)
+## Task 4: Dry-run + idempotency (TDD) - DONE (idempotent execution moot: no write transport)
 
-- [ ] Test: `?dry_run=true` returns `{ plan, denied, noops }` and performs **no** upstream mutation (assert with a `fetchMock` that records zero write calls); a no-op (member already has requested role) is detected; a conflicting item is flagged.
-- [ ] Test: idempotency key replays the same result without a second upstream mutation.
-- [ ] Implement `member-plan.ts` (List, diff, authorize each, plan) and the execute path (re-validate, apply, reconcile).
+- [x] Test: `?dry_run=true` returns `{ plan, denied, noops }` and performs **no** upstream mutation (assert with a `fetchMock` that records zero write calls); a no-op (member already has requested role) is detected; a conflicting item is flagged. (`test/supabase-members-dryrun.test.ts`)
+- [x] Idempotency: the `Idempotency-Key` header is captured on audit rows (Task 5). Replay-without-second-mutation is vacuous - every write 501s before any upstream mutation, so replays are inherently idempotent.
+- [x] Implement `member-plan.ts` (List, diff, authorize each, plan). The execute path (re-validate, apply, reconcile) is deferred with the write transport - the non-dry-run route authorizes fully then returns 501.
 
 ## Task 5: Before/after audit (TDD) - DONE (adapted: no write transport)
 
@@ -159,11 +159,26 @@ Two independent live confirmations:
 - [x] Implement the D1 table (`CREATE TABLE IF NOT EXISTS` - no module-level init flag), `logMembershipEvents` (fire-and-forget via `waitUntil`), the admin read endpoints (`/admin/supabase/membership/{events,summary,timeseries}`), timeseries allowlist entry (+ configurable `errorCondition` - the table has no `status` column), and cron retention.
 - [x] Actor limitation noted + implemented: the recorded actor is the **key** (`auth.keyName` -> `key:<name>`), not a person.
 
-## Task 6 (OPTIONAL): Provider lifecycle webhook (TDD)
+## Task 6 (OPTIONAL): Provider lifecycle webhook (TDD) - DEFERRED (blocked by Task 0)
+
+Blocked by the Task 0 finding: the terminal action (member remove) is not PAT-drivable,
+so the webhook could receive events but never execute. Revisit if Supabase adds member
+management to the public Management API.
+
+### SCIM deferral stub (write-only, do NOT implement)
+
+Full SCIM 2.0 provisioning (`/scim/v2/*`) is deliberately out of scope:
+
+- SCIM is a server-to-server provisioning protocol; every operation it models
+  (create/replace/deactivate user) hits the same non-PAT-drivable member-write wall.
+- The memberships surface already covers the authorization + audit shape SCIM clients
+  would need; the gap is purely the upstream transport.
+- If the transport ever opens, the path is: Task 6 webhook for event-driven deprovisioning,
+  SCIM only if a customer IdP demands standards-based provisioning.
 
 - [ ] Test: a signed `user.deactivated` event with a valid signature triggers a member-remove through the Section 4 execute path; an invalid signature is rejected; the "deprovision semantics" are config-driven (which of remove-membership / revoke-sessions / remove-projects fire).
 - [ ] Implement `lifecycle-webhook.ts`, add `/webhooks/*` to `run_worker_first`, config-gate it off by default.
-- [ ] Write the SCIM deferral stub plan. Do not implement `/scim/v2/*` here.
+- [x] Write the SCIM deferral stub plan. Do not implement `/scim/v2/*` here.
 
 ---
 

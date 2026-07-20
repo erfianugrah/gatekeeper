@@ -1,7 +1,7 @@
 import { JsonHighlight } from '@/components/JsonHighlight';
 import { TableRow, TableCell } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent } from '@/lib/api';
+import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent, SupabaseMembershipEvent } from '@/lib/api';
 import { formatTimeISO } from './analytics-helpers';
 import { isCfProxySource } from './analytics-types';
 import type { UnifiedEvent } from './analytics-types';
@@ -188,6 +188,24 @@ export function EventDetailRow({ event }: { event: UnifiedEvent }) {
 			{ key: 'response_size', value: sbRaw.response_size, type: 'bytes' },
 			{ key: 'created_by', value: sbRaw.created_by, type: 'id' },
 			{ key: 'response_detail', value: sbRaw.response_detail, type: 'string' },
+			{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
+		];
+	} else if (event.source === 'supabase_membership') {
+		const mRaw = raw as SupabaseMembershipEvent;
+		fields = [
+			{ key: 'id', value: mRaw.id, type: 'number' },
+			{ key: 'key_id', value: event.key_id, type: 'id' },
+			{ key: 'org_slug', value: event.mbr_org_slug, type: 'string' },
+			{ key: 'action', value: mRaw.action, type: 'operation' },
+			{ key: 'outcome', value: event.mbr_outcome, type: 'string' },
+			{ key: 'target_email', value: event.mbr_target_email, type: 'string' },
+			{ key: 'from_role', value: event.mbr_from_role, type: 'string' },
+			{ key: 'requested_role', value: event.mbr_requested_role, type: 'string' },
+			{ key: 'resulting_role', value: mRaw.resulting_role, type: 'string' },
+			{ key: 'idempotency_key', value: mRaw.idempotency_key, type: 'id' },
+			{ key: 'reconcile_status', value: mRaw.reconcile_status, type: 'string' },
+			{ key: 'created_by', value: mRaw.created_by, type: 'id' },
+			{ key: 'detail', value: mRaw.detail, type: 'string' },
 			{ key: 'created_at', value: formatTimeISO(event.created_at), type: 'timestamp' },
 		];
 	} else if (isCfProxySource(event.source)) {

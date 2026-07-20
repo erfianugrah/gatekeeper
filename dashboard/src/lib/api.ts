@@ -769,6 +769,53 @@ export async function getSupabaseProxyTimeseries(
 	return apiFetch<TimeseriesBucket[]>(`/admin/supabase/analytics/timeseries${qs ? `?${qs}` : ''}`);
 }
 
+// ─── Supabase Membership Audit ──────────────────────────────────────────────
+
+/** Supabase membership audit event (one row per planned change / noop / blocked assignment). */
+export interface SupabaseMembershipEvent {
+	id: number;
+	key_id: string;
+	org_slug: string;
+	/** Full action string, e.g. 'supabase:members:invite'. */
+	action: string;
+	target_email: string | null;
+	from_role: string | null;
+	requested_role: string | null;
+	resulting_role: string | null;
+	/** preview | denied | noop | blocked (executed | failed reserved for a future write transport). */
+	outcome: string;
+	idempotency_key: string | null;
+	reconcile_status: string | null;
+	detail: string | null;
+	created_by: string | null;
+	created_at: number;
+}
+
+export interface SupabaseMembershipEventsQuery {
+	org_slug?: string;
+	key_id?: string;
+	action?: string;
+	outcome?: string;
+	target_email?: string;
+	since?: number;
+	until?: number;
+	limit?: number;
+}
+
+export async function getSupabaseMembershipEvents(query: SupabaseMembershipEventsQuery = {}): Promise<SupabaseMembershipEvent[]> {
+	const params = new URLSearchParams();
+	if (query.org_slug) params.set('org_slug', query.org_slug);
+	if (query.key_id) params.set('key_id', query.key_id);
+	if (query.action) params.set('action', query.action);
+	if (query.outcome) params.set('outcome', query.outcome);
+	if (query.target_email) params.set('target_email', query.target_email);
+	if (query.since) params.set('since', String(query.since));
+	if (query.until) params.set('until', String(query.until));
+	if (query.limit) params.set('limit', String(query.limit));
+	const qs = params.toString();
+	return apiFetch<SupabaseMembershipEvent[]>(`/admin/supabase/membership/events${qs ? `?${qs}` : ''}`);
+}
+
 // ─── Timeseries Analytics ─────────────────────────────────────────────
 
 export interface TimeseriesBucket {

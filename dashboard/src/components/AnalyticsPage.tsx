@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { usePagination } from '@/hooks/use-pagination';
 import { TablePagination } from '@/components/TablePagination';
-import { getEvents, getS3Events, getDnsEvents, getCfProxyEvents, getSupabaseProxyEvents } from '@/lib/api';
+import { getEvents, getS3Events, getDnsEvents, getCfProxyEvents, getSupabaseProxyEvents, getSupabaseMembershipEvents } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { T } from '@/lib/typography';
 import {
@@ -17,6 +17,7 @@ import {
 	fromDns,
 	fromCfProxy,
 	fromSupabase,
+	fromSupabaseMembership,
 	isCfProxySource,
 	groupByFlight,
 	LIMIT_OPTIONS,
@@ -33,7 +34,7 @@ import {
 } from './analytics/analytics-badges';
 import { EventDetailRow } from './analytics/EventDetailRow';
 import { EventsTableSkeleton } from './analytics/EventsTableSkeleton';
-import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent } from '@/lib/api';
+import type { PurgeEvent, S3Event, DnsEvent, CfProxyEvent, SupabaseProxyEvent, SupabaseMembershipEvent } from '@/lib/api';
 import type { UnifiedEvent, FlightGroup, SortField, SortDir, TabFilter, StatusFilter } from './analytics/analytics-types';
 
 type SupabaseQuickFilter = 'all' | 'unauthorized' | 'timeout' | 'upstream_5xx';
@@ -99,6 +100,7 @@ export function AnalyticsPage() {
 	const [dnsEvents, setDnsEvents] = useState<DnsEvent[]>([]);
 	const [cfEvents, setCfEvents] = useState<CfProxyEvent[]>([]);
 	const [supabaseEvents, setSupabaseEvents] = useState<SupabaseProxyEvent[]>([]);
+	const [membershipEvents, setMembershipEvents] = useState<SupabaseMembershipEvent[]>([]);
 	const [limit, setLimit] = useState<number>(100);
 	const [tab, setTab] = useState<TabFilter>(initialSourceFromUrl);
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => initialFilterFromUrl('status', VALID_STATUS_FILTERS, 'all'));
@@ -127,7 +129,7 @@ export function AnalyticsPage() {
 		setError(null);
 		const errors: string[] = [];
 		try {
-			const [purge, s3, dns, cf, supabase] = await Promise.all([
+			const [purge, s3, dns, cf, supabase, membership] = await Promise.all([
 				getEvents({ limit: fetchLimit }).catch((e) => {
 					errors.push(`Purge: ${e.message}`);
 					return [] as PurgeEvent[];
@@ -148,13 +150,18 @@ export function AnalyticsPage() {
 					errors.push(`Supabase: ${e.message}`);
 					return [] as SupabaseProxyEvent[];
 				}),
+				getSupabaseMembershipEvents({ limit: fetchLimit }).catch((e) => {
+					errors.push(`Membership: ${e.message}`);
+					return [] as SupabaseMembershipEvent[];
+				}),
 			]);
 			setPurgeEvents(purge);
 			setS3Events(s3);
 			setDnsEvents(dns);
 			setCfEvents(cf);
 			setSupabaseEvents(supabase);
-			if (errors.length > 0 && purge.length === 0 && s3.length === 0 && dns.length === 0 && cf.length === 0 && supabase.length === 0) {
+			setMembershipEvents(membership);
+			if (errors.length > 0 && purge.length === 0 && s3.length === 0 && dns.length === 0 && cf.length === 0 && supabase.length === 0 && membership.length === 0) {
 				setError(errors.join('; '));
 			}
 		} catch (e: any) {
@@ -164,6 +171,7 @@ export function AnalyticsPage() {
 			setDnsEvents([]);
 			setCfEvents([]);
 			setSupabaseEvents([]);
+			setMembershipEvents([]);
 		} finally {
 			setLoading(false);
 		}
@@ -221,8 +229,9 @@ export function AnalyticsPage() {
 			...dnsEvents.map(fromDns),
 			...cfEvents.map(fromCfProxy),
 			...supabaseEvents.map(fromSupabase),
+			...membershipEvents.map(fromSupabaseMembership),
 		],
-		[purgeEvents, s3Events, dnsEvents, cfEvents, supabaseEvents],
+		[purgeEvents, s3Events, dnsEvents, cfEvents, supabaseEvents, membershipEvents],
 	);
 
 	const applyBaseFilters = useCallback(
@@ -322,8 +331,8 @@ export function AnalyticsPage() {
 		for (const ev of allEvents) {
 			counts.set(ev.source, (counts.get(ev.source) ?? 0) + 1);
 		}
-		// Stable ordering: purge, s3, dns, supabase first, then CF services alphabetically
-		const fixed = ['purge', 's3', 'dns', 'supabase'];
+		// Stable ordering: purge, s3, dns, supabase, supabase_membership first, then CF services alphabetically
+		const fixed = ['purge', 's3', 'dns', 'supabase', 'supabase_membership'];
 		const ordered: { source: string; count: number }[] = [];
 		for (const s of fixed) {
 			if (counts.has(s)) ordered.push({ source: s, count: counts.get(s)! });
@@ -657,6 +666,38 @@ export function AnalyticsPage() {
 																)}
 																<span className={cn(T.tableCellMono, 'text-muted-foreground/70 truncate max-w-[160px]')}>
 																	{ev.sb_action?.split(':').slice(1).join(':')}
+																</span>
+															</div>
+														) : ev.source === 'supabase_membership' ? (
+															<div className="flex items-center gap-2 min-w-0">
+																<WithTooltip tip={`Membership action: ${(ev.raw as SupabaseMembershipEvent).action}`}>
+																	<Badge
+																		className={cn(
+																			ev.mbr_outcome === 'denied' || ev.mbr_outcome === 'failed'
+																				? 'bg-lv-red-bright/20 text-lv-red-bright border-lv-red-bright/30'
+																				: ev.mbr_outcome === 'blocked'
+																					? 'bg-lv-peach/20 text-lv-peach border-lv-peach/30'
+																					: 'bg-lv-blue/20 text-lv-blue border-lv-blue/30',
+																			'shrink-0',
+																		)}
+																	>
+																		{ev.mbr_outcome}
+																	</Badge>
+																</WithTooltip>
+																<code className={cn(T.tableCellMono, 'shrink-0')} title={ev.mbr_org_slug}>
+																	{ev.mbr_org_slug}
+																</code>
+																{ev.mbr_target_email && (
+																	<WithTooltip tip={`Target: ${ev.mbr_target_email}`}>
+																		<code className={cn(T.tableCellMono, 'truncate max-w-[180px] text-lv-cyan/80')}>
+																			{ev.mbr_target_email}
+																		</code>
+																	</WithTooltip>
+																)}
+																<span className={cn(T.tableCellMono, 'text-muted-foreground/70 shrink-0')}>
+																	{ev.mbr_from_role != null && ev.mbr_from_role !== ev.mbr_requested_role
+																		? `${ev.mbr_from_role} -> ${ev.mbr_requested_role}`
+																		: (ev.mbr_requested_role ?? '')}
 																</span>
 															</div>
 														) : ev.source === 'dns' ? (

@@ -77,6 +77,11 @@ export function eventSearchText(ev: UnifiedEvent): string {
 		ev.sb_category ?? '',
 		ev.sb_action ?? '',
 		ev.sb_project_ref ?? '',
+		ev.mbr_outcome ?? '',
+		ev.mbr_org_slug ?? '',
+		ev.mbr_target_email ?? '',
+		ev.mbr_from_role ?? '',
+		ev.mbr_requested_role ?? '',
 		(ev.raw as any).created_by ?? '',
 		(ev.raw as any).response_detail ?? '',
 	];
