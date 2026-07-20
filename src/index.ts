@@ -7,6 +7,7 @@ import { deleteOldS3Events } from './s3/analytics';
 import { deleteOldDnsEvents } from './cf/dns/analytics';
 import { deleteOldCfProxyEvents } from './cf/analytics';
 import { deleteOldSupabaseProxyEvents } from './supabase/analytics';
+import { deleteOldMembershipEvents } from './supabase/membership-analytics';
 import { deleteOldAuditEvents } from './audit-log';
 import { cfApp } from './cf/router';
 import { supabaseApp } from './supabase/router';
@@ -130,14 +131,16 @@ export default {
 			const retentionDays = gwConfig.retention_days;
 
 			// Phase 1: Delete old analytics/audit events from D1
-			const [purgeDeleted, s3Deleted, dnsDeleted, cfProxyDeleted, supabaseProxyDeleted, auditDeleted] = await Promise.all([
-				deleteOldEvents(env.ANALYTICS_DB, retentionDays),
-				deleteOldS3Events(env.ANALYTICS_DB, retentionDays),
-				deleteOldDnsEvents(env.ANALYTICS_DB, retentionDays),
-				deleteOldCfProxyEvents(env.ANALYTICS_DB, retentionDays),
-				deleteOldSupabaseProxyEvents(env.ANALYTICS_DB, retentionDays),
-				deleteOldAuditEvents(env.ANALYTICS_DB, retentionDays),
-			]);
+			const [purgeDeleted, s3Deleted, dnsDeleted, cfProxyDeleted, supabaseProxyDeleted, supabaseMembershipDeleted, auditDeleted] =
+				await Promise.all([
+					deleteOldEvents(env.ANALYTICS_DB, retentionDays),
+					deleteOldS3Events(env.ANALYTICS_DB, retentionDays),
+					deleteOldDnsEvents(env.ANALYTICS_DB, retentionDays),
+					deleteOldCfProxyEvents(env.ANALYTICS_DB, retentionDays),
+					deleteOldSupabaseProxyEvents(env.ANALYTICS_DB, retentionDays),
+					deleteOldMembershipEvents(env.ANALYTICS_DB, retentionDays),
+					deleteOldAuditEvents(env.ANALYTICS_DB, retentionDays),
+				]);
 
 			// Phase 2: Revoke expired keys/credentials, delete expired upstream tokens/R2 endpoints
 			const cleanup = await stub.cleanupExpired();
@@ -152,6 +155,7 @@ export default {
 					dnsDeleted,
 					cfProxyDeleted,
 					supabaseProxyDeleted,
+					supabaseMembershipDeleted,
 					auditDeleted,
 					...cleanup,
 					ts: new Date(controller.scheduledTime).toISOString(),

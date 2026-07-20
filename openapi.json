@@ -5067,6 +5067,329 @@
         }
       }
     },
+    "/admin/supabase/membership/events": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "operationId": "getSupabaseMembershipEvents",
+        "summary": "Query Supabase membership audit events (invitations dry-run previews, denials, blocked writes)",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "org_slug",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "outcome",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_email",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of membership audit events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SupabaseMembershipEvent"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Analytics not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/supabase/membership/summary": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "operationId": "getSupabaseMembershipSummary",
+        "summary": "Query Supabase membership audit summary",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "org_slug",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "outcome",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_email",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Membership audit summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "$ref": "#/components/schemas/SupabaseMembershipSummary"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Analytics not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/supabase/membership/timeseries": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "operationId": "getSupabaseMembershipTimeseries",
+        "summary": "Membership audit event volume over time (hourly buckets; errors = denied/failed outcomes)",
+        "security": [
+          {
+            "AdminKeyAuth": []
+          },
+          {
+            "CloudflareAccess": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "org_slug",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "outcome",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Hourly membership audit timeseries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TimeseriesBucket"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "result"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Analytics not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/upstream-tokens": {
       "post": {
         "tags": [
@@ -7683,6 +8006,171 @@
         ],
         "additionalProperties": false,
         "description": "Aggregate Supabase proxy analytics"
+      },
+      "SupabaseMembershipEvent": {
+        "type": "object",
+        "properties": {
+          "key_id": {
+            "type": "string"
+          },
+          "org_slug": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "target_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requested_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resulting_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "description": "preview | denied | noop | blocked (executed | failed reserved for a future write transport)"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reconcile_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "key_id",
+          "org_slug",
+          "action",
+          "target_email",
+          "from_role",
+          "requested_role",
+          "resulting_role",
+          "outcome",
+          "idempotency_key",
+          "reconcile_status",
+          "detail",
+          "created_by",
+          "created_at"
+        ],
+        "additionalProperties": false,
+        "description": "A single membership-provisioning audit event"
+      },
+      "SupabaseMembershipSummary": {
+        "type": "object",
+        "properties": {
+          "total_events": {
+            "type": "number"
+          },
+          "by_outcome": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "by_action": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "by_org": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "denied_count": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "total_events",
+          "by_outcome",
+          "by_action",
+          "by_org",
+          "denied_count"
+        ],
+        "additionalProperties": false,
+        "description": "Aggregate membership-provisioning audit analytics"
       },
       "UpstreamToken": {
         "type": "object",

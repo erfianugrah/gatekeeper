@@ -937,6 +937,45 @@ export const supabaseProxyTimeseriesQuerySchema = z.object({
 
 export type SupabaseProxyTimeseriesQuery = z.infer<typeof supabaseProxyTimeseriesQuerySchema>;
 
+/** Supabase membership audit: GET /admin/supabase/membership/events */
+export const supabaseMembershipEventsQuerySchema = z.object({
+	org_slug: z.string().optional(),
+	key_id: z.string().optional(),
+	action: z.string().optional(),
+	outcome: z.string().optional(),
+	target_email: z.string().optional(),
+	since: z.coerce.number().optional(),
+	until: z.coerce.number().optional(),
+	limit: z.coerce.number().int().min(1).max(MAX_ANALYTICS_LIMIT).optional().default(DEFAULT_ANALYTICS_LIMIT),
+});
+
+export type SupabaseMembershipEventsQuery = z.infer<typeof supabaseMembershipEventsQuerySchema>;
+
+/** Supabase membership audit: GET /admin/supabase/membership/summary */
+export const supabaseMembershipSummaryQuerySchema = z.object({
+	org_slug: z.string().optional(),
+	key_id: z.string().optional(),
+	action: z.string().optional(),
+	outcome: z.string().optional(),
+	target_email: z.string().optional(),
+	since: z.coerce.number().optional(),
+	until: z.coerce.number().optional(),
+});
+
+export type SupabaseMembershipSummaryQuery = z.infer<typeof supabaseMembershipSummaryQuerySchema>;
+
+/** Supabase membership audit: GET /admin/supabase/membership/timeseries */
+export const supabaseMembershipTimeseriesQuerySchema = z.object({
+	since: optionalNumericQuery,
+	until: optionalNumericQuery,
+	org_slug: z.string().optional(),
+	key_id: z.string().optional(),
+	action: z.string().optional(),
+	outcome: z.string().optional(),
+});
+
+export type SupabaseMembershipTimeseriesQuery = z.infer<typeof supabaseMembershipTimeseriesQuerySchema>;
+
 /** Generic metering: GET /admin/<surface>/analytics/metering */
 export const meteringQuerySchema = z.object({
 	group_by: z.string().optional(),

@@ -153,11 +153,11 @@ Two independent live confirmations:
 - [ ] Test: idempotency key replays the same result without a second upstream mutation.
 - [ ] Implement `member-plan.ts` (List, diff, authorize each, plan) and the execute path (re-validate, apply, reconcile).
 
-## Task 5: Before/after audit (TDD)
+## Task 5: Before/after audit (TDD) - DONE (adapted: no write transport)
 
-- [ ] Test: a successful re-role writes a `supabase_membership_events` row with before-role, requested-role, resulting-role, actor, target, idempotency key, reconcile status.
-- [ ] Implement the D1 table (`CREATE TABLE IF NOT EXISTS` - **do NOT add a module-level init flag**, see Known Pitfalls), `logMembershipEvent` (fire-and-forget via `waitUntil`), the admin read endpoints, timeseries allowlist entry, and cron retention.
-- [ ] Note the actor limitation: the recorded actor is the **key**, not a person, unless keys are 1:1 with people or an IdP identity is threaded in. Capture whatever identity the auth layer already has (`auth.keyName`).
+- [x] Test: dry-run preview / denied / noop / blocked outcomes write `supabase_membership_events` rows with before-role, requested-role, actor (`key:<name>`), org slug; coarse-authz failures write nothing. (`test/supabase-membership-audit.test.ts`; the re-role execution assertion was adapted - writes are 501, so rows record preview/blocked intent with `resulting_role` null.)
+- [x] Implement the D1 table (`CREATE TABLE IF NOT EXISTS` - no module-level init flag), `logMembershipEvents` (fire-and-forget via `waitUntil`), the admin read endpoints (`/admin/supabase/membership/{events,summary,timeseries}`), timeseries allowlist entry (+ configurable `errorCondition` - the table has no `status` column), and cron retention.
+- [x] Actor limitation noted + implemented: the recorded actor is the **key** (`auth.keyName` -> `key:<name>`), not a person.
 
 ## Task 6 (OPTIONAL): Provider lifecycle webhook (TDD)
 

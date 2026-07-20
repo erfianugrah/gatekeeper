@@ -14,11 +14,13 @@
 import { Hono } from 'hono';
 import { getStub } from '../do-stub';
 import { extractRequestFields } from '../request-fields';
+import { AUDIT_CREATED_BY_API_KEY } from '../constants';
 import type { RequestContext } from '../policy-types';
 import { extractBearerKey, sbJsonError, proxyToManagementApi } from './proxy-helpers';
 import { parseMemberRequest, normalizeRoleLenient } from './member-schema';
 import { buildMemberContexts } from './member-context';
 import { planMembershipChange, type CurrentMember } from './member-plan';
+import { logMembershipEvents, type SupabaseMembershipEvent } from './membership-analytics';
 
 type SupabaseEnv = { Bindings: Env };
 
@@ -111,7 +113,8 @@ memberApp.post('/:slug/invitations', async (c) => {
 
 		// Authorize each planned change; collect denials but do NOT fail the request.
 		const denied: string[] = [];
-		for (const change of plan.changes) {
+		const deniedIdx = new Set<number>();
+		for (const [idx, change] of plan.changes.entries()) {
 			const fields: Record<string, string> = {
 				'supabase.requested_role': change.toRole,
 				'supabase.target_email': change.targetEmail,
@@ -121,8 +124,50 @@ memberApp.post('/:slug/invitations', async (c) => {
 			const ctx: RequestContext = { action: change.action, resource, fields };
 			const decision = await stub.authorize(keyId, '', [ctx]);
 			if (!decision.authorized) {
+				deniedIdx.add(idx);
 				denied.push(`${change.action} ${change.targetEmail} -> ${change.toRole}: ${decision.error ?? 'Forbidden'}`);
 			}
+		}
+
+		// Audit (plan Task 5): one row per planned change (preview | denied) and per noop,
+		// so the before/after INTENT stays on record even though no upstream write exists.
+		if (env.ANALYTICS_DB) {
+			const createdBy = coarse.keyName ? `key:${coarse.keyName}` : AUDIT_CREATED_BY_API_KEY;
+			const idemKey = c.req.header('Idempotency-Key') ?? null;
+			const now = Date.now();
+			const auditRows: SupabaseMembershipEvent[] = [
+				...plan.changes.map((change, idx) => ({
+					key_id: keyId,
+					org_slug: slug,
+					action: change.action,
+					target_email: change.targetEmail,
+					from_role: change.fromRole,
+					requested_role: change.toRole,
+					resulting_role: null,
+					outcome: (deniedIdx.has(idx) ? 'denied' : 'preview') as SupabaseMembershipEvent['outcome'],
+					idempotency_key: idemKey,
+					reconcile_status: null,
+					detail: null,
+					created_by: createdBy,
+					created_at: now,
+				})),
+				...plan.noops.map((noop) => ({
+					key_id: keyId,
+					org_slug: slug,
+					action: noop.action,
+					target_email: noop.targetEmail,
+					from_role: noop.fromRole,
+					requested_role: noop.toRole,
+					resulting_role: null,
+					outcome: 'noop' as const,
+					idempotency_key: idemKey,
+					reconcile_status: null,
+					detail: null,
+					created_by: createdBy,
+					created_at: now,
+				})),
+			];
+			c.executionCtx.waitUntil(logMembershipEvents(env.ANALYTICS_DB, auditRows));
 		}
 
 		log.breadcrumb = 'supabase-members-invite-dry-run';
@@ -163,6 +208,29 @@ memberApp.post('/:slug/invitations', async (c) => {
 
 	// 6. Upstream write transport is not yet resolved (plan Task 0) - everything up to this point
 	// is real and testable; only the final upstream hop is stubbed.
+	// Audit the blocked attempt: one row per assignment (from_role unknown - the execute path
+	// does not fetch current membership).
+	if (env.ANALYTICS_DB) {
+		const createdBy = (fine.keyName ?? coarse.keyName) ? `key:${fine.keyName ?? coarse.keyName}` : AUDIT_CREATED_BY_API_KEY;
+		const idemKey = c.req.header('Idempotency-Key') ?? null;
+		const now = Date.now();
+		const auditRows: SupabaseMembershipEvent[] = assignments.map((asg) => ({
+			key_id: keyId,
+			org_slug: slug,
+			action: 'supabase:members:invite',
+			target_email: asg.targetEmail,
+			from_role: null,
+			requested_role: asg.requestedRole,
+			resulting_role: null,
+			outcome: 'blocked',
+			idempotency_key: idemKey,
+			reconcile_status: null,
+			detail: 'member-write transport is not PAT-drivable (plan Task 0)',
+			created_by: createdBy,
+			created_at: now,
+		}));
+		c.executionCtx.waitUntil(logMembershipEvents(env.ANALYTICS_DB, auditRows));
+	}
 	log.breadcrumb = 'supabase-members-invite-upstream-pending';
 	log.status = 501;
 	log.assignments = assignments.length;

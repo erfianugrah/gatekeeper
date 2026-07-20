@@ -199,6 +199,51 @@ ON supabase_proxy_events (key_fingerprint, created_at DESC);
 
 export const SUPABASE_PROXY_EVENTS_ADD_KEY_FINGERPRINT_SQL = `ALTER TABLE supabase_proxy_events ADD COLUMN key_fingerprint TEXT`;
 
+// ─── Supabase membership events ─────────────────────────────────────────────
+// Domain audit trail for the membership-provisioning surface (plan Task 5).
+// One row per planned change / noop / blocked assignment - before/after intent
+// stays auditable even though upstream member writes are not PAT-drivable.
+
+export const SUPABASE_MEMBERSHIP_EVENTS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS supabase_membership_events (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	key_id TEXT NOT NULL,
+	key_fingerprint TEXT,
+	org_slug TEXT NOT NULL,
+	action TEXT NOT NULL,
+	target_email TEXT,
+	from_role TEXT,
+	requested_role TEXT,
+	resulting_role TEXT,
+	outcome TEXT NOT NULL,
+	idempotency_key TEXT,
+	reconcile_status TEXT,
+	detail TEXT,
+	created_by TEXT,
+	created_at INTEGER NOT NULL
+);
+`;
+
+export const SUPABASE_MEMBERSHIP_EVENTS_INDEX_KEY_SQL = `
+CREATE INDEX IF NOT EXISTS idx_sb_membership_key_created
+ON supabase_membership_events (key_id, created_at DESC);
+`;
+
+export const SUPABASE_MEMBERSHIP_EVENTS_INDEX_ORG_SQL = `
+CREATE INDEX IF NOT EXISTS idx_sb_membership_org_created
+ON supabase_membership_events (org_slug, created_at DESC);
+`;
+
+export const SUPABASE_MEMBERSHIP_EVENTS_INDEX_ACTION_SQL = `
+CREATE INDEX IF NOT EXISTS idx_sb_membership_action_created
+ON supabase_membership_events (action, created_at DESC);
+`;
+
+export const SUPABASE_MEMBERSHIP_EVENTS_INDEX_KEY_FINGERPRINT_SQL = `
+CREATE INDEX IF NOT EXISTS idx_sb_membership_keyfp_created
+ON supabase_membership_events (key_fingerprint, created_at DESC);
+`;
+
 // ─── Audit events ───────────────────────────────────────────────────────────
 
 export const AUDIT_EVENTS_TABLE_SQL = `

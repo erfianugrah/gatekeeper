@@ -42,6 +42,9 @@ import {
 	dnsTimeseriesQuerySchema,
 	cfProxyTimeseriesQuerySchema,
 	supabaseProxyTimeseriesQuerySchema,
+	supabaseMembershipEventsQuerySchema,
+	supabaseMembershipSummaryQuerySchema,
+	supabaseMembershipTimeseriesQuerySchema,
 	auditEventsQuerySchema,
 	listKeysQuerySchema,
 	listS3CredentialsQuerySchema,
@@ -187,6 +190,36 @@ const supabaseProxyAnalyticsSummarySchema = z
 		avg_response_size: z.number(),
 	})
 	.meta({ id: 'SupabaseProxyAnalyticsSummary', description: 'Aggregate Supabase proxy analytics' });
+
+const supabaseMembershipEventSchema = z
+	.object({
+		key_id: z.string(),
+		org_slug: z.string(),
+		action: z.string(),
+		target_email: z.string().nullable(),
+		from_role: z.string().nullable(),
+		requested_role: z.string().nullable(),
+		resulting_role: z.string().nullable(),
+		outcome: z
+			.string()
+			.meta({ description: 'preview | denied | noop | blocked (executed | failed reserved for a future write transport)' }),
+		idempotency_key: z.string().nullable(),
+		reconcile_status: z.string().nullable(),
+		detail: z.string().nullable(),
+		created_by: z.string().nullable(),
+		created_at: z.number(),
+	})
+	.meta({ id: 'SupabaseMembershipEvent', description: 'A single membership-provisioning audit event' });
+
+const supabaseMembershipSummarySchema = z
+	.object({
+		total_events: z.number(),
+		by_outcome: z.record(z.string(), z.number()),
+		by_action: z.record(z.string(), z.number()),
+		by_org: z.record(z.string(), z.number()),
+		denied_count: z.number(),
+	})
+	.meta({ id: 'SupabaseMembershipSummary', description: 'Aggregate membership-provisioning audit analytics' });
 
 // ─── Assemble the document ──────────────────────────────────────────────────
 
@@ -1073,6 +1106,45 @@ const document = createDocument({
 				requestParams: { query: supabaseProxyTimeseriesQuerySchema },
 				responses: {
 					'200': ok('Hourly Supabase proxy timeseries', successEnvelope(z.array(timeseriesBucketSchema))),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
+		'/admin/supabase/membership/events': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getSupabaseMembershipEvents',
+				summary: 'Query Supabase membership audit events (invitations dry-run previews, denials, blocked writes)',
+				security: adminSecurity,
+				requestParams: { query: supabaseMembershipEventsQuerySchema },
+				responses: {
+					'200': ok('List of membership audit events', successEnvelope(z.array(supabaseMembershipEventSchema))),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
+		'/admin/supabase/membership/summary': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getSupabaseMembershipSummary',
+				summary: 'Query Supabase membership audit summary',
+				security: adminSecurity,
+				requestParams: { query: supabaseMembershipSummaryQuerySchema },
+				responses: {
+					'200': ok('Membership audit summary', successEnvelope(supabaseMembershipSummarySchema)),
+					'503': errorResponse('Analytics not configured'),
+				},
+			},
+		},
+		'/admin/supabase/membership/timeseries': {
+			get: {
+				tags: ['Analytics'],
+				operationId: 'getSupabaseMembershipTimeseries',
+				summary: 'Membership audit event volume over time (hourly buckets; errors = denied/failed outcomes)',
+				security: adminSecurity,
+				requestParams: { query: supabaseMembershipTimeseriesQuerySchema },
+				responses: {
+					'200': ok('Hourly membership audit timeseries', successEnvelope(z.array(timeseriesBucketSchema))),
 					'503': errorResponse('Analytics not configured'),
 				},
 			},

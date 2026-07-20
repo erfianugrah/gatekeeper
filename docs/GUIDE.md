@@ -568,6 +568,15 @@ curl "$GATEKEEPER_URL/supabase/metrics/$REF" -H "Authorization: Bearer $GATEKEEP
 - `GET /supabase/v1/projects/:ref/analytics/endpoints/metrics` -- the **stable** Management API path, proxied with the stored `supabase` PAT. Classified as `supabase:metrics:read` (not `analytics:read`) so metrics-only keys cover it.
 - `GET /supabase/v0/projects/:ref/analytics/metrics` -- an **experimental** path that uses the stored `supabase` PAT instead. The `/v0` surface is treated as external/unstable: only this metrics endpoint is classified, everything else under `/v0` denies by default.
 
+#### Membership provisioning (authorization + dry-run preview, audited)
+
+`POST /supabase/members/:slug/invitations` is a Gatekeeper-owned surface for org-membership changes (`{ users: [ { email, role, project_refs? } ] }`). Member **writes are not PAT-drivable** (the public Management API exposes only `GET /v1/organizations/{slug}/members`; invite/re-role/remove live on Supabase's internal dashboard API, which rejects PATs), so the route is an authorization + preview surface, not an executor:
+
+- **Coarse gate first** (`supabase:members:invite` on `org:<slug>`), then the body is parsed and **every assignment is authorized individually** (batch rejected whole if any item is out of policy). Body-derived condition fields: `supabase.target_email`, `supabase.target_domain`, `supabase.requested_role`, `supabase.requested_project`, `supabase.batch_size`, `supabase.contains_production`.
+- **`?dry_run=true`** fetches current membership via the (supported) List endpoint, diffs, and returns `{ plan: { changes, noops }, denied }` -- out-of-policy items surface in `denied` instead of failing the request.
+- A non-dry-run POST currently returns **501** after full authorization (no upstream write transport exists).
+- **Every decision is audited** to the D1 `supabase_membership_events` table (fire-and-forget): one row per planned change (`preview` / `denied`), per `noop`, and per blocked assignment (`blocked`), carrying `from_role` / `requested_role`, `target_email`, the `Idempotency-Key` header if sent, and the actor (`key:<name>` -- the key, not a person). Read it back via `GET /admin/supabase/membership/{events,summary,timeseries}` (§7.4).
+
 #### Driving the official `supabase` CLI through the proxy
 
 The official `supabase` CLI can talk to the proxy directly -- you do **not** need to hand it the real PAT. Two facts make this work:
@@ -2198,6 +2207,8 @@ curl -H "X-Admin-Key: $ADMIN_KEY" \
 ```
 
 Summary returns: `total_requests`, `by_status`, `by_category`, `by_action`, `avg_duration_ms`, `avg_upstream_latency_ms`, `avg_response_size`. A `timeseries` endpoint (hourly buckets) is also available at `/admin/supabase/analytics/timeseries`.
+
+**Membership audit** (`supabase_membership_events`, §2.4 membership provisioning) has the same three-endpoint shape at `/admin/supabase/membership/{events,summary,timeseries}`, filtered by `org_slug`, `key_id`, `action`, `outcome`, `target_email`, `since`, `until`. Summary returns `total_events`, `by_outcome`, `by_action`, `by_org`, `denied_count`; timeseries counts `denied`/`failed` outcomes in the `errors` field.
 
 ---
 

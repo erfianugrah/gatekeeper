@@ -11,7 +11,14 @@ import { MS_PER_DAY } from './constants';
 const MS_PER_HOUR = 3_600_000;
 
 /** Allowed table names for timeseries queries — prevents SQL injection via table parameter. */
-const ALLOWED_TABLES = new Set(['purge_events', 's3_events', 'dns_events', 'cf_proxy_events', 'supabase_proxy_events']);
+const ALLOWED_TABLES = new Set([
+	'purge_events',
+	's3_events',
+	'dns_events',
+	'cf_proxy_events',
+	'supabase_proxy_events',
+	'supabase_membership_events',
+]);
 
 export interface TimeseriesBucket {
 	/** Start of the hour (unix ms, floored). */
@@ -27,6 +34,11 @@ export interface TimeseriesQuery {
 	until?: number;
 }
 
+export interface TimeseriesOptions {
+	/** SQL boolean expression counting as an error row. Default: `status >= 400` (request-analytics tables). */
+	errorCondition?: string;
+}
+
 /**
  * Query time-series data from any analytics table.
  *
@@ -40,6 +52,7 @@ export async function queryTimeseries(
 	table: string,
 	filters: { conditions: string[]; params: (string | number)[] },
 	timeRange: TimeseriesQuery,
+	options: TimeseriesOptions = {},
 ): Promise<TimeseriesBucket[]> {
 	// Safelist check — all callers pass hardcoded table names but this guards against future misuse
 	if (!ALLOWED_TABLES.has(table)) {
@@ -58,11 +71,12 @@ export async function queryTimeseries(
 
 	// Floor created_at to the nearest hour: (created_at / 3600000) * 3600000
 	// SQLite integer division truncates, which is exactly floor for positive numbers.
+	const errorCondition = options.errorCondition ?? 'status >= 400';
 	const sql = `
 		SELECT
 			(created_at / ${MS_PER_HOUR}) * ${MS_PER_HOUR} AS bucket,
 			COUNT(*) AS count,
-			SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END) AS errors
+			SUM(CASE WHEN ${errorCondition} THEN 1 ELSE 0 END) AS errors
 		FROM ${table}
 		${where}
 		GROUP BY bucket
