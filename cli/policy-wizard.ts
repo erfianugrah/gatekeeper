@@ -143,6 +143,7 @@ const CF_ACTION_GROUPS: ActionGroup[] = [
 			{ value: 'hyperdrive:list', label: 'List', description: 'List configs' },
 			{ value: 'hyperdrive:get', label: 'Get', description: 'Get config details' },
 			{ value: 'hyperdrive:delete', label: 'Delete', description: 'Delete config' },
+			{ value: 'hyperdrive:restart', label: 'Restart', description: 'Restart config' },
 		],
 	},
 ];

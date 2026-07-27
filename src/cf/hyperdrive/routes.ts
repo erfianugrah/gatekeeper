@@ -113,6 +113,26 @@ hyperdriveRoutes.patch('/configs/:hyperdriveId', async (c) => {
 	}
 });
 
+hyperdriveRoutes.post('/configs/:hyperdriveId/restart', async (c) => {
+	const accountId: string = c.get('accountId');
+	const rf: Record<string, string> = c.get('requestFields');
+	const hyperdriveId = c.req.param('hyperdriveId');
+	try {
+		return jsonServiceRoute(
+			c,
+			SVC,
+			'hyperdrive:restart',
+			[hyperdriveConfigContext(accountId, hyperdriveId, 'hyperdrive:restart', rf)],
+			`/accounts/${accountId}/hyperdrive/configs/${hyperdriveId}/restart`,
+			'POST',
+			hyperdriveId,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'hyperdrive.restart', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
 hyperdriveRoutes.delete('/configs/:hyperdriveId', async (c) => {
 	const accountId: string = c.get('accountId');
 	const rf: Record<string, string> = c.get('requestFields');

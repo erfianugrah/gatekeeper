@@ -321,6 +321,7 @@ const ACTION_GROUPS: readonly ActionGroup[] = [
 			{ value: 'hyperdrive:update', label: 'Update', description: 'Update config' },
 			{ value: 'hyperdrive:edit', label: 'Edit', description: 'Edit config' },
 			{ value: 'hyperdrive:delete', label: 'Delete', description: 'Delete config' },
+			{ value: 'hyperdrive:restart', label: 'Restart', description: 'Restart config' },
 		],
 	},
 	{

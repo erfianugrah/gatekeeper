@@ -1399,7 +1399,7 @@ Proxies requests to the Cloudflare API (D1, KV, Workers, Queues, Vectorize, Hype
 | Workers    | `/accounts/:id/workers/scripts[/:name][/...]`         | `workers:*`    |
 | Queues     | `/accounts/:id/queues[/:queueId][/...]`               | `queues:*`     |
 | Vectorize  | `/accounts/:id/vectorize/v2/indexes[/:name][/...]`    | `vectorize:*`  |
-| Hyperdrive | `/accounts/:id/hyperdrive/configs[/:id]`              | `hyperdrive:*` |
+| Hyperdrive | `/accounts/:id/hyperdrive/configs[/:id][/restart]`    | `hyperdrive:*` |
 
 #### Wrangler integration
 

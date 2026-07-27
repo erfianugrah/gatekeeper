@@ -8,6 +8,7 @@
  *   PUT    /accounts/:acct/hyperdrive/configs/:hyperdriveId       -> hyperdrive:update
  *   PATCH  /accounts/:acct/hyperdrive/configs/:hyperdriveId       -> hyperdrive:edit
  *   DELETE /accounts/:acct/hyperdrive/configs/:hyperdriveId       -> hyperdrive:delete
+ *   POST   /accounts/:acct/hyperdrive/configs/:hyperdriveId/restart -> hyperdrive:restart
  */
 
 import type { RequestContext } from '../../policy-types';
@@ -20,7 +21,8 @@ export type HyperdriveAction =
 	| 'hyperdrive:get'
 	| 'hyperdrive:update'
 	| 'hyperdrive:edit'
-	| 'hyperdrive:delete';
+	| 'hyperdrive:delete'
+	| 'hyperdrive:restart';
 
 // ─── Context builders ───────────────────────────────────────────────────────
 

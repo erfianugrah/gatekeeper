@@ -36,13 +36,13 @@ function readOnlyPolicy(prefix: string, readActions: string[]): PolicyDocument {
 	};
 }
 
-function scopedPolicy(prefix: string, field: string, value: string): PolicyDocument {
+function scopedPolicy(prefix: string, field: string, value: string, actions?: string[]): PolicyDocument {
 	return {
 		version: POLICY_VERSION,
 		statements: [
 			{
 				effect: 'allow',
-				actions: [`${prefix}:*`],
+				actions: actions ?? [`${prefix}:*`],
 				resources: [`account:${ACCOUNT_ID}`],
 				conditions: [{ field, operator: 'eq', value }],
 			},
@@ -551,6 +551,17 @@ describe('Hyperdrive proxy — CRUD', () => {
 		});
 		expect(res.status).toBe(200);
 	});
+
+	it('proxies POST /hyperdrive/configs/:id/restart (restart)', async () => {
+		const keyId = await createAccountKey(wildcardPolicy('hyperdrive'));
+		mockUpstream('POST', `${CF_API}/hyperdrive/configs/${HYPERDRIVE_ID}/restart`);
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/hyperdrive/configs/${HYPERDRIVE_ID}/restart`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}` },
+		});
+		expect(res.status).toBe(200);
+	});
 });
 
 describe('Hyperdrive proxy — policy enforcement', () => {
@@ -563,6 +574,27 @@ describe('Hyperdrive proxy — policy enforcement', () => {
 			body: JSON.stringify({ name: 'blocked' }),
 		});
 		expect(res.status).toBe(403);
+	});
+
+	it('403 when read-only policy blocks restart', async () => {
+		const keyId = await createAccountKey(readOnlyPolicy('hyperdrive', ['hyperdrive:list', 'hyperdrive:get']));
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/hyperdrive/configs/${HYPERDRIVE_ID}/restart`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}` },
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it('allows restart when config-scoped policy matches', async () => {
+		const keyId = await createAccountKey(scopedPolicy('hyperdrive', 'hyperdrive.config_id', HYPERDRIVE_ID, ['hyperdrive:restart']));
+		mockUpstream('POST', `${CF_API}/hyperdrive/configs/${HYPERDRIVE_ID}/restart`);
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/hyperdrive/configs/${HYPERDRIVE_ID}/restart`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}` },
+		});
+		expect(res.status).toBe(200);
 	});
 
 	it('403 when config-scoped policy does not match', async () => {
