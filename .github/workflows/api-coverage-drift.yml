@@ -5,6 +5,9 @@ name: API coverage drift
 # fetches the live Supabase + Cloudflare specs, and fails (opening a tracking issue) when an
 # upstream adds/moves/removes an endpoint the proxy doesn't yet handle. See
 # scripts/api-coverage/README.md.
+#
+# The tracking issue is opened/commented on failure and closed again on the first clean run,
+# so an open issue always means "drift is live right now" rather than "drift happened once".
 
 on:
   schedule:
@@ -18,6 +21,11 @@ permissions:
 concurrency:
   group: api-coverage-drift
   cancel-in-progress: false
+
+env:
+  # Single source of truth: the open/comment step and the close step must agree on this exact
+  # string, since the issue is looked up by title.
+  DRIFT_ISSUE_TITLE: API coverage drift detected
 
 jobs:
   drift:
@@ -44,7 +52,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          title="API coverage drift detected"
+          title="$DRIFT_ISSUE_TITLE"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           {
             echo "The scheduled API-coverage drift check failed — an upstream API likely changed."
@@ -67,6 +75,23 @@ jobs:
           else
             gh issue create --title "$title" --body-file drift-issue-body.md
           fi
+
+      - name: Close drift issue when clean
+        if: steps.drift.outputs.exit_code == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="$DRIFT_ISSUE_TITLE"
+          existing=$(gh issue list --state open --json number,title \
+            --jq ".[] | select(.title==\"$title\") | .number" | head -n1)
+          if [ -z "$existing" ]; then
+            echo "No open drift issue to close."
+            exit 0
+          fi
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          gh issue comment "$existing" --body "Drift cleared - all providers covered and snapshots current as of $run_url. Closing automatically; it will reopen (as a new issue) on the next drift."
+          gh issue close "$existing" --reason completed
+          echo "Closed drift issue #$existing."
 
       - name: Fail the run if drift detected
         if: steps.drift.outputs.exit_code != '0'
