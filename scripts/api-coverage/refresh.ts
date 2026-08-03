@@ -50,10 +50,19 @@ function diffSummary(committed: SnapshotOp[], next: SnapshotOp[]): string[] {
 	const before = byKey(committed);
 	const after = byKey(next);
 	const lines: string[] = [];
+	// Snapshot rows are exactly {method, path, summary, covered}. method+path form the key, so
+	// reporting BOTH remaining fields keeps this diff total over the row shape - otherwise a
+	// summary-only rename upstream prints "STALE ... Drift:" with an empty list and no way to
+	// tell a harmless doc reword from a real coverage change.
 	for (const [key, row] of after) {
 		const prev = before.get(key);
-		if (!prev) lines.push(`    + ${key}${row.covered ? '' : '  (UNCOVERED)'}`);
-		else if (prev.covered !== row.covered) lines.push(`    ~ ${key}  covered ${prev.covered} -> ${row.covered}`);
+		if (!prev) {
+			lines.push(`    + ${key}${row.covered ? '' : '  (UNCOVERED)'}`);
+			continue;
+		}
+		if (prev.covered !== row.covered) lines.push(`    ~ ${key}  covered ${prev.covered} -> ${row.covered}`);
+		if (prev.summary !== row.summary)
+			lines.push(`    ~ ${key}  summary ${JSON.stringify(prev.summary ?? '')} -> ${JSON.stringify(row.summary ?? '')}`);
 	}
 	for (const [key] of before) if (!after.has(key)) lines.push(`    - ${key}  (removed upstream)`);
 	return lines.sort();

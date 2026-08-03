@@ -380,7 +380,7 @@
 	{
 		"method": "PATCH",
 		"path": "/accounts/{account_id}/hyperdrive/configs/{hyperdrive_id}",
-		"summary": "Patch Hyperdrive",
+		"summary": "Update Hyperdrive",
 		"covered": true
 	},
 	{
@@ -686,7 +686,7 @@
 	{
 		"method": "PUT",
 		"path": "/accounts/{account_id}/hyperdrive/configs/{hyperdrive_id}",
-		"summary": "Update Hyperdrive",
+		"summary": "Replace Hyperdrive",
 		"covered": true
 	},
 	{
