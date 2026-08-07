@@ -24,7 +24,7 @@ import type {
 	BulkDryRunResult,
 } from './types';
 import type { S3Credential, CreateS3CredentialRequest } from './s3/types';
-import type { UpstreamToken, CreateUpstreamTokenRequest } from './upstream-tokens';
+import type { UpstreamToken, CreateUpstreamTokenRequest, MetricsCredentialLookup } from './upstream-tokens';
 import type { UpstreamR2, CreateUpstreamR2Request, R2Credentials } from './s3/upstream-r2';
 import type { GatewayConfig, ConfigOverride } from './config-registry';
 import type { RequestContext } from './policy-types';
@@ -692,6 +692,11 @@ export class Gatekeeper extends DurableObject<Env> {
 	/** Resolve a Supabase Metrics Basic credential by bound upstream token id. Returns null if absent/expired/wrong scope. */
 	async resolveSupabaseMetricsCredentialById(tokenId: string): Promise<{ username: string; secret: string } | null> {
 		return this.upstreamTokens.resolveSupabaseMetricsCredentialById(tokenId);
+	}
+
+	/** Pinned metrics-credential lookup that reports WHY it failed (missing / wrong type / expired). */
+	async lookupSupabaseMetricsCredentialById(tokenId: string): Promise<MetricsCredentialLookup> {
+		return this.upstreamTokens.lookupSupabaseMetricsCredentialById(tokenId);
 	}
 
 	// ─── Upstream R2 RPC methods ────────────────────────────────────────

@@ -63,6 +63,13 @@ const ID_PREFIX = 'upt_';
 
 // ─── Manager ────────────────────────────────────────────────────────────────
 
+/** Why a pinned metrics-credential lookup failed, so the caller can say which. */
+export type MetricsCredentialLookup =
+	| { ok: true; username: string; secret: string }
+	| { ok: false; reason: 'not-found' }
+	| { ok: false; reason: 'wrong-type'; actualScopeType: UpstreamTokenScopeType }
+	| { ok: false; reason: 'expired'; expiresAt: number };
+
 export class UpstreamTokenManager {
 	private sql: SqlStorage;
 	/** resolution cache keyed by `${scope}:${id}` (or bare zone_id legacy). Invalidated on write. */
@@ -393,9 +400,28 @@ export class UpstreamTokenManager {
 	 * decides which secret is swapped in.
 	 */
 	resolveSupabaseMetricsCredentialById(tokenId: string): { username: string; secret: string } | null {
-		const row = this.resolveRowById(tokenId);
-		if (!row || row.scope_type !== 'supabase_metrics') return null;
-		return { username: row.username ?? 'service_role', secret: row.token };
+		const r = this.lookupSupabaseMetricsCredentialById(tokenId);
+		return r.ok ? { username: r.username, secret: r.secret } : null;
+	}
+
+	/**
+	 * Same lookup, but says WHY it failed. Three conditions used to collapse into a
+	 * single null that the proxy rendered as "credential not found": a genuinely
+	 * missing row, a row of the wrong scope_type (a PAT pinned where a metrics
+	 * secret belongs), and an expired row. Only the first is actually "not found",
+	 * and reporting the other two that way costs real debugging time.
+	 */
+	lookupSupabaseMetricsCredentialById(tokenId: string): MetricsCredentialLookup {
+		const rows = queryAll<UpstreamTokenRow>(this.sql, 'SELECT * FROM upstream_tokens WHERE id = ?', tokenId);
+		const row = rows[0];
+		if (!row) return { ok: false, reason: 'not-found' };
+		if (row.expires_at && row.expires_at <= Date.now()) {
+			return { ok: false, reason: 'expired', expiresAt: row.expires_at };
+		}
+		if (row.scope_type !== 'supabase_metrics') {
+			return { ok: false, reason: 'wrong-type', actualScopeType: row.scope_type };
+		}
+		return { ok: true, username: row.username ?? 'service_role', secret: row.token };
 	}
 
 	/**

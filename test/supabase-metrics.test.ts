@@ -1,4 +1,4 @@
-import { SELF, fetchMock } from 'cloudflare:test';
+import { SELF, env, fetchMock } from 'cloudflare:test';
 import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
 import {
 	adminHeaders,
@@ -163,5 +163,66 @@ describe('supabase metrics proxy — auth and validation', () => {
 		// No supabase_metrics credential registered — resolveSupabaseMetricsCredential returns null
 		const res = await SELF.fetch(`https://gk/supabase/metrics/${REF}`, { headers: { Authorization: `Bearer ${key}` } });
 		expect(res.status).toBe(502);
+	});
+});
+
+// --- Pinned-credential diagnostics ---
+//
+// A key pinned to the wrong credential TYPE used to fail as "Pinned metrics
+// credential <id> not found", identical to a deleted credential. That cost two
+// live debugging rounds chasing storage when the row was present all along. The
+// mismatch cannot be caught at mint time: 'supabase:metrics:read' is also the
+// action for the v0 analytics scrape, which legitimately runs on a PAT
+// credential (supabase/classify.ts), so the action vocabulary does not
+// distinguish the two. Hence a precise runtime message instead.
+describe('supabase metrics proxy - pinned credential diagnostics', () => {
+	it('names a wrong-type pin rather than calling it missing', async () => {
+		const patTid = await registerSupabaseToken([REF], 'sbp_pat_not_metrics');
+		const key = await createSupabaseKey(metricsPolicy(REF), patTid, 'sb-metrics-on-pat');
+
+		const res = await SELF.fetch(`https://gk/supabase/metrics/${REF}`, {
+			headers: { Authorization: `Bearer ${key}` },
+		});
+		expect(res.status).toBe(502);
+		const body = await res.json<any>();
+		expect(body.message).toMatch(/is a 'supabase' token, not 'supabase_metrics'/);
+		expect(body.message).not.toMatch(/not found/);
+	});
+
+	it('still says not found when the pinned credential was deleted', async () => {
+		const tid = await registerSupabaseMetricsCredential([REF], 'sb_secret_xyz');
+		const key = await createSupabaseKey(metricsPolicy(REF), tid, 'sb-metrics-orphan');
+		const del = await SELF.fetch(`http://localhost/admin/upstream-tokens/${tid}`, {
+			method: 'DELETE',
+			headers: adminHeaders(),
+		});
+		expect(del.status).toBe(200);
+
+		const res = await SELF.fetch(`https://gk/supabase/metrics/${REF}`, {
+			headers: { Authorization: `Bearer ${key}` },
+		});
+		expect(res.status).toBe(502);
+		expect((await res.json<any>()).message).toMatch(/not found/i);
+	});
+
+	it('the resolver distinguishes missing, wrong-type and present', async () => {
+		const stub = env.GATEKEEPER.get(env.GATEKEEPER.idFromName('account'));
+		const patTid = await registerSupabaseToken([REF], 'sbp_pat_not_metrics');
+		const metricsTid = await registerSupabaseMetricsCredential([REF], 'sb_secret_xyz');
+
+		expect(await stub.lookupSupabaseMetricsCredentialById('upt_deadbeefdeadbeefdeadbeef')).toEqual({
+			ok: false,
+			reason: 'not-found',
+		});
+		expect(await stub.lookupSupabaseMetricsCredentialById(patTid)).toEqual({
+			ok: false,
+			reason: 'wrong-type',
+			actualScopeType: 'supabase',
+		});
+		expect(await stub.lookupSupabaseMetricsCredentialById(metricsTid)).toMatchObject({
+			ok: true,
+			username: 'service_role',
+			secret: 'sb_secret_xyz',
+		});
 	});
 });

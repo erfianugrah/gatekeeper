@@ -90,6 +90,11 @@ function allowedActionPrefixes(scopeType: UpstreamTokenScopeType): string[] {
 			return ZONE_ACTION_PREFIXES;
 		case 'account':
 			return ACCOUNT_ACTION_PREFIXES;
+		// NOT separable by action vocabulary: 'supabase:metrics:read' is used by BOTH
+		// /supabase/metrics/:ref (Basic secret, supabase_metrics credential) AND the v0
+		// analytics scrape (PAT, supabase credential - see supabase/classify.ts). A gate
+		// keyed on the action would reject the legitimate v0 pairing, so the credential
+		// mismatch is caught at request time instead, with a message that names it.
 		case 'supabase':
 		case 'supabase_metrics':
 			return SUPABASE_ACTION_PREFIXES;

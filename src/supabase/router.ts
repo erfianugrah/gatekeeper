@@ -88,19 +88,38 @@ supabaseApp.get('/metrics/:ref', async (c) => {
 	}
 
 	// Binding wins: a key pinned to a metrics credential uses that exact secret, never a ref match.
-	const cred = auth.upstreamTokenId
-		? await stub.resolveSupabaseMetricsCredentialById(auth.upstreamTokenId)
-		: await stub.resolveSupabaseMetricsCredential(ref);
+	// The pinned lookup reports WHY it failed - a wrong-scope_type or expired credential is not
+	// "not found", and saying so is the difference between a one-line fix and a storage hunt.
+	let cred: { username: string; secret: string } | null = null;
+	let pinnedFailure: { breadcrumb: string; message: string } | null = null;
+	if (auth.upstreamTokenId) {
+		const lookup = await stub.lookupSupabaseMetricsCredentialById(auth.upstreamTokenId);
+		if (lookup.ok) {
+			cred = { username: lookup.username, secret: lookup.secret };
+		} else if (lookup.reason === 'wrong-type') {
+			pinnedFailure = {
+				breadcrumb: 'supabase-metrics-pinned-credential-wrong-type',
+				message: `Pinned credential ${auth.upstreamTokenId} is a '${lookup.actualScopeType}' token, not 'supabase_metrics' - the metrics endpoint needs an HTTP Basic secret, not a PAT`,
+			};
+		} else if (lookup.reason === 'expired') {
+			pinnedFailure = {
+				breadcrumb: 'supabase-metrics-pinned-credential-expired',
+				message: `Pinned metrics credential ${auth.upstreamTokenId} expired at ${new Date(lookup.expiresAt).toISOString()}`,
+			};
+		} else {
+			pinnedFailure = {
+				breadcrumb: 'supabase-metrics-pinned-credential-not-found',
+				message: `Pinned metrics credential ${auth.upstreamTokenId} not found`,
+			};
+		}
+	} else {
+		cred = await stub.resolveSupabaseMetricsCredential(ref);
+	}
 	if (!cred) {
-		log.breadcrumb = auth.upstreamTokenId ? 'supabase-metrics-pinned-credential-not-found' : 'supabase-metrics-credential-not-found';
+		log.breadcrumb = pinnedFailure?.breadcrumb ?? 'supabase-metrics-credential-not-found';
 		log.status = 502;
 		console.log(JSON.stringify(log));
-		return sbJsonError(
-			502,
-			auth.upstreamTokenId
-				? `Pinned metrics credential ${auth.upstreamTokenId} not found`
-				: `No metrics credential registered for project ${ref}`,
-		);
+		return sbJsonError(502, pinnedFailure?.message ?? `No metrics credential registered for project ${ref}`);
 	}
 
 	const upstreamStart = Date.now();
