@@ -33,6 +33,10 @@ import {
 	dnsExportContext,
 	dnsImportContext,
 	dnsBatchToContexts,
+	dnsScanContext,
+	dnsTriggerScanContext,
+	dnsGetScanReviewContext,
+	dnsReviewScanContext,
 } from './operations';
 import type { CfProxyEnv } from '../router';
 import type { DnsEvent } from './analytics';
@@ -310,7 +314,108 @@ dnsRoutes.post('/dns_records/import', async (c) => {
 	}
 });
 
-// ─── Get single record ──────────────────────────────────────────────────────
+// ─── Zone scan ────────────────────────────────────────────────────
+// Must be before /:recordId to avoid matching "scan" as a record ID
+
+dnsRoutes.post('/dns_records/scan', async (c) => {
+	const zoneId: string = c.get('zoneId');
+	const requestFields: Record<string, string> = c.get('requestFields');
+
+	try {
+		const bodyText = await c.req.text();
+		const contexts = [dnsScanContext(zoneId, requestFields)];
+		return handleDnsRequest(
+			c,
+			'dns:scan',
+			contexts,
+			zoneId,
+			`/zones/${zoneId}/dns_records/scan`,
+			'POST',
+			bodyText,
+			null,
+			null,
+			'application/json',
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'dns.scan', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
+dnsRoutes.post('/dns_records/scan/trigger', async (c) => {
+	const zoneId: string = c.get('zoneId');
+	const requestFields: Record<string, string> = c.get('requestFields');
+
+	try {
+		const bodyText = await c.req.text();
+		const contexts = [dnsTriggerScanContext(zoneId, requestFields)];
+		return handleDnsRequest(
+			c,
+			'dns:trigger_scan',
+			contexts,
+			zoneId,
+			`/zones/${zoneId}/dns_records/scan/trigger`,
+			'POST',
+			bodyText,
+			null,
+			null,
+			'application/json',
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'dns.trigger_scan', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
+dnsRoutes.get('/dns_records/scan/review', async (c) => {
+	const zoneId: string = c.get('zoneId');
+	const requestFields: Record<string, string> = c.get('requestFields');
+
+	try {
+		const contexts = [dnsGetScanReviewContext(zoneId, requestFields)];
+		return handleDnsRequest(
+			c,
+			'dns:get_scan_review',
+			contexts,
+			zoneId,
+			`/zones/${zoneId}/dns_records/scan/review`,
+			'GET',
+			null,
+			null,
+			null,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'dns.get_scan_review', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
+dnsRoutes.post('/dns_records/scan/review', async (c) => {
+	const zoneId: string = c.get('zoneId');
+	const requestFields: Record<string, string> = c.get('requestFields');
+
+	try {
+		const bodyText = await c.req.text();
+		const contexts = [dnsReviewScanContext(zoneId, requestFields)];
+		return handleDnsRequest(
+			c,
+			'dns:review_scan',
+			contexts,
+			zoneId,
+			`/zones/${zoneId}/dns_records/scan/review`,
+			'POST',
+			bodyText,
+			null,
+			null,
+			'application/json',
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'dns.review_scan', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
+// ─── Get single record ──────────────────────────────────────────────
 
 dnsRoutes.get('/dns_records/:recordId', async (c) => {
 	const zoneId: string = c.get('zoneId');

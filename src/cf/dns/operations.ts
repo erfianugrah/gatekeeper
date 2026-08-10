@@ -4,13 +4,30 @@
  * Maps incoming HTTP requests to DNS IAM actions and extracts condition fields
  * from request bodies for policy evaluation. Follows the same pattern as
  * purgeBodyToContexts() in src/iam.ts.
+ *
+ * DNS zone-scan surface (from CF API / SDK):
+ *   POST   /zones/:zoneId/dns_records/scan                            -> dns:scan
+ *   POST   /zones/:zoneId/dns_records/scan/trigger                    -> dns:trigger_scan
+ *   GET    /zones/:zoneId/dns_records/scan/review                     -> dns:get_scan_review
+ *   POST   /zones/:zoneId/dns_records/scan/review                     -> dns:review_scan
  */
 
 import type { RequestContext } from '../../policy-types';
 
 // ─── DNS IAM actions ────────────────────────────────────────────────────────
 
-export type DnsAction = 'dns:create' | 'dns:read' | 'dns:update' | 'dns:delete' | 'dns:batch' | 'dns:export' | 'dns:import';
+export type DnsAction =
+	| 'dns:create'
+	| 'dns:read'
+	| 'dns:update'
+	| 'dns:delete'
+	| 'dns:batch'
+	| 'dns:export'
+	| 'dns:import'
+	| 'dns:scan'
+	| 'dns:trigger_scan'
+	| 'dns:get_scan_review'
+	| 'dns:review_scan';
 
 // ─── DNS record body shape (subset used for condition extraction) ────────────
 
@@ -106,6 +123,42 @@ export function dnsExportContext(zoneId: string, requestFields?: Record<string, 
 export function dnsImportContext(zoneId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'dns:import',
+		resource: `zone:${zoneId}`,
+		fields: { ...(requestFields ?? {}) },
+	};
+}
+
+/** Build a RequestContext for a DNS zone scan (POST /dns_records/scan). */
+export function dnsScanContext(zoneId: string, requestFields?: Record<string, string>): RequestContext {
+	return {
+		action: 'dns:scan',
+		resource: `zone:${zoneId}`,
+		fields: { ...(requestFields ?? {}) },
+	};
+}
+
+/** Build a RequestContext for triggering a DNS zone scan (POST /dns_records/scan/trigger). */
+export function dnsTriggerScanContext(zoneId: string, requestFields?: Record<string, string>): RequestContext {
+	return {
+		action: 'dns:trigger_scan',
+		resource: `zone:${zoneId}`,
+		fields: { ...(requestFields ?? {}) },
+	};
+}
+
+/** Build a RequestContext for listing scanned DNS records (GET /dns_records/scan/review). */
+export function dnsGetScanReviewContext(zoneId: string, requestFields?: Record<string, string>): RequestContext {
+	return {
+		action: 'dns:get_scan_review',
+		resource: `zone:${zoneId}`,
+		fields: { ...(requestFields ?? {}) },
+	};
+}
+
+/** Build a RequestContext for reviewing scanned DNS records (POST /dns_records/scan/review). */
+export function dnsReviewScanContext(zoneId: string, requestFields?: Record<string, string>): RequestContext {
+	return {
+		action: 'dns:review_scan',
 		resource: `zone:${zoneId}`,
 		fields: { ...(requestFields ?? {}) },
 	};

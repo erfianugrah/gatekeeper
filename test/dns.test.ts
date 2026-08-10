@@ -427,6 +427,112 @@ describe('DNS proxy — batch', () => {
 	});
 });
 
+// --- Zone scan ---
+
+describe('DNS proxy - zone scan', () => {
+	it('proxies POST /dns_records/scan with dns:scan policy', async () => {
+		const keyId = await createKeyWithPolicy({
+			version: POLICY_VERSION,
+			statements: [{ effect: 'allow', actions: ['dns:scan'], resources: [`zone:${ZONE_ID}`] }],
+		});
+		mockDnsUpstream('POST', `${CF_API_DNS_PATH}/scan`, 200, '{"success":true,"errors":[],"messages":[],"result":{}}');
+
+		const res = await SELF.fetch(`http://localhost${DNS_BASE}/scan`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: '{}',
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('403 when read-only policy tries scan', async () => {
+		const keyId = await createKeyWithPolicy(dnsReadOnlyPolicy());
+
+		const res = await SELF.fetch(`http://localhost${DNS_BASE}/scan`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: '{}',
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it('proxies POST /dns_records/scan/trigger with dns:trigger_scan policy', async () => {
+		const keyId = await createKeyWithPolicy({
+			version: POLICY_VERSION,
+			statements: [{ effect: 'allow', actions: ['dns:trigger_scan'], resources: [`zone:${ZONE_ID}`] }],
+		});
+		mockDnsUpstream('POST', `${CF_API_DNS_PATH}/scan/trigger`, 200, '{"success":true,"errors":[],"messages":[],"result":{}}');
+
+		const res = await SELF.fetch(`http://localhost${DNS_BASE}/scan/trigger`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: '{}',
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('403 when read-only policy tries scan/trigger', async () => {
+		const keyId = await createKeyWithPolicy(dnsReadOnlyPolicy());
+
+		const res = await SELF.fetch(`http://localhost${DNS_BASE}/scan/trigger`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: '{}',
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it('proxies GET /dns_records/scan/review with dns:get_scan_review policy', async () => {
+		const keyId = await createKeyWithPolicy({
+			version: POLICY_VERSION,
+			statements: [{ effect: 'allow', actions: ['dns:get_scan_review'], resources: [`zone:${ZONE_ID}`] }],
+		});
+		mockDnsUpstream('GET', `${CF_API_DNS_PATH}/scan/review`, 200, '{"success":true,"errors":[],"messages":[],"result":[]}');
+
+		const res = await SELF.fetch(`http://localhost${DNS_BASE}/scan/review`, {
+			method: 'GET',
+			headers: { Authorization: `Bearer ${keyId}` },
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('403 when read-only policy tries scan/review GET', async () => {
+		const keyId = await createKeyWithPolicy(dnsReadOnlyPolicy());
+
+		const res = await SELF.fetch(`http://localhost${DNS_BASE}/scan/review`, {
+			method: 'GET',
+			headers: { Authorization: `Bearer ${keyId}` },
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it('proxies POST /dns_records/scan/review with dns:review_scan policy', async () => {
+		const keyId = await createKeyWithPolicy({
+			version: POLICY_VERSION,
+			statements: [{ effect: 'allow', actions: ['dns:review_scan'], resources: [`zone:${ZONE_ID}`] }],
+		});
+		mockDnsUpstream('POST', `${CF_API_DNS_PATH}/scan/review`, 200, '{"success":true,"errors":[],"messages":[],"result":{}}');
+
+		const res = await SELF.fetch(`http://localhost${DNS_BASE}/scan/review`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ accept: ['rec123'] }),
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('403 when read-only policy tries scan/review POST', async () => {
+		const keyId = await createKeyWithPolicy(dnsReadOnlyPolicy());
+
+		const res = await SELF.fetch(`http://localhost${DNS_BASE}/scan/review`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ accept: ['rec123'] }),
+		});
+		expect(res.status).toBe(403);
+	});
+});
+
 // ─── Upstream error proxying ────────────────────────────────────────────────
 
 describe('DNS proxy — upstream errors', () => {

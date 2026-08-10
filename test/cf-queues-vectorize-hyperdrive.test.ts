@@ -208,6 +208,121 @@ describe('Queues proxy — messages', () => {
 	});
 });
 
+describe('Queues proxy - message preview/peek/purge + metrics', () => {
+	it('proxies POST /queues/:id/messages/preview', async () => {
+		const keyId = await createAccountKey(wildcardPolicy('queues'));
+		mockUpstream('POST', `${CF_API}/queues/${QUEUE_ID}/messages/preview`);
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/queues/${QUEUE_ID}/messages/preview`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ batch_size: 10 }),
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('proxies POST /queues/:id/messages/preview/ack', async () => {
+		const keyId = await createAccountKey(wildcardPolicy('queues'));
+		mockUpstream('POST', `${CF_API}/queues/${QUEUE_ID}/messages/preview/ack`);
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/queues/${QUEUE_ID}/messages/preview/ack`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ acks: [] }),
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('proxies POST /queues/:id/messages/peek', async () => {
+		const keyId = await createAccountKey(wildcardPolicy('queues'));
+		mockUpstream('POST', `${CF_API}/queues/${QUEUE_ID}/messages/peek`);
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/queues/${QUEUE_ID}/messages/peek`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ batch_size: 10 }),
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('proxies POST /queues/:id/messages/purge (peeked messages)', async () => {
+		const keyId = await createAccountKey(wildcardPolicy('queues'));
+		mockUpstream('POST', `${CF_API}/queues/${QUEUE_ID}/messages/purge`);
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/queues/${QUEUE_ID}/messages/purge`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ message_refs: ['ref1'] }),
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('proxies GET /queues/:id/metrics', async () => {
+		const keyId = await createAccountKey(wildcardPolicy('queues'));
+		mockUpstream('GET', `${CF_API}/queues/${QUEUE_ID}/metrics`);
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/queues/${QUEUE_ID}/metrics`, {
+			method: 'GET',
+			headers: { Authorization: `Bearer ${keyId}` },
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('403 preview without queues:preview_messages', async () => {
+		const keyId = await createAccountKey(readOnlyPolicy('queues', ['queues:list', 'queues:get']));
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/queues/${QUEUE_ID}/messages/preview`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ batch_size: 10 }),
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it('403 preview/ack without queues:ack_previewed_messages', async () => {
+		const keyId = await createAccountKey(readOnlyPolicy('queues', ['queues:list', 'queues:get']));
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/queues/${QUEUE_ID}/messages/preview/ack`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ acks: [] }),
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it('403 peek without queues:peek_messages', async () => {
+		const keyId = await createAccountKey(readOnlyPolicy('queues', ['queues:list', 'queues:get']));
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/queues/${QUEUE_ID}/messages/peek`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ batch_size: 10 }),
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it('403 purge peeked messages without queues:purge_peeked_messages', async () => {
+		const keyId = await createAccountKey(readOnlyPolicy('queues', ['queues:list', 'queues:get']));
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/queues/${QUEUE_ID}/messages/purge`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ message_refs: ['ref1'] }),
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it('403 metrics without queues:get_metrics', async () => {
+		const keyId = await createAccountKey(readOnlyPolicy('queues', ['queues:list', 'queues:get']));
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/queues/${QUEUE_ID}/metrics`, {
+			method: 'GET',
+			headers: { Authorization: `Bearer ${keyId}` },
+		});
+		expect(res.status).toBe(403);
+	});
+});
+
 describe('Queues proxy — purge + consumers', () => {
 	it('proxies POST /queues/:id/purge', async () => {
 		const keyId = await createAccountKey(wildcardPolicy('queues'));
@@ -565,6 +680,22 @@ describe('Hyperdrive proxy — CRUD', () => {
 });
 
 describe('Hyperdrive proxy — policy enforcement', () => {
+	it('404 on createDatabaseSignature even with a wildcard hyperdrive policy', async () => {
+		const keyId = await createAccountKey(wildcardPolicy('hyperdrive'));
+
+		// Deliberately unrouted: the response is a credential the caller redeems directly with the partner,
+		// off this gateway (docs/SECURITY.md). A wildcard policy is not enough - there is no route at all.
+		const res = await SELF.fetch(
+			`http://localhost/cf/accounts/${ACCOUNT_ID}/hyperdrive/integrationsOperations/planetScale/createDatabaseSignature`,
+			{
+				method: 'POST',
+				headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+				body: JSON.stringify({}),
+			},
+		);
+		expect(res.status).toBe(404);
+	});
+
 	it('403 when read-only policy blocks create', async () => {
 		const keyId = await createAccountKey(readOnlyPolicy('hyperdrive', ['hyperdrive:list', 'hyperdrive:get']));
 

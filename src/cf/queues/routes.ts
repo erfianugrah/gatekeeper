@@ -215,6 +215,106 @@ queuesRoutes.post('/:queueId/messages/ack', async (c) => {
 	}
 });
 
+queuesRoutes.post('/:queueId/messages/preview', async (c) => {
+	const accountId: string = c.get('accountId');
+	const rf: Record<string, string> = c.get('requestFields');
+	const queueId = c.req.param('queueId');
+	try {
+		return jsonServiceRoute(
+			c,
+			SVC,
+			'queues:preview_messages',
+			[queuesQueueContext(accountId, queueId, 'queues:preview_messages', rf)],
+			`/accounts/${accountId}/queues/${queueId}/messages/preview`,
+			'POST',
+			queueId,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'queues.preview_messages', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
+queuesRoutes.post('/:queueId/messages/preview/ack', async (c) => {
+	const accountId: string = c.get('accountId');
+	const rf: Record<string, string> = c.get('requestFields');
+	const queueId = c.req.param('queueId');
+	try {
+		return jsonServiceRoute(
+			c,
+			SVC,
+			'queues:ack_previewed_messages',
+			[queuesQueueContext(accountId, queueId, 'queues:ack_previewed_messages', rf)],
+			`/accounts/${accountId}/queues/${queueId}/messages/preview/ack`,
+			'POST',
+			queueId,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'queues.ack_previewed_messages', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
+queuesRoutes.post('/:queueId/messages/peek', async (c) => {
+	const accountId: string = c.get('accountId');
+	const rf: Record<string, string> = c.get('requestFields');
+	const queueId = c.req.param('queueId');
+	try {
+		return jsonServiceRoute(
+			c,
+			SVC,
+			'queues:peek_messages',
+			[queuesQueueContext(accountId, queueId, 'queues:peek_messages', rf)],
+			`/accounts/${accountId}/queues/${queueId}/messages/peek`,
+			'POST',
+			queueId,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'queues.peek_messages', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
+queuesRoutes.post('/:queueId/messages/purge', async (c) => {
+	const accountId: string = c.get('accountId');
+	const rf: Record<string, string> = c.get('requestFields');
+	const queueId = c.req.param('queueId');
+	try {
+		return jsonServiceRoute(
+			c,
+			SVC,
+			'queues:purge_peeked_messages',
+			[queuesQueueContext(accountId, queueId, 'queues:purge_peeked_messages', rf)],
+			`/accounts/${accountId}/queues/${queueId}/messages/purge`,
+			'POST',
+			queueId,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'queues.purge_peeked_messages', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
+queuesRoutes.get('/:queueId/metrics', async (c) => {
+	const accountId: string = c.get('accountId');
+	const rf: Record<string, string> = c.get('requestFields');
+	const queueId = c.req.param('queueId');
+	try {
+		return jsonServiceRoute(
+			c,
+			SVC,
+			'queues:get_metrics',
+			[queuesQueueContext(accountId, queueId, 'queues:get_metrics', rf)],
+			`/accounts/${accountId}/queues/${queueId}/metrics`,
+			'GET',
+			queueId,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'queues.get_metrics', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
 // ─── Purge ──────────────────────────────────────────────────────────────────
 
 queuesRoutes.post('/:queueId/purge', async (c) => {

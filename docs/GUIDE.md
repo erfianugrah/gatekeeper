@@ -2667,6 +2667,16 @@ wrangler queues list
 }
 ```
 
+### Not proxied (deliberately)
+
+Three in-surface CF endpoints are never proxied, on purpose, and calling them through Gatekeeper returns 404:
+
+- `POST /accounts/{account_id}/workers/observability/telemetry/live-tail`
+- `POST /accounts/{account_id}/workers/observability/telemetry/live-tail/heartbeat`
+- `POST /accounts/{account_id}/hyperdrive/integrationsOperations/{integration}/createDatabaseSignature`
+
+Each of these hands the caller a channel that leaves the gateway entirely: the live-tail call returns a session the client redeems directly against Cloudflare (the heartbeat just keeps that session alive), and `createDatabaseSignature` returns a short-lived signed authorization redeemed directly with the partner integration to create a database billed to the account. Once issued, Gatekeeper can't observe, scope, or revoke what happens on that channel, so fronting it would authorize something the IAM policy engine has no visibility into afterward. See `docs/SECURITY.md` for the full rationale. Use the Cloudflare API directly (with a narrowly-scoped credential) for these three operations.
+
 ---
 
 ## Appendix A: Policy Reference
@@ -2703,7 +2713,7 @@ The current and only supported policy version is `"2025-01-01"`.
 
 ### DNS actions
 
-`dns:create`, `dns:read`, `dns:update`, `dns:delete`, `dns:batch`, `dns:export`, `dns:import`, `dns:*`
+`dns:create`, `dns:read`, `dns:update`, `dns:delete`, `dns:batch`, `dns:export`, `dns:import`, `dns:scan`, `dns:trigger_scan`, `dns:get_scan_review`, `dns:review_scan`, `dns:*`
 
 ### S3 actions
 
@@ -2719,11 +2729,11 @@ The current and only supported policy version is `"2025-01-01"`.
 
 ### Workers actions
 
-`workers:list_scripts`, `workers:get_script`, `workers:update_script`, `workers:delete_script`, `workers:get_content`, `workers:update_content`, `workers:get_settings`, `workers:update_settings`, `workers:get_script_settings`, `workers:update_script_settings`, `workers:list_versions`, `workers:get_version`, `workers:create_version`, `workers:list_deployments`, `workers:get_deployment`, `workers:create_deployment`, `workers:delete_deployment`, `workers:list_secrets`, `workers:get_secret`, `workers:update_secret`, `workers:delete_secret`, `workers:get_schedules`, `workers:update_schedules`, `workers:list_tails`, `workers:create_tail`, `workers:delete_tail`, `workers:get_subdomain`, `workers:update_subdomain`, `workers:delete_subdomain`, `workers:upload_assets`, `workers:get_account_subdomain`, `workers:update_account_subdomain`, `workers:delete_account_subdomain`, `workers:get_account_settings`, `workers:update_account_settings`, `workers:list_domains`, `workers:get_domain`, `workers:update_domain`, `workers:delete_domain`, `workers:telemetry`, `workers:*`
+`workers:list_scripts`, `workers:get_script`, `workers:update_script`, `workers:delete_script`, `workers:get_content`, `workers:update_content`, `workers:get_settings`, `workers:update_settings`, `workers:get_script_settings`, `workers:update_script_settings`, `workers:list_versions`, `workers:get_version`, `workers:create_version`, `workers:list_deployments`, `workers:get_deployment`, `workers:create_deployment`, `workers:delete_deployment`, `workers:list_secrets`, `workers:get_secret`, `workers:update_secret`, `workers:delete_secret`, `workers:update_secrets_bulk`, `workers:get_usage_model`, `workers:update_usage_model`, `workers:get_schedules`, `workers:update_schedules`, `workers:list_tails`, `workers:create_tail`, `workers:delete_tail`, `workers:get_subdomain`, `workers:update_subdomain`, `workers:delete_subdomain`, `workers:upload_assets`, `workers:get_account_subdomain`, `workers:update_account_subdomain`, `workers:delete_account_subdomain`, `workers:get_account_settings`, `workers:update_account_settings`, `workers:list_domains`, `workers:get_domain`, `workers:update_domain`, `workers:delete_domain`, `workers:telemetry`, `workers:*`
 
 ### Queues actions
 
-`queues:create`, `queues:list`, `queues:get`, `queues:update`, `queues:edit`, `queues:delete`, `queues:push_message`, `queues:bulk_push`, `queues:pull_messages`, `queues:ack_messages`, `queues:purge`, `queues:purge_status`, `queues:create_consumer`, `queues:list_consumers`, `queues:get_consumer`, `queues:update_consumer`, `queues:delete_consumer`, `queues:*`
+`queues:create`, `queues:list`, `queues:get`, `queues:update`, `queues:edit`, `queues:delete`, `queues:push_message`, `queues:bulk_push`, `queues:pull_messages`, `queues:ack_messages`, `queues:preview_messages`, `queues:ack_previewed_messages`, `queues:peek_messages`, `queues:purge_peeked_messages`, `queues:get_metrics`, `queues:purge`, `queues:purge_status`, `queues:create_consumer`, `queues:list_consumers`, `queues:get_consumer`, `queues:update_consumer`, `queues:delete_consumer`, `queues:*`
 
 ### Vectorize actions
 

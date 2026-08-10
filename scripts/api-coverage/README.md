@@ -11,7 +11,7 @@ covering it with no error. This framework makes that drift loud.
 |---|---|---|---|
 | `supabase` | live OpenAPI (`api.supabase.com/api/v1-json`) | `classifySupabaseRequest` ≠ null | 170 (all covered) |
 | `s3` | runtime enum `S3_OPERATIONS` (`src/s3/operations.ts`) | real `detectOperation` routes the probe back | 66 (all covered) |
-| `cloudflare` | live CF OpenAPI (filtered to proxied resources) | a real Hono route in the service sub-app matches | 132 (116 covered, 16 allowlisted) |
+| `cloudflare` | live CF OpenAPI (filtered to proxied resources) | a real Hono route in the service sub-app matches | 132 (129 covered, 3 allowlisted) |
 
 Three different *surface sources*, one uniform interface. Each upstream is policed by the model
 that fits its shape — see "Coverage models" below.
@@ -84,9 +84,9 @@ coverage predicate differ per upstream because the upstreams differ:
   to the sub-resource prefixes we actually proxy (KV, D1, Workers, Queues, Vectorize v2, Hyperdrive,
   DNS records), and checks coverage by matching each op against the **real Hono routes** registered
   by each service sub-app (`app.routes`, read without executing handlers). Catches CF adding/moving
-  an endpoint under a resource we already proxy. 16 in-surface endpoints we deliberately skip
-  (streaming live-tail, legacy/bulk shapes, zone-scan, the peek/preview message family,
-  partner-integration billing grants) live in the allowlist with reasons.
+  an endpoint under a resource we already proxy. 3 in-surface endpoints we deliberately skip
+  (both live-tail calls and the Hyperdrive partner-integration billing-signature grant - each
+  hands the caller a channel that leaves the gateway) live in the allowlist with reasons.
 
 The whole rest of the CF API is *out of surface* — never filtered in — so the allowlist stays small
 and meaningful instead of swallowing thousands of unproxied endpoints. That filtering is the

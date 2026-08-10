@@ -8,10 +8,11 @@
  * sub-app (read via `app.routes` — no handler execution, no `cloudflare:workers` import in the graph).
  *
  * Drift this catches: CF adds/moves an endpoint under a resource we already proxy (e.g. a new
- * `/scripts/{name}/...`) and the router has no matching route. Endpoints under our prefixes that
- * we intentionally don't proxy (streaming live-tail, deprecated shapes) live in `allowlist`.
+ * `/scripts/{name}/...`) and the router has no matching route. The three endpoints under our
+ * prefixes we deliberately never proxy (both live-tail calls, the Hyperdrive partner-integration
+ * billing signature) hand the caller a channel that leaves the gateway entirely - see `allowlist`.
  * The huge remainder of the CF API is out of surface entirely (never filtered in), so it is not
- * noise — only the parts we claim to proxy are policed.
+ * noise - only the parts we claim to proxy are policed.
  */
 
 import { kvRoutes } from '../../../src/cf/kv/routes';
@@ -138,28 +139,15 @@ export const cloudflareProvider: CoverageProvider = {
 	// CF-spec endpoints under our proxied resources that we intentionally do NOT proxy.
 	// Each is a conscious skip surfaced by `npm run check:api-coverage`, not a silent gap.
 	allowlist: {
-		'DELETE /accounts/{account_id}/storage/kv/namespaces/{namespace_id}/bulk':
-			'legacy bulk-delete shape — we proxy POST /bulk/delete instead',
-		'PATCH /accounts/{account_id}/workers/scripts/{script_name}/secrets-bulk': 'bulk secrets write not proxied — individual /secrets is',
-		'GET /accounts/{account_id}/workers/scripts/{script_name}/usage-model':
-			'deprecated usage-model endpoint — superseded by script settings',
-		'PUT /accounts/{account_id}/workers/scripts/{script_name}/usage-model':
-			'deprecated usage-model endpoint — superseded by script settings',
-		'POST /accounts/{account_id}/workers/observability/telemetry/live-tail': 'streaming live-tail not proxied (long-lived connection)',
+		// Both live-tail calls hand the caller a WebSocket/session identifier redeemed directly
+		// against Cloudflare, not through this gateway - proxying the POST would authorize a
+		// channel this gateway can never observe or revoke traffic on afterward.
+		'POST /accounts/{account_id}/workers/observability/telemetry/live-tail':
+			'response hands the caller a session the client redeems directly with Cloudflare, off this gateway - not proxied',
 		'POST /accounts/{account_id}/workers/observability/telemetry/live-tail/heartbeat':
-			'streaming live-tail not proxied (long-lived connection)',
+			'keeps the live-tail session above alive; same off-gateway-channel rationale, and useless without it - not proxied',
 		'POST /accounts/{account_id}/hyperdrive/integrationsOperations/{integration}/createDatabaseSignature':
-			'partner-integration billing grant (mints a signed authorization to create a partner-hosted database billed through Cloudflare); only hyperdrive configs are proxied',
-		'POST /accounts/{account_id}/queues/{queue_id}/messages/peek': 'peek is the renamed preview shape; neither is proxied, pull/ack are',
-		'POST /accounts/{account_id}/queues/{queue_id}/messages/purge':
-			'purges peeked messages by ref; the peek/preview family is not proxied (the queue-level POST /purge is)',
-		'GET /accounts/{account_id}/queues/{queue_id}/metrics': 'queue metrics not proxied — not part of the queue control surface',
-		'POST /accounts/{account_id}/queues/{queue_id}/messages/preview': 'message preview not proxied — pull/ack are',
-		'POST /accounts/{account_id}/queues/{queue_id}/messages/preview/ack': 'message preview not proxied — pull/ack are',
-		'POST /zones/{zone_id}/dns_records/scan': 'DNS zone-scan feature not proxied — CRUD + batch + import/export are',
-		'POST /zones/{zone_id}/dns_records/scan/trigger': 'DNS zone-scan feature not proxied — CRUD + batch + import/export are',
-		'GET /zones/{zone_id}/dns_records/scan/review': 'DNS zone-scan feature not proxied — CRUD + batch + import/export are',
-		'POST /zones/{zone_id}/dns_records/scan/review': 'DNS zone-scan feature not proxied — CRUD + batch + import/export are',
+			'response is a short-lived signed authorization the caller redeems directly with the partner integration to create a database billed to the account - an off-gateway credential grant, same rationale as live-tail',
 	},
 };
 

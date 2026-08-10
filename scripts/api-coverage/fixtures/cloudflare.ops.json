@@ -33,7 +33,7 @@
 		"method": "DELETE",
 		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/bulk",
 		"summary": "Delete multiple key-value pairs",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "DELETE",
@@ -153,7 +153,7 @@
 		"method": "GET",
 		"path": "/accounts/{account_id}/queues/{queue_id}/metrics",
 		"summary": "Get Queue Metrics",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "GET",
@@ -321,7 +321,7 @@
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/usage-model",
 		"summary": "Fetch Usage Model",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "GET",
@@ -363,7 +363,7 @@
 		"method": "GET",
 		"path": "/zones/{zone_id}/dns_records/scan/review",
 		"summary": "List Scanned DNS Records",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "GET",
@@ -399,7 +399,7 @@
 		"method": "PATCH",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/secrets-bulk",
 		"summary": "Patch multiple script secrets",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "PATCH",
@@ -501,19 +501,19 @@
 		"method": "POST",
 		"path": "/accounts/{account_id}/queues/{queue_id}/messages/peek",
 		"summary": "Peek Queue Messages",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/accounts/{account_id}/queues/{queue_id}/messages/preview",
 		"summary": "Preview Queue Messages",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/accounts/{account_id}/queues/{queue_id}/messages/preview/ack",
 		"summary": "Delete Previewed Queue Messages",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "POST",
@@ -525,7 +525,7 @@
 		"method": "POST",
 		"path": "/accounts/{account_id}/queues/{queue_id}/messages/purge",
 		"summary": "Purge Peeked Queue Messages",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "POST",
@@ -681,19 +681,19 @@
 		"method": "POST",
 		"path": "/zones/{zone_id}/dns_records/scan",
 		"summary": "Scan DNS Records",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/zones/{zone_id}/dns_records/scan/review",
 		"summary": "Review Scanned DNS Records",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/zones/{zone_id}/dns_records/scan/trigger",
 		"summary": "Trigger DNS Record Scan",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "PUT",
@@ -777,7 +777,7 @@
 		"method": "PUT",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/usage-model",
 		"summary": "Update Usage Model",
-		"covered": false
+		"covered": true
 	},
 	{
 		"method": "PUT",

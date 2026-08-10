@@ -16,6 +16,7 @@
  *   DELETE /accounts/:acct/storage/kv/namespaces/:nsId/values/:keyName                 -> kv:delete_value
  *   GET    /accounts/:acct/storage/kv/namespaces/:nsId/metadata/:keyName               -> kv:get_metadata
  *   PUT    /accounts/:acct/storage/kv/namespaces/:nsId/bulk                            -> kv:bulk_write
+ *   DELETE /accounts/:acct/storage/kv/namespaces/:nsId/bulk                            -> kv:bulk_delete (legacy shape, same action)
  *   POST   /accounts/:acct/storage/kv/namespaces/:nsId/bulk/delete                     -> kv:bulk_delete
  *   POST   /accounts/:acct/storage/kv/namespaces/:nsId/bulk/get                        -> kv:bulk_get
  */

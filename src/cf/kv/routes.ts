@@ -16,6 +16,7 @@
  *   DELETE /namespaces/:namespaceId/values/*                  -> kv:delete_value
  *   GET    /namespaces/:namespaceId/metadata/*                -> kv:get_metadata
  *   PUT    /namespaces/:namespaceId/bulk                     -> kv:bulk_write
+ *   DELETE /namespaces/:namespaceId/bulk                     -> kv:bulk_delete (legacy shape, same action)
  *   POST   /namespaces/:namespaceId/bulk/delete              -> kv:bulk_delete
  *   POST   /namespaces/:namespaceId/bulk/get                 -> kv:bulk_get
  */
@@ -374,6 +375,32 @@ kvRoutes.put('/namespaces/:namespaceId/bulk', async (c) => {
 		);
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'kv.bulk_write', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
+// ─── Bulk delete (legacy DELETE /bulk shape, reuses kv:bulk_delete) ─────────
+
+kvRoutes.delete('/namespaces/:namespaceId/bulk', async (c) => {
+	const accountId: string = c.get('accountId');
+	const requestFields: Record<string, string> = c.get('requestFields');
+	const namespaceId = c.req.param('namespaceId');
+
+	try {
+		const bodyText = await c.req.text();
+		const contexts = [kvBulkDeleteContext(accountId, namespaceId, requestFields)];
+		return handleKvRequest(
+			c,
+			'kv:bulk_delete',
+			contexts,
+			`/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/bulk`,
+			'DELETE',
+			bodyText,
+			'application/json',
+			namespaceId,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'kv.bulk_delete_legacy', error: e.message, ts: new Date().toISOString() }));
 		return cfJsonError(500, 'Internal server error');
 	}
 });

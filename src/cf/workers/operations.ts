@@ -38,6 +38,11 @@
  *   GET    /accounts/:acct/workers/scripts/:scriptName/secrets                    -> workers:list_secrets
  *   DELETE /accounts/:acct/workers/scripts/:scriptName/secrets/:secretName        -> workers:delete_secret
  *   GET    /accounts/:acct/workers/scripts/:scriptName/secrets/:secretName        -> workers:get_secret
+ *   PATCH  /accounts/:acct/workers/scripts/:scriptName/secrets-bulk               -> workers:update_secrets_bulk
+ *
+ * Usage model (deprecated upstream, superseded by script settings):
+ *   GET    /accounts/:acct/workers/scripts/:scriptName/usage-model                -> workers:get_usage_model
+ *   PUT    /accounts/:acct/workers/scripts/:scriptName/usage-model                -> workers:update_usage_model
  *
  * Schedules (cron triggers):
  *   PUT    /accounts/:acct/workers/scripts/:scriptName/schedules                  -> workers:update_schedules
@@ -109,6 +114,10 @@ export type WorkersAction =
 	| 'workers:get_secret'
 	| 'workers:update_secret'
 	| 'workers:delete_secret'
+	| 'workers:update_secrets_bulk'
+	// Usage model (deprecated upstream, superseded by script settings)
+	| 'workers:get_usage_model'
+	| 'workers:update_usage_model'
 	// Schedules
 	| 'workers:get_schedules'
 	| 'workers:update_schedules'

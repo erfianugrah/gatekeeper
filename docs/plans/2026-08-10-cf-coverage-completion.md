@@ -1,8 +1,17 @@
 # Cloudflare proxy: close the coverage allowlist
 
-**Status:** in progress. This document is the binding spec for the loop run that
-implements it. It is read-only to the implementing agent; if something here is
-wrong, stop and say so rather than editing this file.
+**Status:** done. Implemented in one pass by the sensor-gated loop this document
+specified (`.pi/harness.json`); end state `132 in-surface ops, 129 covered, 3
+allowlisted`, suite 1351 -> 1380 tests. Kept as the record of what was decided
+and why, including the three deliberate skips. It was read-only to the
+implementing agent.
+
+One thing was added after the loop finished, because the spec had not asked for
+it: the "returns 404" promise the guide now makes about the three skipped
+endpoints is pinned by tests (`test/cf-workers.test.ts`,
+`test/cf-queues-vectorize-hyperdrive.test.ts`) that call each one with a WILDCARD
+policy and assert 404 - proving the skip is structural (no route) rather than a
+policy accident.
 
 ## Goal
 

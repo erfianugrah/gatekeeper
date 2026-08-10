@@ -521,9 +521,41 @@ describe('KV proxy — bulk write', () => {
 	});
 });
 
+// ─── Bulk delete (legacy DELETE /bulk shape) ───────────────────────
+
+describe('KV proxy - bulk delete (legacy DELETE /bulk)', () => {
+	it('proxies DELETE bulk', async () => {
+		const keyId = await createAccountKey(kvWildcardPolicy());
+		mockKvUpstream(
+			'DELETE',
+			`${CF_API_KV_PATH}/namespaces/${NAMESPACE_ID}/bulk`,
+			200,
+			'{"success":true,"errors":[],"messages":[],"result":{"successful_key_count":2}}',
+		);
+
+		const res = await SELF.fetch(`http://localhost${KV_BASE}/namespaces/${NAMESPACE_ID}/bulk`, {
+			method: 'DELETE',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify(['k1', 'k2']),
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('403 when read-only policy', async () => {
+		const keyId = await createAccountKey(kvReadOnlyPolicy());
+
+		const res = await SELF.fetch(`http://localhost${KV_BASE}/namespaces/${NAMESPACE_ID}/bulk`, {
+			method: 'DELETE',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify(['k1']),
+		});
+		expect(res.status).toBe(403);
+	});
+});
+
 // ─── Bulk delete ────────────────────────────────────────────────────────────
 
-describe('KV proxy — bulk delete', () => {
+describe('KV proxy - bulk delete', () => {
 	it('proxies POST bulk delete', async () => {
 		const keyId = await createAccountKey(kvWildcardPolicy());
 		mockKvUpstream(

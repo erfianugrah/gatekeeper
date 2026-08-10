@@ -530,6 +530,110 @@ describe('Workers proxy — secrets', () => {
 	});
 });
 
+// --- Secrets bulk ---
+
+describe('Workers proxy - secrets bulk', () => {
+	it('proxies PATCH /scripts/:name/secrets-bulk', async () => {
+		const keyId = await createAccountKey(workersWildcardPolicy());
+		mockWorkersUpstream('PATCH', `${CF_API_WORKERS_PATH}/scripts/${SCRIPT_NAME}/secrets-bulk`);
+
+		const res = await SELF.fetch(`http://localhost${WORKERS_BASE}/scripts/${SCRIPT_NAME}/secrets-bulk`, {
+			method: 'PATCH',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify([{ name: SECRET_NAME, text: 'secret-value', type: 'secret_text' }]),
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('403 update secrets-bulk with read-only policy', async () => {
+		const keyId = await createAccountKey(workersReadOnlyPolicy());
+
+		const res = await SELF.fetch(`http://localhost${WORKERS_BASE}/scripts/${SCRIPT_NAME}/secrets-bulk`, {
+			method: 'PATCH',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify([{ name: SECRET_NAME, text: 'val', type: 'secret_text' }]),
+		});
+		expect(res.status).toBe(403);
+	});
+});
+
+// --- Usage model (deprecated) ---
+
+describe('Workers proxy - usage model', () => {
+	it('proxies GET /scripts/:name/usage-model', async () => {
+		const keyId = await createAccountKey(workersWildcardPolicy());
+		mockWorkersUpstream('GET', `${CF_API_WORKERS_PATH}/scripts/${SCRIPT_NAME}/usage-model`);
+
+		const res = await SELF.fetch(`http://localhost${WORKERS_BASE}/scripts/${SCRIPT_NAME}/usage-model`, {
+			method: 'GET',
+			headers: { Authorization: `Bearer ${keyId}` },
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('proxies PUT /scripts/:name/usage-model', async () => {
+		const keyId = await createAccountKey(workersWildcardPolicy());
+		mockWorkersUpstream('PUT', `${CF_API_WORKERS_PATH}/scripts/${SCRIPT_NAME}/usage-model`);
+
+		const res = await SELF.fetch(`http://localhost${WORKERS_BASE}/scripts/${SCRIPT_NAME}/usage-model`, {
+			method: 'PUT',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ usage_model: 'bundled' }),
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('403 get usage-model with deploy-only policy', async () => {
+		const keyId = await createAccountKey(workersDeployOnlyPolicy());
+
+		const res = await SELF.fetch(`http://localhost${WORKERS_BASE}/scripts/${SCRIPT_NAME}/usage-model`, {
+			method: 'GET',
+			headers: { Authorization: `Bearer ${keyId}` },
+		});
+		expect(res.status).toBe(403);
+	});
+
+	it('403 update usage-model with read-only policy', async () => {
+		const keyId = await createAccountKey(workersReadOnlyPolicy());
+
+		const res = await SELF.fetch(`http://localhost${WORKERS_BASE}/scripts/${SCRIPT_NAME}/usage-model`, {
+			method: 'PUT',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ usage_model: 'bundled' }),
+		});
+		expect(res.status).toBe(403);
+	});
+});
+
+// --- Deliberately not proxied (off-gateway channels) ---
+
+// Both live-tail calls hand the caller a session redeemed directly against Cloudflare, so they are
+// deliberately unrouted (see docs/SECURITY.md). This pins the 404 that docs/GUIDE.md promises: a
+// wildcard policy is NOT enough, because there is no route at all.
+describe('Workers proxy - live-tail is deliberately not proxied', () => {
+	it('404 on live-tail prepare even with a wildcard workers policy', async () => {
+		const keyId = await createAccountKey(workersWildcardPolicy());
+
+		const res = await SELF.fetch(`http://localhost${WORKERS_BASE}/observability/telemetry/live-tail`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ scriptId: SCRIPT_NAME }),
+		});
+		expect(res.status).toBe(404);
+	});
+
+	it('404 on live-tail heartbeat even with a wildcard workers policy', async () => {
+		const keyId = await createAccountKey(workersWildcardPolicy());
+
+		const res = await SELF.fetch(`http://localhost${WORKERS_BASE}/observability/telemetry/live-tail/heartbeat`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ scriptId: SCRIPT_NAME }),
+		});
+		expect(res.status).toBe(404);
+	});
+});
+
 // ─── Schedules ──────────────────────────────────────────────────────────────
 
 describe('Workers proxy — schedules', () => {

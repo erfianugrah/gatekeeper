@@ -64,6 +64,10 @@ const ACTION_GROUPS: readonly ActionGroup[] = [
 			{ value: 'dns:batch', label: 'Batch', description: 'Batch create/update/delete' },
 			{ value: 'dns:export', label: 'Export', description: 'Export BIND zone file' },
 			{ value: 'dns:import', label: 'Import', description: 'Import BIND zone file' },
+			{ value: 'dns:scan', label: 'Scan', description: 'Scan zone for DNS records' },
+			{ value: 'dns:trigger_scan', label: 'Trigger Scan', description: 'Trigger a DNS zone scan' },
+			{ value: 'dns:get_scan_review', label: 'Get Scan Review', description: 'List scanned DNS records pending review' },
+			{ value: 'dns:review_scan', label: 'Review Scan', description: 'Accept or reject scanned DNS records' },
 		],
 	},
 	{
@@ -177,6 +181,15 @@ const ACTION_GROUPS: readonly ActionGroup[] = [
 			{ value: 'workers:get_secret', label: 'Get Secret', description: 'Get secret value', category: 'Secrets' },
 			{ value: 'workers:update_secret', label: 'Update Secret', description: 'Set/update secret', category: 'Secrets' },
 			{ value: 'workers:delete_secret', label: 'Delete Secret', description: 'Delete a secret', category: 'Secrets' },
+			{ value: 'workers:update_secrets_bulk', label: 'Update Secrets (Bulk)', description: 'Set multiple secrets at once', category: 'Secrets' },
+			// Usage model (deprecated upstream, superseded by script settings)
+			{ value: 'workers:get_usage_model', label: 'Get Usage Model', description: 'Get script usage model', category: 'Settings' },
+			{
+				value: 'workers:update_usage_model',
+				label: 'Update Usage Model',
+				description: 'Update script usage model',
+				category: 'Settings',
+			},
 			// Cron & Tails
 			{ value: 'workers:get_schedules', label: 'Get Schedules', description: 'Get cron schedules', category: 'Cron & Tails' },
 			{ value: 'workers:update_schedules', label: 'Update Schedules', description: 'Update cron schedules', category: 'Cron & Tails' },
@@ -261,6 +274,21 @@ const ACTION_GROUPS: readonly ActionGroup[] = [
 			{ value: 'queues:ack_messages', label: 'Ack', description: 'Acknowledge messages', category: 'Messages' },
 			{ value: 'queues:purge', label: 'Purge', description: 'Purge all messages', category: 'Messages' },
 			{ value: 'queues:purge_status', label: 'Purge Status', description: 'Check purge status', category: 'Messages' },
+			{ value: 'queues:preview_messages', label: 'Preview', description: 'Preview messages without consuming', category: 'Messages' },
+			{
+				value: 'queues:ack_previewed_messages',
+				label: 'Ack Previewed',
+				description: 'Acknowledge previewed messages',
+				category: 'Messages',
+			},
+			{ value: 'queues:peek_messages', label: 'Peek', description: 'Peek messages without consuming', category: 'Messages' },
+			{
+				value: 'queues:purge_peeked_messages',
+				label: 'Purge Peeked',
+				description: 'Delete peeked messages by ref',
+				category: 'Messages',
+			},
+			{ value: 'queues:get_metrics', label: 'Metrics', description: 'Get queue metrics', category: 'Management' },
 			{ value: 'queues:create_consumer', label: 'Create Consumer', description: 'Create consumer', category: 'Consumers' },
 			{ value: 'queues:list_consumers', label: 'List Consumers', description: 'List consumers', category: 'Consumers' },
 			{ value: 'queues:get_consumer', label: 'Get Consumer', description: 'Get consumer details', category: 'Consumers' },

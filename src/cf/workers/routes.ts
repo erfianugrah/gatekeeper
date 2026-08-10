@@ -699,6 +699,73 @@ workersRoutes.delete('/scripts/:scriptName/secrets/:secretName', async (c) => {
 	}
 });
 
+workersRoutes.patch('/scripts/:scriptName/secrets-bulk', async (c) => {
+	const accountId: string = c.get('accountId');
+	const requestFields: Record<string, string> = c.get('requestFields');
+	const scriptName = c.req.param('scriptName');
+
+	try {
+		const contexts = [workersScriptContext(accountId, scriptName, 'workers:update_secrets_bulk', requestFields)];
+		return jsonRoute(
+			c,
+			'workers:update_secrets_bulk',
+			contexts,
+			`/accounts/${accountId}/workers/scripts/${encodeURIComponent(scriptName)}/secrets-bulk`,
+			'PATCH',
+			scriptName,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'workers.update_secrets_bulk', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Usage model (deprecated upstream, superseded by script settings)
+// ═══════════════════════════════════════════════════════════════════════════
+
+workersRoutes.get('/scripts/:scriptName/usage-model', async (c) => {
+	const accountId: string = c.get('accountId');
+	const requestFields: Record<string, string> = c.get('requestFields');
+	const scriptName = c.req.param('scriptName');
+
+	try {
+		const contexts = [workersScriptContext(accountId, scriptName, 'workers:get_usage_model', requestFields)];
+		return jsonRoute(
+			c,
+			'workers:get_usage_model',
+			contexts,
+			`/accounts/${accountId}/workers/scripts/${encodeURIComponent(scriptName)}/usage-model`,
+			'GET',
+			scriptName,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'workers.get_usage_model', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
+workersRoutes.put('/scripts/:scriptName/usage-model', async (c) => {
+	const accountId: string = c.get('accountId');
+	const requestFields: Record<string, string> = c.get('requestFields');
+	const scriptName = c.req.param('scriptName');
+
+	try {
+		const contexts = [workersScriptContext(accountId, scriptName, 'workers:update_usage_model', requestFields)];
+		return jsonRoute(
+			c,
+			'workers:update_usage_model',
+			contexts,
+			`/accounts/${accountId}/workers/scripts/${encodeURIComponent(scriptName)}/usage-model`,
+			'PUT',
+			scriptName,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'workers.update_usage_model', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Schedules (cron triggers)
 // ═══════════════════════════════════════════════════════════════════════════

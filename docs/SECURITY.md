@@ -834,6 +834,12 @@ The `matches` and `not_matches` operators accept regular expressions. To prevent
 - **Compile-time validation:** Patterns are compiled with `new RegExp()` at key creation time. Syntax errors are caught before the key is stored, not at request time.
 - **Cached compiled regexes:** Compiled regex objects are cached per key in the Durable Object alongside the key cache (same 60-second TTL)
 
+### CF Proxy: Endpoints Not Fronted (Off-Gateway Channels)
+
+Three CF endpoints, under resources the proxy otherwise fronts, are deliberately never proxied: `POST .../workers/observability/telemetry/live-tail`, `POST .../workers/observability/telemetry/live-tail/heartbeat`, and `POST .../hyperdrive/integrationsOperations/{integration}/createDatabaseSignature`.
+
+Each response hands the caller a channel that leaves the gateway entirely rather than data the gateway can inspect. The live-tail call returns a session identifier the client redeems directly against Cloudflare over a WebSocket - the gateway has no way to observe, scope, or revoke traffic on that session once it's issued, and the heartbeat call exists solely to keep that same off-gateway session alive. `createDatabaseSignature` returns a short-lived signed authorization the caller redeems directly with a partner integration to create a database billed to the account - a credential grant, not a proxied API call. Fronting any of these would authorize an operation the IAM policy engine can never see the effect of, which breaks the audit and revocation guarantees the rest of the proxy provides. Calling them through Gatekeeper returns 404; callers use the Cloudflare API directly (with a narrowly-scoped credential) for these three operations.
+
 ---
 
 ## RBAC Roles

@@ -12,6 +12,13 @@
  *   POST   /accounts/:acct/queues/:queueId/messages/batch             -> queues:bulk_push
  *   POST   /accounts/:acct/queues/:queueId/messages/pull              -> queues:pull_messages
  *   POST   /accounts/:acct/queues/:queueId/messages/ack               -> queues:ack_messages
+ *   POST   /accounts/:acct/queues/:queueId/messages/preview           -> queues:preview_messages
+ *   POST   /accounts/:acct/queues/:queueId/messages/preview/ack       -> queues:ack_previewed_messages
+ *   POST   /accounts/:acct/queues/:queueId/messages/peek              -> queues:peek_messages (renamed preview shape, same semantics)
+ *   POST   /accounts/:acct/queues/:queueId/messages/purge             -> queues:purge_peeked_messages (deletes PEEKED messages by ref -
+ *                                                                        distinct from the queue-level POST /purge above, which drops
+ *                                                                        everything in the queue)
+ *   GET    /accounts/:acct/queues/:queueId/metrics                    -> queues:get_metrics
  *   POST   /accounts/:acct/queues/:queueId/purge                      -> queues:purge
  *   GET    /accounts/:acct/queues/:queueId/purge                      -> queues:purge_status
  *   POST   /accounts/:acct/queues/:queueId/consumers                  -> queues:create_consumer
@@ -36,6 +43,11 @@ export type QueuesAction =
 	| 'queues:bulk_push'
 	| 'queues:pull_messages'
 	| 'queues:ack_messages'
+	| 'queues:preview_messages'
+	| 'queues:ack_previewed_messages'
+	| 'queues:peek_messages'
+	| 'queues:purge_peeked_messages'
+	| 'queues:get_metrics'
 	| 'queues:purge'
 	| 'queues:purge_status'
 	| 'queues:create_consumer'
