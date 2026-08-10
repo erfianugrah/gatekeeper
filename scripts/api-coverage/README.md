@@ -9,9 +9,9 @@ covering it with no error. This framework makes that drift loud.
 
 | Provider | Surface source | Coverage predicate | Live ops |
 |---|---|---|---|
-| `supabase` | live OpenAPI (`api.supabase.com/api/v1-json`) | `classifySupabaseRequest` ≠ null | 165 (all covered) |
+| `supabase` | live OpenAPI (`api.supabase.com/api/v1-json`) | `classifySupabaseRequest` ≠ null | 170 (all covered) |
 | `s3` | runtime enum `S3_OPERATIONS` (`src/s3/operations.ts`) | real `detectOperation` routes the probe back | 66 (all covered) |
-| `cloudflare` | live CF OpenAPI (filtered to proxied resources) | a real Hono route in the service sub-app matches | 128 (115 covered, 13 allowlisted) |
+| `cloudflare` | live CF OpenAPI (filtered to proxied resources) | a real Hono route in the service sub-app matches | 132 (116 covered, 16 allowlisted) |
 
 Three different *surface sources*, one uniform interface. Each upstream is policed by the model
 that fits its shape — see "Coverage models" below.
@@ -72,7 +72,7 @@ The `CoverageProvider` interface is uniform; the *source* of the authoritative s
 coverage predicate differ per upstream because the upstreams differ:
 
 - **Supabase Management API** (`providers/supabase.ts`) — has `https://api.supabase.com/api/v1-json`
-  (165 ops) and ships changes frequently. The classifier (`src/supabase/classify.ts`) is a
+  (170 ops) and ships changes frequently. The classifier (`src/supabase/classify.ts`) is a
   table-driven longest-prefix matcher, exactly the thing that lags when an endpoint moves. Coverage
   = `classifySupabaseRequest` returns non-null for the full current surface (no allowlist gap).
 - **S3 / R2** (`providers/s3.ts`) — no live AWS spec; the surface is a closed enum exported at
@@ -84,8 +84,9 @@ coverage predicate differ per upstream because the upstreams differ:
   to the sub-resource prefixes we actually proxy (KV, D1, Workers, Queues, Vectorize v2, Hyperdrive,
   DNS records), and checks coverage by matching each op against the **real Hono routes** registered
   by each service sub-app (`app.routes`, read without executing handlers). Catches CF adding/moving
-  an endpoint under a resource we already proxy. 13 in-surface endpoints we deliberately skip
-  (streaming live-tail, legacy/bulk shapes, zone-scan) live in the allowlist with reasons.
+  an endpoint under a resource we already proxy. 16 in-surface endpoints we deliberately skip
+  (streaming live-tail, legacy/bulk shapes, zone-scan, the peek/preview message family,
+  partner-integration billing grants) live in the allowlist with reasons.
 
 The whole rest of the CF API is *out of surface* — never filtered in — so the allowlist stays small
 and meaningful instead of swallowing thousands of unproxied endpoints. That filtering is the

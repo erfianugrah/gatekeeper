@@ -148,6 +148,11 @@ export const cloudflareProvider: CoverageProvider = {
 		'POST /accounts/{account_id}/workers/observability/telemetry/live-tail': 'streaming live-tail not proxied (long-lived connection)',
 		'POST /accounts/{account_id}/workers/observability/telemetry/live-tail/heartbeat':
 			'streaming live-tail not proxied (long-lived connection)',
+		'POST /accounts/{account_id}/hyperdrive/integrationsOperations/{integration}/createDatabaseSignature':
+			'partner-integration billing grant (mints a signed authorization to create a partner-hosted database billed through Cloudflare); only hyperdrive configs are proxied',
+		'POST /accounts/{account_id}/queues/{queue_id}/messages/peek': 'peek is the renamed preview shape; neither is proxied, pull/ack are',
+		'POST /accounts/{account_id}/queues/{queue_id}/messages/purge':
+			'purges peeked messages by ref; the peek/preview family is not proxied (the queue-level POST /purge is)',
 		'GET /accounts/{account_id}/queues/{queue_id}/metrics': 'queue metrics not proxied — not part of the queue control surface',
 		'POST /accounts/{account_id}/queues/{queue_id}/messages/preview': 'message preview not proxied — pull/ack are',
 		'POST /accounts/{account_id}/queues/{queue_id}/messages/preview/ack': 'message preview not proxied — pull/ack are',

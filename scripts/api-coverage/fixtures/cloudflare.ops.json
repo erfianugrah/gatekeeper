@@ -463,6 +463,12 @@
 	},
 	{
 		"method": "POST",
+		"path": "/accounts/{account_id}/hyperdrive/integrationsOperations/{integration}/createDatabaseSignature",
+		"summary": "Create Database Signature",
+		"covered": false
+	},
+	{
+		"method": "POST",
 		"path": "/accounts/{account_id}/queues",
 		"summary": "Create Queue",
 		"covered": true
@@ -493,6 +499,12 @@
 	},
 	{
 		"method": "POST",
+		"path": "/accounts/{account_id}/queues/{queue_id}/messages/peek",
+		"summary": "Peek Queue Messages",
+		"covered": false
+	},
+	{
+		"method": "POST",
 		"path": "/accounts/{account_id}/queues/{queue_id}/messages/preview",
 		"summary": "Preview Queue Messages",
 		"covered": false
@@ -508,6 +520,12 @@
 		"path": "/accounts/{account_id}/queues/{queue_id}/messages/pull",
 		"summary": "Pull Queue Messages",
 		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/accounts/{account_id}/queues/{queue_id}/messages/purge",
+		"summary": "Purge Peeked Queue Messages",
+		"covered": false
 	},
 	{
 		"method": "POST",
