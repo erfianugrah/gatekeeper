@@ -82,13 +82,13 @@
 		},
 		{
 			"name": "policybuilder-action-parity",
-			"cmd": "test -z \"$(for a in $(rg -o \"^\\t\\| '[a-z0-9_]+:[a-z0-9_]+'\" src/cf/*/operations.ts -r '$0' | sed \"s/.*'\\(.*\\)'/\\1/\" | sort -u); do rg -qF \"$a\" dashboard/src/components/PolicyBuilder.tsx || echo \"$a\"; done)\"",
+			"cmd": "test -z \"$(for a in $(rg -o \"^\\t\\| '[a-z0-9_]+:[a-z0-9_]+'\" src/cf/*/operations.ts -r '$0' | sed \"s/.*'\\(.*\\)'/\\1/\" | sort -u); do rg -qwF \"$a\" dashboard/src/components/PolicyBuilder.tsx || echo \"$a\"; done)\"",
 			"canary": "sd \"'queues:purge_status'\" \"'queues:purge_statusXX'\" dashboard/src/components/PolicyBuilder.tsx",
 			"hint": "every CF IAM action must be selectable in dashboard/src/components/PolicyBuilder.tsx - add the missing action to its service group with a label and description"
 		},
 		{
 			"name": "guide-action-parity",
-			"cmd": "test -z \"$(for a in $(rg -o \"^\\t\\| '[a-z0-9_]+:[a-z0-9_]+'\" src/cf/*/operations.ts -r '$0' | sed \"s/.*'\\(.*\\)'/\\1/\" | sort -u); do rg -qF \"$a\" docs/GUIDE.md || echo \"$a\"; done)\"",
+			"cmd": "test -z \"$(for a in $(rg -o \"^\\t\\| '[a-z0-9_]+:[a-z0-9_]+'\" src/cf/*/operations.ts -r '$0' | sed \"s/.*'\\(.*\\)'/\\1/\" | sort -u); do rg -qwF \"$a\" docs/GUIDE.md || echo \"$a\"; done)\"",
 			"canary": "sd 'hyperdrive:restart' 'hyperdrive:restartXX' docs/GUIDE.md",
 			"hint": "every CF IAM action must appear in the service action list in docs/GUIDE.md"
 		},
