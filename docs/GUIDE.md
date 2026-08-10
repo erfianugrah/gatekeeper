@@ -2731,7 +2731,7 @@ The current and only supported policy version is `"2025-01-01"`.
 
 ### Hyperdrive actions
 
-`hyperdrive:create`, `hyperdrive:list`, `hyperdrive:get`, `hyperdrive:update`, `hyperdrive:edit`, `hyperdrive:delete`, `hyperdrive:*`
+`hyperdrive:create`, `hyperdrive:list`, `hyperdrive:get`, `hyperdrive:update`, `hyperdrive:edit`, `hyperdrive:restart`, `hyperdrive:delete`, `hyperdrive:*`
 
 ### Supabase actions
 

@@ -1,13 +1,127 @@
 {
-  "task": "Make the committed conformance suites test/supabase-member-plan.test.ts AND test/supabase-members-dryrun.test.ts pass. They are the SPEC and you CANNOT edit them (outside your write scope). Implement plan Section 4's PREVIEW layer. Edit ONLY under src/supabase/ and wrangler.jsonc.\n\n1. src/supabase/member-plan.ts (new): a PURE planner.\n   export interface CurrentMember { email: string; role: MemberRole } (import MemberRole from './member-schema').\n   export type PlannedChangeKind = 'add' | 'update_role' | 'noop'.\n   export interface PlannedChange { kind: PlannedChangeKind; targetEmail: string; fromRole: MemberRole | null; toRole: MemberRole; requestedProject: string | null; action: string }.\n   export interface MembershipPlan { changes: PlannedChange[]; noops: PlannedChange[] }.\n   export function planMembershipChange(current: CurrentMember[], assignments: MemberAssignment[]): MembershipPlan.\n   Logic per assignment: match current member by email CASE-INSENSITIVELY. Not found -> kind 'add', fromRole null, toRole requestedRole, action 'supabase:members:invite'. Found and role === requestedRole -> kind 'noop' (goes in noops, not changes). Found and role differs -> kind 'update_role', fromRole = current role, toRole = requestedRole, action 'supabase:members:update_role'. add + update_role go in `changes`; noop goes in `noops`. Keep requestedProject from the assignment.\n\n2. src/supabase/member-router.ts (edit): add a dry-run branch to the POST /:slug/invitations handler. When the query param dry_run === 'true':\n   - keep steps 1-3 (bearer 401, COARSE authorize, parseMemberRequest 400).\n   - resolve the PAT from the coarse AuthResult's upstreamTokenId via stub.resolveUpstreamTokenById (fall back to nothing -> 502 if missing, mirror managementApiHandler).\n   - fetch CURRENT membership: GET https://api.supabase.com/v1/organizations/<slug>/members with the PAT as Bearer (reuse proxyToManagementApi(path, pat, 'GET') from ./proxy-helpers). Parse the JSON array; map each entry to { email, role } where role is the entry's role_name normalized to a canonical MemberRole (reuse a lenient normalizer - add and export normalizeRoleLenient(role: string): MemberRole | null to member-schema.ts if helpful; SKIP members whose role_name does not normalize).\n   - plan = planMembershipChange(current, assignments).\n   - authorize each change: for every change in plan.changes build a RequestContext { action: change.action, resource: `org:<slug>`, fields } (fields: supabase.requested_role = change.toRole, supabase.target_email, supabase.requested_project only when non-null, supabase.batch_size = String(plan.changes.length)); call stub.authorize(keyId, '', [ctx]); collect a human-readable string in `denied` when not authorized. Do NOT fail the request on denial.\n   - return 200 JSON { dry_run: true, plan, denied } (new Response(JSON.stringify(...), { status: 200, headers: { 'Content-Type': 'application/json' } })). Breadcrumb 'supabase-members-invite-dry-run'. NO write, NO 501 in the dry-run path.\n   The NON-dry-run path (dry_run !== 'true') keeps its existing behavior UNCHANGED (fine authorize -> rate limit -> 501).\n\nWORKFLOW: read both conformance files and the existing member-router.ts first. Then implement. Run `bunx vitest run test/supabase-member-plan.test.ts test/supabase-members-dryrun.test.ts` as you go.\n\nHARD CONSTRAINTS: Edit ONLY src/supabase/** and wrangler.jsonc. Do NOT weaken/skip/delete any test. Do NOT touch scripts/api-coverage. The dry-run path may fetch the List endpoint (GET, read-only) but must perform NO write and no 501. Keep the non-dry-run 501 behavior intact. Run prettier so `bun run lint` passes.",
-  "maxIterations": 20,
-  "models": ["claude-opus-4-8"],
-  "stallPatience": 3,
-  "tools": ["read", "edit", "write", "bash", "grep", "glob"],
-  "writeScope": ["src/supabase/**", "wrangler.jsonc"],
-  "sensors": [
-    { "name": "typecheck", "cmd": "bun run typecheck", "hint": "Fix TypeScript errors. MemberRole union import; `import type` on its own line; no file extensions in src/ imports." },
-    { "name": "lint", "cmd": "bun run lint", "hint": "Run `bunx prettier --write 'src/**/*.ts'`. Tabs, single quotes, semicolons, width 140." },
-    { "name": "test", "cmd": "bun run test", "hint": "Focus with `bunx vitest run test/supabase-member-plan.test.ts test/supabase-members-dryrun.test.ts`. The dry-run List fetch is mocked via fetchMock - the path is GET /v1/organizations/<slug>/members and must be consumed exactly once. If a pre-existing test broke, you changed the non-dry-run path - revert that. Never weaken a test." }
-  ]
+	"task": "Close the Cloudflare API-coverage allowlist: proxy all 16 remaining in-surface CF endpoints so every op in scripts/api-coverage/fixtures/cloudflare.ops.json is covered by a real Hono route with its own IAM action, and the cloudflare provider allowlist is empty. The binding spec - the exact 16 ops, their target IAM action names, the per-op touchpoint checklist, the hard rules and the golden references to copy - is docs/plans/2026-08-10-cf-coverage-completion.md. Read it first and follow it exactly. Work service by service (kv, workers, queues, dns, hyperdrive), keeping typecheck/lint/tests green as you go, and regenerate the coverage snapshot with 'bun run api-coverage:write' when routes change.",
+	"maxIterations": 14,
+	"models": ["anthropic/claude-sonnet-5", "anthropic/claude-opus-5"],
+	"stallPatience": 3,
+	"tools": ["read", "edit", "write", "bash"],
+	"agentTimeoutMs": 2400000,
+	"timeoutMs": 600000,
+	"guide": ["docs/plans/2026-08-10-cf-coverage-completion.md", "AGENTS.md", "scripts/api-coverage/README.md"],
+	"writeScope": [
+		"src/cf/**",
+		"test/cf-*.test.ts",
+		"test/dns.test.ts",
+		"dashboard/src/components/PolicyBuilder.tsx",
+		"docs/GUIDE.md",
+		"docs/SECURITY.md",
+		"scripts/api-coverage/providers/cloudflare.ts",
+		"scripts/api-coverage/fixtures/cloudflare.ops.json",
+		"scripts/api-coverage/README.md",
+		"AGENTS.md"
+	],
+	"rules": [
+		"docs/plans/2026-08-10-cf-coverage-completion.md is the spec and is READ-ONLY. If it is wrong, stop and say so in your final message instead of editing it.",
+		"Never edit test/api-coverage.test.ts, .pi/harness.json, or anything under .pi/ - they are the loop machinery that judges this work.",
+		"Never hand-edit the covered flags in scripts/api-coverage/fixtures/cloudflare.ops.json. Regenerate with 'bun run api-coverage:write'.",
+		"Every new route needs BOTH an allow test (policy grants the action, request reaches the mocked upstream) and a deny test (403 without the action).",
+		"Copy the nearest sibling handler's shape exactly. No new abstractions, no helper extraction, no refactoring of existing routes.",
+		"Run 'bun run lint:fix' before you finish - prettier is a gate (tabs, single quotes, width 140).",
+		"Do not run git commit, git reset, git checkout, git stash or any other command that moves git refs.",
+		"cli/policy-wizard.ts and dashboard/src/lib/policy-templates.ts are deliberately CURATED short lists, not full action enumerations - do not add the new actions there. The full enumerations that must stay complete are dashboard/src/components/PolicyBuilder.tsx and the action lists in docs/GUIDE.md."
+	],
+	"sensors": [
+		{
+			"name": "typecheck",
+			"cmd": "bun run typecheck",
+			"canary": "printf '\\nconst __canary: number = \"nope\";\\n' >> src/cf/queues/routes.ts",
+			"hint": "tsc failed - fix the types in the files you touched; do not use 'any' to silence it"
+		},
+		{
+			"name": "lint",
+			"cmd": "bun run lint",
+			"canary": "printf '\\nconst    __canary=1\\n' >> src/cf/queues/routes.ts",
+			"hint": "prettier --check failed. Run 'bun run lint:fix' (tabs, single quotes, width 140)"
+		},
+		{
+			"name": "coverage-invariant",
+			"cmd": "bunx vitest run test/api-coverage.test.ts",
+			"canary": "jq 'map(.covered = (.covered|not))' scripts/api-coverage/fixtures/cloudflare.ops.json > /tmp/cf-canary.json && mv /tmp/cf-canary.json scripts/api-coverage/fixtures/cloudflare.ops.json",
+			"hint": "the committed snapshot disagrees with the real routes, or an allowlist entry is now covered. Run 'bun run api-coverage:write' and delete the allowlist entry for any op you just proxied"
+		},
+		{
+			"name": "no-stubs",
+			"cmd": "test -z \"$(rg --no-messages -o 'not implemented|unimplemented|TODO:|501' src/cf/ scripts/api-coverage/providers/cloudflare.ts)\"",
+			"canary": "printf '\\nfunction __canary() { throw new Error(\"not implemented\"); }\\n' >> src/cf/queues/routes.ts",
+			"hint": "a stubbed or 501 route is not an implementation - forward the request with a real IAM action like its siblings do"
+		},
+		{
+			"name": "secrets",
+			"cmd": "gitleaks dir . --no-banner --redact",
+			"canary": "P=gh; printf '\\nconst __canary = \"%sp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8\";\\n' \"$P\" >> src/cf/queues/routes.ts",
+			"hint": "a credential-shaped string was committed to the tree. Move it to env or use an obviously-fake fixture value; do not disable the scanner"
+		},
+		{
+			"name": "test",
+			"cmd": "bun run test",
+			"timeoutMs": 900000,
+			"canary": "printf \"\\nimport { it as __cit, expect as __cexp } from 'vitest';\\n__cit('canary', () => __cexp(1).toBe(2));\\n\" >> test/cf-queues-vectorize-hyperdrive.test.ts",
+			"hint": "the suite is red. Fix the code, never the assertion"
+		},
+		{
+			"name": "test-count-floor",
+			"expect": "fail",
+			"cmd": "test \"$(bun run test 2>&1 | rg -o 'Tests +([0-9]+) passed' -r '$1' | tail -1)\" -ge 1367",
+			"timeoutMs": 900000,
+			"hint": "16 new routes need at least 16 new tests (the spec requires an allow AND a deny test per route). The floor is 1367 passing tests"
+		},
+		{
+			"name": "build",
+			"cmd": "bun run build",
+			"canary": "printf '\\nexport const __canary = (\\n' >> dashboard/src/components/PolicyBuilder.tsx",
+			"hint": "the dashboard or CLI build broke - most likely a syntax error in the PolicyBuilder edit"
+		},
+		{
+			"name": "policybuilder-action-parity",
+			"cmd": "test -z \"$(for a in $(rg -o \"^\\t\\| '[a-z0-9_]+:[a-z0-9_]+'\" src/cf/*/operations.ts -r '$0' | sed \"s/.*'\\(.*\\)'/\\1/\" | sort -u); do rg -qF \"$a\" dashboard/src/components/PolicyBuilder.tsx || echo \"$a\"; done)\"",
+			"canary": "sd \"'queues:purge_status'\" \"'queues:purge_statusXX'\" dashboard/src/components/PolicyBuilder.tsx",
+			"hint": "every CF IAM action must be selectable in dashboard/src/components/PolicyBuilder.tsx - add the missing action to its service group with a label and description"
+		},
+		{
+			"name": "guide-action-parity",
+			"cmd": "test -z \"$(for a in $(rg -o \"^\\t\\| '[a-z0-9_]+:[a-z0-9_]+'\" src/cf/*/operations.ts -r '$0' | sed \"s/.*'\\(.*\\)'/\\1/\" | sort -u); do rg -qF \"$a\" docs/GUIDE.md || echo \"$a\"; done)\"",
+			"canary": "sd 'hyperdrive:restart' 'hyperdrive:restartXX' docs/GUIDE.md",
+			"hint": "every CF IAM action must appear in the service action list in docs/GUIDE.md"
+		},
+		{
+			"name": "doc-count-consistency",
+			"cmd": "CFCOV=$(jq '[.[]|select(.covered)]|length' scripts/api-coverage/fixtures/cloudflare.ops.json); CFAL=$(bun -e 'const m = await import(\"./scripts/api-coverage/providers/cloudflare.ts\"); console.log(Object.keys(m.cloudflareProvider.allowlist ?? {}).length)' | tail -1); test -z \"$(rg -o --no-filename '[0-9]+ covered' AGENTS.md scripts/api-coverage/README.md | grep -oE '^[0-9]+' | sort -u | grep -vx \"$CFCOV\")\" && test -z \"$(rg -o --no-filename '[0-9]+ (deliberately )?allowlisted' AGENTS.md scripts/api-coverage/README.md | grep -oE '^[0-9]+' | sort -u | grep -vx \"$CFAL\")\"",
+			"canary": "sd '116 covered' '999 covered' AGENTS.md",
+			"hint": "a covered/allowlisted count stated in AGENTS.md or scripts/api-coverage/README.md contradicts the real numbers. Derive them from the fixture and the provider allowlist, then update every occurrence"
+		},
+		{
+			"name": "cf-all-ops-covered",
+			"expect": "fail",
+			"cmd": "jq -e '[.[] | select(.covered == false)] | length == 0' scripts/api-coverage/fixtures/cloudflare.ops.json > /dev/null",
+			"hint": "some in-surface CF ops still have no route. Run 'bun run check:api-coverage' to list them, add the route + IAM action, then 'bun run api-coverage:write'"
+		},
+		{
+			"name": "cf-allowlist-empty",
+			"expect": "fail",
+			"cmd": "test 0 -eq \"$(bun -e 'const m = await import(\"./scripts/api-coverage/providers/cloudflare.ts\"); console.log(Object.keys(m.cloudflareProvider.allowlist ?? {}).length)' | tail -1)\"",
+			"hint": "delete the allowlist entry in scripts/api-coverage/providers/cloudflare.ts for every op you proxied - the goal is an empty allowlist"
+		},
+		{
+			"name": "drift",
+			"cmd": "bun run check:api-coverage",
+			"canary": "jq 'del(.[0])' scripts/api-coverage/fixtures/cloudflare.ops.json > /tmp/cf-drift.json && mv /tmp/cf-drift.json scripts/api-coverage/fixtures/cloudflare.ops.json",
+			"hint": "the committed snapshot is stale or an op is uncovered and not allowlisted. Run 'bun run api-coverage:write' after any routing change"
+		},
+		{
+			"name": "judge",
+			"after": ["typecheck", "lint", "test", "drift", "cf-all-ops-covered"],
+			"cmd": "bun ~/.pi/agent/skills/self-correcting-loop/judge.ts --base HEAD --model claude-opus-5 --spec 'The 16 previously-allowlisted Cloudflare API endpoints listed in docs/plans/2026-08-10-cf-coverage-completion.md are now proxied: each has a real Hono route in the right src/cf/<svc>/routes.ts, a dedicated IAM action in that service operations.ts action union (except the legacy KV bulk DELETE, which reuses kv:bulk_delete), the header-comment route table updated, the action selectable in dashboard/src/components/PolicyBuilder.tsx and listed in docs/GUIDE.md, an allow test AND a 403 deny test, the allowlist entry deleted, and the snapshot regenerated. docs/SECURITY.md gains a note that workers:prepare_live_tail and hyperdrive:create_database_signature hand the caller an off-gateway, unaudited capability.' --rubric 'Reject stubs, 501 placeholders, or a route that forwards without an IAM action. Reject a route that reuses an unrelated existing action instead of the one the spec names. Reject any new abstraction, helper extraction or refactor of existing routes - the change must copy the sibling handler idiom. Reject weakened, skipped or deleted tests, and reject a route tested only on the happy path. Reject stale counts in AGENTS.md or scripts/api-coverage/README.md. Ignore .pi/** and docs/plans/** - those are loop machinery and spec, not part of the change.'",
+			"timeoutMs": 900000,
+			"hint": "the reviewer rejected the change - address each finding it names"
+		}
+	]
 }
