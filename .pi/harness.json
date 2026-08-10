@@ -1,5 +1,5 @@
 {
-	"task": "Close the Cloudflare API-coverage allowlist: proxy all 16 remaining in-surface CF endpoints so every op in scripts/api-coverage/fixtures/cloudflare.ops.json is covered by a real Hono route with its own IAM action, and the cloudflare provider allowlist is empty. The binding spec - the exact 16 ops, their target IAM action names, the per-op touchpoint checklist, the hard rules and the golden references to copy - is docs/plans/2026-08-10-cf-coverage-completion.md. Read it first and follow it exactly. Work service by service (kv, workers, queues, dns, hyperdrive), keeping typecheck/lint/tests green as you go, and regenerate the coverage snapshot with 'bun run api-coverage:write' when routes change.",
+	"task": "Shrink the Cloudflare API-coverage allowlist from 16 entries to 3: proxy 13 of the remaining in-surface CF endpoints with a real Hono route + its own IAM action, and turn the three deliberate skips (live-tail prepare, live-tail heartbeat, hyperdrive createDatabaseSignature) into documented decisions with corrected allowlist reasons. The binding spec - the exact 16 ops, their target IAM action names, the per-op touchpoint checklist, the hard rules and the golden references to copy - is docs/plans/2026-08-10-cf-coverage-completion.md. Read it first and follow it exactly. Work service by service (kv, workers, queues, dns, hyperdrive), keeping typecheck/lint/tests green as you go, and regenerate the coverage snapshot with 'bun run api-coverage:write' when routes change.",
 	"maxIterations": 14,
 	"models": ["anthropic/claude-sonnet-5", "anthropic/claude-opus-5"],
 	"stallPatience": 3,
@@ -70,9 +70,9 @@
 		{
 			"name": "test-count-floor",
 			"expect": "fail",
-			"cmd": "test \"$(bun run test 2>&1 | rg -o 'Tests +([0-9]+) passed' -r '$1' | tail -1)\" -ge 1367",
+			"cmd": "test \"$(bun run test 2>&1 | rg -o 'Tests +([0-9]+) passed' -r '$1' | tail -1)\" -ge 1364",
 			"timeoutMs": 900000,
-			"hint": "16 new routes need at least 16 new tests (the spec requires an allow AND a deny test per route). The floor is 1367 passing tests"
+			"hint": "13 new routes need at least 13 new tests (the spec requires an allow AND a deny test per route). The floor is 1364 passing tests"
 		},
 		{
 			"name": "build",
@@ -99,16 +99,22 @@
 			"hint": "a covered/allowlisted count stated in AGENTS.md or scripts/api-coverage/README.md contradicts the real numbers. Derive them from the fixture and the provider allowlist, then update every occurrence"
 		},
 		{
-			"name": "cf-all-ops-covered",
+			"name": "cf-only-skips-uncovered",
 			"expect": "fail",
-			"cmd": "jq -e '[.[] | select(.covered == false)] | length == 0' scripts/api-coverage/fixtures/cloudflare.ops.json > /dev/null",
-			"hint": "some in-surface CF ops still have no route. Run 'bun run check:api-coverage' to list them, add the route + IAM action, then 'bun run api-coverage:write'"
+			"cmd": "jq -e '[.[] | select(.covered == false) | \"\\(.method) \\(.path)\"] | sort == [\"POST /accounts/{account_id}/hyperdrive/integrationsOperations/{integration}/createDatabaseSignature\", \"POST /accounts/{account_id}/workers/observability/telemetry/live-tail\", \"POST /accounts/{account_id}/workers/observability/telemetry/live-tail/heartbeat\"]' scripts/api-coverage/fixtures/cloudflare.ops.json > /dev/null",
+			"hint": "the only uncovered ops must be the three deliberate skips. Run 'bun run check:api-coverage' to see what is still uncovered, add the route + IAM action, then 'bun run api-coverage:write'. Do NOT proxy the three skips"
 		},
 		{
-			"name": "cf-allowlist-empty",
+			"name": "cf-allowlist-is-the-three-skips",
 			"expect": "fail",
-			"cmd": "test 0 -eq \"$(bun -e 'const m = await import(\"./scripts/api-coverage/providers/cloudflare.ts\"); console.log(Object.keys(m.cloudflareProvider.allowlist ?? {}).length)' | tail -1)\"",
-			"hint": "delete the allowlist entry in scripts/api-coverage/providers/cloudflare.ts for every op you proxied - the goal is an empty allowlist"
+			"cmd": "test \"POST /accounts/{account_id}/hyperdrive/integrationsOperations/{integration}/createDatabaseSignature|POST /accounts/{account_id}/workers/observability/telemetry/live-tail|POST /accounts/{account_id}/workers/observability/telemetry/live-tail/heartbeat\" = \"$(bun -e 'const m = await import(\"./scripts/api-coverage/providers/cloudflare.ts\"); console.log(Object.keys(m.cloudflareProvider.allowlist ?? {}).sort().join(\"|\"))' | tail -1)\"",
+			"hint": "the allowlist must hold exactly the three deliberate skips - delete the entry for every op you proxied, and keep (with corrected reasons) the two live-tail entries and createDatabaseSignature"
+		},
+		{
+			"name": "skips-documented",
+			"expect": "fail",
+			"cmd": "rg -q 'live-tail' docs/GUIDE.md && rg -q 'createDatabaseSignature' docs/GUIDE.md && rg -q 'live-tail' docs/SECURITY.md && rg -q 'createDatabaseSignature' docs/SECURITY.md && test -z \"$(rg --no-messages -o 'long-lived connection' scripts/api-coverage/providers/cloudflare.ts)\"",
+			"hint": "users must learn about the deliberate skips from the docs, not from a 404: name both live-tail endpoints and createDatabaseSignature in docs/GUIDE.md (a 'Not proxied (deliberately)' subsection) and state the rationale in docs/SECURITY.md. Also delete the false 'long-lived connection' reason from the provider allowlist - the POST is an ordinary JSON call"
 		},
 		{
 			"name": "drift",
@@ -118,8 +124,8 @@
 		},
 		{
 			"name": "judge",
-			"after": ["typecheck", "lint", "test", "drift", "cf-all-ops-covered"],
-			"cmd": "bun ~/.pi/agent/skills/self-correcting-loop/judge.ts --base HEAD --model claude-opus-5 --spec 'The 16 previously-allowlisted Cloudflare API endpoints listed in docs/plans/2026-08-10-cf-coverage-completion.md are now proxied: each has a real Hono route in the right src/cf/<svc>/routes.ts, a dedicated IAM action in that service operations.ts action union (except the legacy KV bulk DELETE, which reuses kv:bulk_delete), the header-comment route table updated, the action selectable in dashboard/src/components/PolicyBuilder.tsx and listed in docs/GUIDE.md, an allow test AND a 403 deny test, the allowlist entry deleted, and the snapshot regenerated. docs/SECURITY.md gains a note that workers:prepare_live_tail and hyperdrive:create_database_signature hand the caller an off-gateway, unaudited capability.' --rubric 'Reject stubs, 501 placeholders, or a route that forwards without an IAM action. Reject a route that reuses an unrelated existing action instead of the one the spec names. Reject any new abstraction, helper extraction or refactor of existing routes - the change must copy the sibling handler idiom. Reject weakened, skipped or deleted tests, and reject a route tested only on the happy path. Reject stale counts in AGENTS.md or scripts/api-coverage/README.md. Ignore .pi/** and docs/plans/** - those are loop machinery and spec, not part of the change.'",
+			"after": ["typecheck", "lint", "test", "drift", "cf-only-skips-uncovered"],
+			"cmd": "bun ~/.pi/agent/skills/self-correcting-loop/judge.ts --base HEAD --model claude-opus-5 --spec '13 of the 16 previously-allowlisted Cloudflare API endpoints listed in docs/plans/2026-08-10-cf-coverage-completion.md are now proxied: each has a real Hono route in the right src/cf/<svc>/routes.ts, a dedicated IAM action in that service operations.ts action union (except the legacy KV bulk DELETE, which reuses kv:bulk_delete), the header-comment route table updated, the action selectable in dashboard/src/components/PolicyBuilder.tsx and listed in docs/GUIDE.md, an allow test AND a 403 deny test, the allowlist entry deleted, and the snapshot regenerated. The three remaining ops (both live-tail endpoints and hyperdrive createDatabaseSignature) are deliberately NOT proxied because their response hands the caller a channel that leaves the gateway; their allowlist reasons are corrected (the false \"long-lived connection\" claim is gone), docs/GUIDE.md gains a Not-proxied subsection naming them, and docs/SECURITY.md states the rationale.' --rubric 'Reject stubs, 501 placeholders, or a route that forwards without an IAM action. Reject a route that reuses an unrelated existing action instead of the one the spec names. Reject any new abstraction, helper extraction or refactor of existing routes - the change must copy the sibling handler idiom. Reject weakened, skipped or deleted tests, and reject a route tested only on the happy path. Reject stale counts in AGENTS.md or scripts/api-coverage/README.md. Reject any route, action, or 501 placeholder created for the three deliberately-skipped ops, and reject documentation of those skips that hides the real reason (an off-gateway, unauditable channel) behind a vague claim such as streaming or long-lived connections. Ignore .pi/** and docs/plans/** - those are loop machinery and spec, not part of the change.'",
 			"timeoutMs": 900000,
 			"hint": "the reviewer rejected the change - address each finding it names"
 		}

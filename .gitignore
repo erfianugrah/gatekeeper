@@ -173,3 +173,5 @@ _shots/
 dashboard/scripts/shoot.ts
 dashboard/scripts/shoot-drilldown.ts
 .pi/harness-report.json
+.pi/harness-run.log
+.pi/harness-prompts/
