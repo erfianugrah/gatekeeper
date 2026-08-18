@@ -425,6 +425,10 @@ async function runLiveApiTier(): Promise<void> {
 		if (regId) state.createdUpstreamTokens.push(regId);
 		if (!regId) return;
 		liveId = regId;
+		// The registration probe already hit the real upstream with this PAT - if it rejected
+		// the token, the warnings say so here, before six live-tier asserts all fail on 401.
+		const regWarnings: string[] = Array.isArray(realReg.body?.warnings) ? realReg.body.warnings : [];
+		for (const w of regWarnings) console.log(`  ${dim(`registration warning: ${w}`)}`);
 	}
 
 	const { r: liveKeyCr, keyId: LIVE_KEY } = await createSbKey(
