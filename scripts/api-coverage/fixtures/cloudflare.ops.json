@@ -499,6 +499,12 @@
 	},
 	{
 		"method": "POST",
+		"path": "/accounts/{account_id}/queues/{queue_id}/messages/extend",
+		"summary": "Extend Message Leases",
+		"covered": true
+	},
+	{
+		"method": "POST",
 		"path": "/accounts/{account_id}/queues/{queue_id}/messages/peek",
 		"summary": "Peek Queue Messages",
 		"covered": true

@@ -181,7 +181,12 @@ const ACTION_GROUPS: readonly ActionGroup[] = [
 			{ value: 'workers:get_secret', label: 'Get Secret', description: 'Get secret value', category: 'Secrets' },
 			{ value: 'workers:update_secret', label: 'Update Secret', description: 'Set/update secret', category: 'Secrets' },
 			{ value: 'workers:delete_secret', label: 'Delete Secret', description: 'Delete a secret', category: 'Secrets' },
-			{ value: 'workers:update_secrets_bulk', label: 'Update Secrets (Bulk)', description: 'Set multiple secrets at once', category: 'Secrets' },
+			{
+				value: 'workers:update_secrets_bulk',
+				label: 'Update Secrets (Bulk)',
+				description: 'Set multiple secrets at once',
+				category: 'Secrets',
+			},
 			// Usage model (deprecated upstream, superseded by script settings)
 			{ value: 'workers:get_usage_model', label: 'Get Usage Model', description: 'Get script usage model', category: 'Settings' },
 			{
@@ -272,6 +277,12 @@ const ACTION_GROUPS: readonly ActionGroup[] = [
 			{ value: 'queues:bulk_push', label: 'Bulk Push', description: 'Push multiple messages', category: 'Messages' },
 			{ value: 'queues:pull_messages', label: 'Pull', description: 'Pull messages', category: 'Messages' },
 			{ value: 'queues:ack_messages', label: 'Ack', description: 'Acknowledge messages', category: 'Messages' },
+			{
+				value: 'queues:extend_leases',
+				label: 'Extend Leases',
+				description: 'Extend the visibility timeout of pulled messages',
+				category: 'Messages',
+			},
 			{ value: 'queues:purge', label: 'Purge', description: 'Purge all messages', category: 'Messages' },
 			{ value: 'queues:purge_status', label: 'Purge Status', description: 'Check purge status', category: 'Messages' },
 			{ value: 'queues:preview_messages', label: 'Preview', description: 'Preview messages without consuming', category: 'Messages' },
@@ -468,7 +479,12 @@ const ACTION_GROUPS: readonly ActionGroup[] = [
 				description: 'Modify network bans & IP restrictions',
 				category: 'Networking',
 			},
-			{ value: 'supabase:metrics:read', label: 'Metrics Read', description: 'Read project metrics (Management /v0 + /v1)', category: 'Metrics' },
+			{
+				value: 'supabase:metrics:read',
+				label: 'Metrics Read',
+				description: 'Read project metrics (Management /v0 + /v1)',
+				category: 'Metrics',
+			},
 		],
 	},
 	{

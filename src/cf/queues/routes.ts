@@ -215,6 +215,26 @@ queuesRoutes.post('/:queueId/messages/ack', async (c) => {
 	}
 });
 
+queuesRoutes.post('/:queueId/messages/extend', async (c) => {
+	const accountId: string = c.get('accountId');
+	const rf: Record<string, string> = c.get('requestFields');
+	const queueId = c.req.param('queueId');
+	try {
+		return jsonServiceRoute(
+			c,
+			SVC,
+			'queues:extend_leases',
+			[queuesQueueContext(accountId, queueId, 'queues:extend_leases', rf)],
+			`/accounts/${accountId}/queues/${queueId}/messages/extend`,
+			'POST',
+			queueId,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'queues.extend_leases', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
 queuesRoutes.post('/:queueId/messages/preview', async (c) => {
 	const accountId: string = c.get('accountId');
 	const rf: Record<string, string> = c.get('requestFields');

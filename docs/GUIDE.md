@@ -2733,7 +2733,7 @@ The current and only supported policy version is `"2025-01-01"`.
 
 ### Queues actions
 
-`queues:create`, `queues:list`, `queues:get`, `queues:update`, `queues:edit`, `queues:delete`, `queues:push_message`, `queues:bulk_push`, `queues:pull_messages`, `queues:ack_messages`, `queues:preview_messages`, `queues:ack_previewed_messages`, `queues:peek_messages`, `queues:purge_peeked_messages`, `queues:get_metrics`, `queues:purge`, `queues:purge_status`, `queues:create_consumer`, `queues:list_consumers`, `queues:get_consumer`, `queues:update_consumer`, `queues:delete_consumer`, `queues:*`
+`queues:create`, `queues:list`, `queues:get`, `queues:update`, `queues:edit`, `queues:delete`, `queues:push_message`, `queues:bulk_push`, `queues:pull_messages`, `queues:ack_messages`, `queues:extend_leases`, `queues:preview_messages`, `queues:ack_previewed_messages`, `queues:peek_messages`, `queues:purge_peeked_messages`, `queues:get_metrics`, `queues:purge`, `queues:purge_status`, `queues:create_consumer`, `queues:list_consumers`, `queues:get_consumer`, `queues:update_consumer`, `queues:delete_consumer`, `queues:*`
 
 ### Vectorize actions
 

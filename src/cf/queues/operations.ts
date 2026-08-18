@@ -12,6 +12,9 @@
  *   POST   /accounts/:acct/queues/:queueId/messages/batch             -> queues:bulk_push
  *   POST   /accounts/:acct/queues/:queueId/messages/pull              -> queues:pull_messages
  *   POST   /accounts/:acct/queues/:queueId/messages/ack               -> queues:ack_messages
+ *   POST   /accounts/:acct/queues/:queueId/messages/extend            -> queues:extend_leases (extends the visibility
+ *                                                                        timeout of messages pulled via messages/pull,
+ *                                                                        by lease_id - the sibling of ack)
  *   POST   /accounts/:acct/queues/:queueId/messages/preview           -> queues:preview_messages
  *   POST   /accounts/:acct/queues/:queueId/messages/preview/ack       -> queues:ack_previewed_messages
  *   POST   /accounts/:acct/queues/:queueId/messages/peek              -> queues:peek_messages (renamed preview shape, same semantics)
@@ -43,6 +46,7 @@ export type QueuesAction =
 	| 'queues:bulk_push'
 	| 'queues:pull_messages'
 	| 'queues:ack_messages'
+	| 'queues:extend_leases'
 	| 'queues:preview_messages'
 	| 'queues:ack_previewed_messages'
 	| 'queues:peek_messages'

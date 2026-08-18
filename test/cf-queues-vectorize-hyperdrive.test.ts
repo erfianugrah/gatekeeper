@@ -206,6 +206,17 @@ describe('Queues proxy — messages', () => {
 		});
 		expect(res.status).toBe(200);
 	});
+	it('proxies POST /queues/:id/messages/extend', async () => {
+		const keyId = await createAccountKey(wildcardPolicy('queues'));
+		mockUpstream('POST', `${CF_API}/queues/${QUEUE_ID}/messages/extend`);
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/queues/${QUEUE_ID}/messages/extend`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ lease_ids: ['lease-1'], visibility_timeout_extend_seconds: 60 }),
+		});
+		expect(res.status).toBe(200);
+	});
 });
 
 describe('Queues proxy - message preview/peek/purge + metrics', () => {
@@ -266,6 +277,17 @@ describe('Queues proxy - message preview/peek/purge + metrics', () => {
 			headers: { Authorization: `Bearer ${keyId}` },
 		});
 		expect(res.status).toBe(200);
+	});
+
+	it('403 extend without queues:extend_leases', async () => {
+		const keyId = await createAccountKey(readOnlyPolicy('queues', ['queues:list', 'queues:get']));
+
+		const res = await SELF.fetch(`http://localhost/cf/accounts/${ACCOUNT_ID}/queues/${QUEUE_ID}/messages/extend`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ lease_ids: ['lease-1'], visibility_timeout_extend_seconds: 60 }),
+		});
+		expect(res.status).toBe(403);
 	});
 
 	it('403 preview without queues:preview_messages', async () => {

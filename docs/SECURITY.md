@@ -268,9 +268,9 @@ Namespaced by service. Wildcard suffix supported (`purge:*` matches all purge ac
 
 The Workers service covers 39 actions spanning the full lifecycle of Worker scripts: `workers:list_scripts`, `workers:get_script`, `workers:update_script`, `workers:delete_script`, `workers:get_content`, `workers:update_content`, `workers:get_settings`, `workers:update_settings`, and more covering scripts CRUD, content, settings, versions, deployments, secrets, schedules, tails, subdomain, assets, account settings, domains, and observability telemetry. The wildcard `workers:*` matches all 39 actions.
 
-#### Queues service (17 actions)
+#### Queues service (23 actions)
 
-The Queues service covers 17 actions: queue CRUD (`queues:create`, `queues:list`, `queues:get`, `queues:update`, `queues:edit`, `queues:delete`), message operations (`queues:push_message`, `queues:bulk_push_messages`, `queues:pull_messages`, `queues:ack_messages`, `queues:purge`, `queues:purge_status`), and consumer operations (`queues:create_consumer`, `queues:list_consumers`, `queues:get_consumer`, `queues:update_consumer`, `queues:delete_consumer`). The wildcard `queues:*` matches all 17 actions.
+The Queues service covers 23 actions: queue CRUD (`queues:create`, `queues:list`, `queues:get`, `queues:update`, `queues:edit`, `queues:delete`), message operations (`queues:push_message`, `queues:bulk_push`, `queues:pull_messages`, `queues:ack_messages`, `queues:extend_leases`, `queues:preview_messages`, `queues:ack_previewed_messages`, `queues:peek_messages`, `queues:purge_peeked_messages`, `queues:get_metrics`, `queues:purge`, `queues:purge_status`), and consumer operations (`queues:create_consumer`, `queues:list_consumers`, `queues:get_consumer`, `queues:update_consumer`, `queues:delete_consumer`). The wildcard `queues:*` matches all 23 actions.
 
 #### Vectorize service (14 actions)
 
