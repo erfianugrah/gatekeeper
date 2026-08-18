@@ -291,6 +291,7 @@ Create an API key with an attached IAM policy document.
 | `rate_limit.bulk_bucket`   | number         | no       | Bulk bucket capacity                                                                                                                                     |
 | `rate_limit.single_rate`   | number         | no       | Single-file token refill rate                                                                                                                            |
 | `rate_limit.single_bucket` | number         | no       | Single-file bucket capacity                                                                                                                              |
+| `upstream_token_id`        | string         | yes for upstream-bound keys | The upstream credential this key binds to (required when minting a key against a `supabase`/`supabase_metrics` upstream; the proxy swaps in exactly this credential) |
 
 **PolicyDocument:**
 
@@ -1580,7 +1581,7 @@ Query recent Supabase proxy events.
 | Param         | Type   | Description                                                        |
 | ------------- | ------ | ------------------------------------------------------------------ |
 | project_ref   | string | Filter by Supabase project ref                                     |
-| key_id        | string | Filter by Gatekeeper API key ID                                    |
+| key_id        | string | Filter by the key's non-secret preview form (`first4...last4`, e.g. `sbp_ab12...wxyz`) - the feed never stores the raw bearer, so filtering by the full key id silently matches nothing |
 | category      | string | Filter by category (database, auth, secrets, edge_functions, metrics, ...) |
 | action        | string | Filter by action (e.g. `supabase:database:write`)                  |
 | since         | number | Start time (epoch ms)                                              |
