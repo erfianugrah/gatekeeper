@@ -296,6 +296,8 @@ describe('classifySupabaseRequest', () => {
 		// Longest-prefix win must not swallow sibling analytics endpoints.
 		expect(classifySupabaseRequest('GET', `/v1/projects/${REF}/analytics/endpoints/usage.api-counts`)?.category).toBe('analytics');
 		expect(classifySupabaseRequest('GET', `/v1/projects/${REF}/analytics/endpoints/logs.all`)?.category).toBe('analytics');
+		// logs.all is removed upstream 2026-09-23; its ClickHouse replacement must classify the same.
+		expect(classifySupabaseRequest('GET', `/v1/projects/${REF}/analytics/endpoints/logs`)?.category).toBe('analytics');
 	});
 
 	it('classifies GET network-restrictions as networking:read', () => {
