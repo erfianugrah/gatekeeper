@@ -50,7 +50,7 @@
 	{
 		"method": "DELETE",
 		"path": "/accounts/{account_id}/workers/domains/{domain_id}",
-		"summary": "Detach Domain",
+		"summary": "Detach Worker Domain",
 		"covered": true
 	},
 	{
@@ -62,31 +62,31 @@
 	{
 		"method": "DELETE",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/deployments/{deployment_id}",
-		"summary": "Delete Deployment",
+		"summary": "Delete Worker Deployment",
 		"covered": true
 	},
 	{
 		"method": "DELETE",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/secrets/{secret_name}",
-		"summary": "Delete script secret",
+		"summary": "Delete Worker script secret",
 		"covered": true
 	},
 	{
 		"method": "DELETE",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/subdomain",
-		"summary": "Delete Worker subdomain",
+		"summary": "Delete Worker Script Subdomain",
 		"covered": true
 	},
 	{
 		"method": "DELETE",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/tails/{id}",
-		"summary": "Delete Tail",
+		"summary": "Delete Worker Tail",
 		"covered": true
 	},
 	{
 		"method": "DELETE",
 		"path": "/accounts/{account_id}/workers/subdomain",
-		"summary": "Delete Subdomain",
+		"summary": "Delete Workers Subdomain",
 		"covered": true
 	},
 	{
@@ -224,103 +224,103 @@
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/account-settings",
-		"summary": "Fetch Worker Account Settings",
+		"summary": "Fetch Workers Account Settings",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/domains",
-		"summary": "List Domains",
+		"summary": "List Worker Domains",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/domains/{domain_id}",
-		"summary": "Get Domain",
+		"summary": "Get Worker Domain",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts",
-		"summary": "List Workers",
+		"summary": "List Worker Scripts",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts-search",
-		"summary": "Search Workers",
+		"summary": "Search Worker Scripts",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}",
-		"summary": "Download Worker",
+		"summary": "Download Worker Script",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/content/v2",
-		"summary": "Get script content",
+		"summary": "Get Worker Script Content",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/deployments",
-		"summary": "List Deployments",
+		"summary": "List Worker Deployments",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/deployments/{deployment_id}",
-		"summary": "Get Deployment",
+		"summary": "Get Worker Deployment",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/schedules",
-		"summary": "Get Cron Triggers",
+		"summary": "Get Worker Script Schedules (Cron Triggers)",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/script-settings",
-		"summary": "Get Script Settings",
+		"summary": "Get Worker Script Settings",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/secrets",
-		"summary": "List script secrets",
+		"summary": "List secrets bound to a Worker script",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/secrets/{secret_name}",
-		"summary": "Get secret binding",
+		"summary": "Get a secret binding",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/settings",
-		"summary": "Get Settings",
+		"summary": "Get Worker Script and Version Settings",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/subdomain",
-		"summary": "Get Worker subdomain",
+		"summary": "Get Worker Script Subdomain",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/tails",
-		"summary": "List Tails",
+		"summary": "List Worker Tails",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/usage-model",
-		"summary": "Fetch Usage Model",
+		"summary": "Get Worker Script Usage Model",
 		"covered": true
 	},
 	{
@@ -332,13 +332,13 @@
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/versions/{version_id}",
-		"summary": "Get Version Detail",
+		"summary": "Get Worker Script Version",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/workers/subdomain",
-		"summary": "Get Subdomain",
+		"summary": "Get a Workers Subdomain",
 		"covered": true
 	},
 	{
@@ -392,19 +392,19 @@
 	{
 		"method": "PATCH",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/script-settings",
-		"summary": "Patch Script Settings",
+		"summary": "Patch Worker Script Settings",
 		"covered": true
 	},
 	{
 		"method": "PATCH",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/secrets-bulk",
-		"summary": "Patch multiple script secrets",
+		"summary": "Patch multiple Worker script secrets",
 		"covered": true
 	},
 	{
 		"method": "PATCH",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/settings",
-		"summary": "Patch Settings",
+		"summary": "Patch Worker Script and Version Settings",
 		"covered": true
 	},
 	{
@@ -638,25 +638,25 @@
 	{
 		"method": "POST",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/assets-upload-session",
-		"summary": "Create Assets Upload Session",
+		"summary": "Create Worker Assets Upload Session",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/deployments",
-		"summary": "Create Deployment",
+		"summary": "Create Worker Deployment",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/subdomain",
-		"summary": "Post Worker subdomain",
+		"summary": "Update Worker Script Subdomain",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/tails",
-		"summary": "Start Tail",
+		"summary": "Start Worker Tail",
 		"covered": true
 	},
 	{
@@ -746,13 +746,13 @@
 	{
 		"method": "PUT",
 		"path": "/accounts/{account_id}/workers/account-settings",
-		"summary": "Create Worker Account Settings",
+		"summary": "Configure Workers Account Settings",
 		"covered": true
 	},
 	{
 		"method": "PUT",
 		"path": "/accounts/{account_id}/workers/domains",
-		"summary": "Attach Domain",
+		"summary": "Attach Worker Domain",
 		"covered": true
 	},
 	{
@@ -764,31 +764,31 @@
 	{
 		"method": "PUT",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/content",
-		"summary": "Put script content",
+		"summary": "Replace Worker Script Content",
 		"covered": true
 	},
 	{
 		"method": "PUT",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/schedules",
-		"summary": "Update Cron Triggers",
+		"summary": "Update Worker Script Schedules (Cron Triggers)",
 		"covered": true
 	},
 	{
 		"method": "PUT",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/secrets",
-		"summary": "Add script secret",
+		"summary": "Add a secret to a Worker script",
 		"covered": true
 	},
 	{
 		"method": "PUT",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}/usage-model",
-		"summary": "Update Usage Model",
+		"summary": "Replace Worker Script Usage Model",
 		"covered": true
 	},
 	{
 		"method": "PUT",
 		"path": "/accounts/{account_id}/workers/subdomain",
-		"summary": "Create Subdomain",
+		"summary": "Create a Workers Subdomain",
 		"covered": true
 	},
 	{

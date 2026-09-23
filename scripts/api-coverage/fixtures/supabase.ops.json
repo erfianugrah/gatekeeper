@@ -38,7 +38,7 @@
 	{
 		"method": "DELETE",
 		"path": "/v1/projects/{ref}/cli/login-role",
-		"summary": "[Beta] Delete existing login roles used by CLI",
+		"summary": "Delete existing login roles used by CLI",
 		"covered": true
 	},
 	{
@@ -62,7 +62,7 @@
 	{
 		"method": "DELETE",
 		"path": "/v1/projects/{ref}/custom-hostname",
-		"summary": "[Beta] Deletes a project's custom hostname configuration",
+		"summary": "Deletes a project's custom hostname configuration",
 		"covered": true
 	},
 	{
@@ -92,7 +92,7 @@
 	{
 		"method": "DELETE",
 		"path": "/v1/projects/{ref}/network-bans",
-		"summary": "[Beta] Remove network bans.",
+		"summary": "Remove network bans.",
 		"covered": true
 	},
 	{
@@ -104,7 +104,7 @@
 	{
 		"method": "DELETE",
 		"path": "/v1/projects/{ref}/vanity-subdomain",
-		"summary": "[Beta] Deletes a project's vanity subdomain configuration",
+		"summary": "Deletes a project's vanity subdomain configuration",
 		"covered": true
 	},
 	{
@@ -116,13 +116,13 @@
 	{
 		"method": "GET",
 		"path": "/v1/branches/{branch_id_or_ref}/diff",
-		"summary": "[Beta] Diffs a database branch",
+		"summary": "Diffs a database branch",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/v1/oauth/authorize",
-		"summary": "[Beta] Authorize user through oauth",
+		"summary": "Authorize user through oauth",
 		"covered": true
 	},
 	{
@@ -392,7 +392,7 @@
 	{
 		"method": "GET",
 		"path": "/v1/projects/{ref}/custom-hostname",
-		"summary": "[Beta] Gets project's custom hostname config",
+		"summary": "Gets project's custom hostname config",
 		"covered": true
 	},
 	{
@@ -476,19 +476,19 @@
 	{
 		"method": "GET",
 		"path": "/v1/projects/{ref}/jit-access",
-		"summary": "[Beta] Get project's temporary access configuration.",
+		"summary": "Get project's temporary access configuration.",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/v1/projects/{ref}/network-restrictions",
-		"summary": "[Beta] Gets project's network restrictions",
+		"summary": "Gets project's network restrictions",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/v1/projects/{ref}/pgsodium",
-		"summary": "[Beta] Gets project's pgsodium config",
+		"summary": "Gets project's pgsodium config",
 		"covered": true
 	},
 	{
@@ -518,7 +518,7 @@
 	{
 		"method": "GET",
 		"path": "/v1/projects/{ref}/ssl-enforcement",
-		"summary": "[Beta] Get project's SSL enforcement configuration.",
+		"summary": "Get project's SSL enforcement configuration.",
 		"covered": true
 	},
 	{
@@ -536,25 +536,25 @@
 	{
 		"method": "GET",
 		"path": "/v1/projects/{ref}/upgrade/eligibility",
-		"summary": "[Beta] Returns the project's eligibility for upgrades",
+		"summary": "Returns the project's eligibility for upgrades",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/v1/projects/{ref}/upgrade/status",
-		"summary": "[Beta] Gets the latest status of the project's upgrade",
+		"summary": "Gets the latest status of the project's upgrade",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/v1/projects/{ref}/vanity-subdomain",
-		"summary": "[Beta] Gets current vanity subdomain config",
+		"summary": "Gets current vanity subdomain config",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/v1/projects/available-regions",
-		"summary": "[Beta] Gets the list of available regions that can be used for a new project",
+		"summary": "Gets the list of available regions that can be used for a new project",
 		"covered": true
 	},
 	{
@@ -662,7 +662,7 @@
 	{
 		"method": "PATCH",
 		"path": "/v1/projects/{ref}/network-restrictions",
-		"summary": "[Alpha] Updates project's network restrictions by adding or removing CIDRs",
+		"summary": "Updates project's network restrictions by adding or removing CIDRs",
 		"covered": true
 	},
 	{
@@ -698,13 +698,13 @@
 	{
 		"method": "POST",
 		"path": "/v1/oauth/revoke",
-		"summary": "[Beta] Revoke oauth app authorization and it's corresponding tokens",
+		"summary": "Revoke oauth app authorization and it's corresponding tokens",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/v1/oauth/token",
-		"summary": "[Beta] Exchange auth code for user's access and refresh token",
+		"summary": "Exchange auth code for user's access and refresh token",
 		"covered": true
 	},
 	{
@@ -746,7 +746,7 @@
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/cli/login-role",
-		"summary": "[Beta] Create a login role for CLI with temporary password",
+		"summary": "Create a login role for CLI with temporary password",
 		"covered": true
 	},
 	{
@@ -788,19 +788,19 @@
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/custom-hostname/activate",
-		"summary": "[Beta] Activates a custom hostname for a project.",
+		"summary": "Activates a custom hostname for a project.",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/custom-hostname/initialize",
-		"summary": "[Beta] Updates project's custom hostname configuration",
+		"summary": "Updates project's custom hostname configuration",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/custom-hostname/reverify",
-		"summary": "[Beta] Attempts to verify the DNS configuration for project's custom hostname configuration",
+		"summary": "Attempts to verify the DNS configuration for project's custom hostname configuration",
 		"covered": true
 	},
 	{
@@ -854,19 +854,19 @@
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/database/query",
-		"summary": "[Beta] Run sql query",
+		"summary": "Run sql query",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/database/query/read-only",
-		"summary": "[Beta] Run a sql query as supabase_read_only_user",
+		"summary": "Run a sql query as supabase_read_only_user",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/database/webhooks/enable",
-		"summary": "[Beta] Enables Database Webhooks on the project",
+		"summary": "Enables Database Webhooks on the project",
 		"covered": true
 	},
 	{
@@ -884,19 +884,19 @@
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/network-bans/retrieve",
-		"summary": "[Beta] Gets project's network bans",
+		"summary": "Gets project's network bans",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/network-bans/retrieve/enriched",
-		"summary": "[Beta] Gets project's network bans with additional information about which databases they affect",
+		"summary": "Gets project's network bans with additional information about which databases they affect",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/network-restrictions/apply",
-		"summary": "[Beta] Updates project's network restrictions",
+		"summary": "Updates project's network restrictions",
 		"covered": true
 	},
 	{
@@ -908,13 +908,13 @@
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/read-replicas/remove",
-		"summary": "[Beta] Remove a read replica",
+		"summary": "Remove a read replica",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/read-replicas/setup",
-		"summary": "[Beta] Set up a read replica",
+		"summary": "Set up a read replica",
 		"covered": true
 	},
 	{
@@ -950,19 +950,19 @@
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/upgrade",
-		"summary": "[Beta] Upgrades the project's Postgres version",
+		"summary": "Upgrades the project's Postgres version",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/vanity-subdomain/activate",
-		"summary": "[Beta] Activates a vanity subdomain for a project.",
+		"summary": "Activates a vanity subdomain for a project.",
 		"covered": true
 	},
 	{
 		"method": "POST",
 		"path": "/v1/projects/{ref}/vanity-subdomain/check-availability",
-		"summary": "[Beta] Checks vanity subdomain availability",
+		"summary": "Checks vanity subdomain availability",
 		"covered": true
 	},
 	{
@@ -1004,19 +1004,19 @@
 	{
 		"method": "PUT",
 		"path": "/v1/projects/{ref}/jit-access",
-		"summary": "[Beta] Update project's temporary access configuration.",
+		"summary": "Update project's temporary access configuration.",
 		"covered": true
 	},
 	{
 		"method": "PUT",
 		"path": "/v1/projects/{ref}/pgsodium",
-		"summary": "[Beta] Updates project's pgsodium config. Updating the root_key can cause all data encrypted with the older key to become inaccessible.",
+		"summary": "Updates project's pgsodium config. Updating the root_key can cause all data encrypted with the older key to become inaccessible.",
 		"covered": true
 	},
 	{
 		"method": "PUT",
 		"path": "/v1/projects/{ref}/ssl-enforcement",
-		"summary": "[Beta] Update project's SSL enforcement configuration.",
+		"summary": "Update project's SSL enforcement configuration.",
 		"covered": true
 	}
 ]
