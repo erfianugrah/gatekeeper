@@ -6,11 +6,11 @@ name: CI
 # separate scheduled job (api-coverage-drift.yml).
 #
 # Continuous deployment is gated on preflight (`needs: preflight`) so a red suite never ships:
-#   • push to main      → deploy the `staging` Worker (gatekeeper-staging.workers.dev)
-#   • push tag v*        → deploy the `production` Worker (gate.erfi.io)
-#   • workflow_dispatch  → deploy the chosen environment manually
-# Deploys authenticate with the scoped CLOUDFLARE_API_TOKEN repo secret (Workers Scripts + D1
-# on the account, Workers Routes + Zone Read on erfi.io) — never the dev-box global API key.
+#   - push to main      -> deploy the `staging` Worker (gatekeeper-staging.workers.dev)
+#   - push tag v*       -> deploy the `production` Worker (gate.erfi.io)
+#   - workflow_dispatch -> deploy the chosen environment manually
+# Deploys authenticate with the scoped WRANGLER_TOKEN user-level secret (Workers deploy
+# token; Cloudflare account id lives in CLOUDFLARE_ACCOUNT_ID) - never the dev-box global API key.
 
 on:
   push:
@@ -25,9 +25,6 @@ on:
         options: [staging, production]
         default: staging
 
-permissions:
-  contents: read
-
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -38,9 +35,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install -o /tmp/bun.sh
+          bash /tmp/bun.sh "bun-v1.3.13"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
         run: |
@@ -48,7 +47,7 @@ jobs:
           cd dashboard && bun install --frozen-lockfile
 
       # The worker test pool (@cloudflare/vitest-pool-workers) loads wrangler.jsonc, whose
-      # assets.directory points at dashboard/dist — it must exist before `bun run test` runs, and
+      # assets.directory points at dashboard/dist - it must exist before `bun run test` runs, and
       # preflight builds it only at the end. Build it up front in clean CI checkouts.
       - name: Build dashboard (required by worker test pool)
         run: bun run build:dashboard
@@ -56,7 +55,7 @@ jobs:
       - name: Preflight (typecheck + lint + test + openapi + build)
         run: bun run preflight
 
-  # Browser-level checks that the worker test pool can't catch — most importantly the
+  # Browser-level checks that the worker test pool can't catch - most importantly the
   # run_worker_first asset-layer wiring (vitest calls app.fetch directly, bypassing the
   # asset layer, so a missing run_worker_first prefix is invisible there but breaks in
   # wrangler dev / prod). Playwright boots wrangler dev via its webServer config.
@@ -65,16 +64,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install -o /tmp/bun.sh
+          bash /tmp/bun.sh "bun-v1.3.13"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
         run: |
           bun install --frozen-lockfile
           cd dashboard && bun install --frozen-lockfile
 
-      # wrangler dev serves assets.directory → dashboard/dist; it must exist before the
+      # wrangler dev serves assets.directory -> dashboard/dist; it must exist before the
       # Playwright webServer boots the worker.
       - name: Build dashboard
         run: bun run build:dashboard
@@ -89,7 +90,7 @@ jobs:
 
   deploy:
     needs: [preflight, e2e]
-    # Never deploy on pull_request. main → staging, tag v* → production, manual → chosen env.
+    # Never deploy on pull_request. main -> staging, tag v* -> production, manual -> chosen env.
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment:
@@ -97,9 +98,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install -o /tmp/bun.sh
+          bash /tmp/bun.sh "bun-v1.3.13"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
         run: |
@@ -131,10 +134,10 @@ jobs:
       - name: Deploy (${{ steps.target.outputs.env }})
         run: bunx wrangler deploy ${{ steps.target.outputs.args }}
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.WRANGLER_TOKEN }}
 
-  # Live Supabase smoke against the just-deployed STAGING worker — this is what
-  # staging is for. The synthetic tier always runs; the live tier (real PAT swap →
+  # Live Supabase smoke against the just-deployed STAGING worker - this is what
+  # staging is for. The synthetic tier always runs; the live tier (real PAT swap ->
   # real Supabase Management API, all scopes + isolation) runs when the secrets are
   # present. Staging only (push to main); the step skips cleanly if secrets are unset,
   # so the gate never blocks a deploy before the secrets are configured.
@@ -145,9 +148,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install -o /tmp/bun.sh
+          bash /tmp/bun.sh "bun-v1.3.13"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - run: bun install --frozen-lockfile
 
@@ -161,14 +166,14 @@ jobs:
           SUPABASE_SMOKE_ENABLE_WRITE_PROBE: "1"
         run: |
           if [ -z "$GATEKEEPER_ADMIN_KEY" ]; then
-            echo "::notice::STAGING_ADMIN_KEY not set — skipping live Supabase smoke (synthetic + live)."
+            echo "::notice::STAGING_ADMIN_KEY not set - skipping live Supabase smoke (synthetic + live)."
             exit 0
           fi
           if [ -z "$SUPABASE_SMOKE_PAT" ]; then
-            echo "::notice::SUPABASE_SMOKE_PAT not set — running synthetic tier only (live tier will self-skip)."
+            echo "::notice::SUPABASE_SMOKE_PAT not set - running synthetic tier only (live tier will self-skip)."
           fi
           if [ -z "$SUPABASE_SMOKE_METRICS_SECRET" ] || [ -z "$SUPABASE_SMOKE_METRICS_REF" ]; then
-            echo "::notice::SUPABASE_SMOKE_METRICS_SECRET and/or SUPABASE_SMOKE_METRICS_REF not set — metrics live tier will self-skip."
+            echo "::notice::SUPABASE_SMOKE_METRICS_SECRET and/or SUPABASE_SMOKE_METRICS_REF not set - metrics live tier will self-skip."
           fi
           bunx tsx cli/smoke-supabase.ts
 

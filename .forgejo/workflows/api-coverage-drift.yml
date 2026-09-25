@@ -8,15 +8,12 @@ name: API coverage drift
 #
 # The tracking issue is opened/commented on failure and closed again on the first clean run,
 # so an open issue always means "drift is live right now" rather than "drift happened once".
+# The issue lives on GitHub (gh CLI with GH_ISSUE_TOKEN against erfianugrah/gatekeeper).
 
 on:
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
   workflow_dispatch: {}
-
-permissions:
-  contents: read
-  issues: write
 
 concurrency:
   group: api-coverage-drift
@@ -33,9 +30,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+      - name: Install Bun
+        run: |
+          curl -fsSL https://bun.sh/install -o /tmp/bun.sh
+          bash /tmp/bun.sh "bun-v1.3.13"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - run: bun install --frozen-lockfile
 
@@ -47,15 +46,17 @@ jobs:
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Open or update drift issue
+      - name: Open or update drift issue (GitHub)
         if: steps.drift.outputs.exit_code != '0'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_ISSUE_TOKEN }}
         run: |
           title="$DRIFT_ISSUE_TITLE"
+          # github.repository here resolves to the FORGEJO repo (erfi/gatekeeper) -
+          # intentional: the issue body links the Forgejo run that found the drift.
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           {
-            echo "The scheduled API-coverage drift check failed — an upstream API likely changed."
+            echo "The scheduled API-coverage drift check failed - an upstream API likely changed."
             echo
             echo "Run: $run_url"
             echo
@@ -68,33 +69,33 @@ jobs:
             echo "See \`scripts/api-coverage/README.md\`."
           } > drift-issue-body.md
 
-          existing=$(gh issue list --state open --json number,title \
+          existing=$(gh issue list -R erfianugrah/gatekeeper --state open --json number,title \
             --jq ".[] | select(.title==\"$title\") | .number" | head -n1)
           if [ -n "$existing" ]; then
-            gh issue comment "$existing" --body-file drift-issue-body.md
+            gh issue comment "$existing" -R erfianugrah/gatekeeper --body-file drift-issue-body.md
           else
-            gh issue create --title "$title" --body-file drift-issue-body.md
+            gh issue create -R erfianugrah/gatekeeper --title "$title" --body-file drift-issue-body.md
           fi
 
-      - name: Close drift issue when clean
+      - name: Close drift issue when clean (GitHub)
         if: steps.drift.outputs.exit_code == '0'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_ISSUE_TOKEN }}
         run: |
           title="$DRIFT_ISSUE_TITLE"
-          existing=$(gh issue list --state open --json number,title \
+          existing=$(gh issue list -R erfianugrah/gatekeeper --state open --json number,title \
             --jq ".[] | select(.title==\"$title\") | .number" | head -n1)
           if [ -z "$existing" ]; then
             echo "No open drift issue to close."
             exit 0
           fi
-          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          gh issue comment "$existing" --body "Drift cleared - all providers covered and snapshots current as of $run_url. Closing automatically; it will reopen (as a new issue) on the next drift."
-          gh issue close "$existing" --reason completed
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" # forgejo run link, see above
+          gh issue comment "$existing" -R erfianugrah/gatekeeper --body "Drift cleared - all providers covered and snapshots current as of $run_url. Closing automatically; it will reopen (as a new issue) on the next drift."
+          gh issue close "$existing" -R erfianugrah/gatekeeper --reason completed
           echo "Closed drift issue #$existing."
 
       - name: Fail the run if drift detected
         if: steps.drift.outputs.exit_code != '0'
         run: |
-          echo "::error::API coverage drift detected — see the tracking issue and run output above."
+          echo "::error::API coverage drift detected - see the tracking issue and run output above."
           exit 1
