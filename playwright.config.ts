@@ -7,7 +7,7 @@ export default defineConfig({
 	// first specs can race DO/D1 warmup. 1 locally where a warm server is usually reused.
 	retries: process.env.CI ? 2 : 1,
 	use: {
-		baseURL: 'http://localhost:8787',
+		baseURL: 'http://127.0.0.1:8787',
 		headless: true,
 	},
 	projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
@@ -17,7 +17,7 @@ export default defineConfig({
 	// value the specs use (.dev.vars is gitignored, so CI has no secrets file).
 	webServer: {
 		command: 'npx wrangler dev --port 8787 --var ADMIN_KEY:test-admin-secret-key-12345',
-		url: 'http://localhost:8787/health',
+		// 127.0.0.1, not localhost: in the Forgejo job container localhost resolves\n\t\t// to ::1 first while wrangler dev binds IPv4, so the probe never connects.\n\t\turl: 'http://127.0.0.1:8787/health',
 		timeout: 120_000,
 		reuseExistingServer: !process.env.CI,
 		stdout: 'pipe',
