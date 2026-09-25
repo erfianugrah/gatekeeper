@@ -16,7 +16,7 @@ export default defineConfig({
 	// first (assets.directory → dashboard/dist) and ADMIN_KEY is injected to match the
 	// value the specs use (.dev.vars is gitignored, so CI has no secrets file).
 	webServer: {
-		command: 'npx wrangler dev --port 8787 --var ADMIN_KEY:test-admin-secret-key-12345',
+		command: 'npx wrangler dev --ip 127.0.0.1 --port 8787 --var ADMIN_KEY:test-admin-secret-key-12345',
 		// 127.0.0.1, not localhost: in the Forgejo job container localhost resolves
 		// to ::1 first while wrangler dev binds IPv4, so the probe never connects.
 		url: 'http://127.0.0.1:8787/health',
