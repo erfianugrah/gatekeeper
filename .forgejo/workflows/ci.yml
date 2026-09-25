@@ -38,7 +38,7 @@ jobs:
       - name: Install Bun
         run: |
           curl -fsSL https://bun.sh/install -o /tmp/bun.sh
-          bash /tmp/bun.sh "bun-v1.3.13"
+          bash /tmp/bun.sh "bun-v1.3.14"
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
@@ -67,7 +67,7 @@ jobs:
       - name: Install Bun
         run: |
           curl -fsSL https://bun.sh/install -o /tmp/bun.sh
-          bash /tmp/bun.sh "bun-v1.3.13"
+          bash /tmp/bun.sh "bun-v1.3.14"
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
@@ -101,7 +101,7 @@ jobs:
       - name: Install Bun
         run: |
           curl -fsSL https://bun.sh/install -o /tmp/bun.sh
-          bash /tmp/bun.sh "bun-v1.3.13"
+          bash /tmp/bun.sh "bun-v1.3.14"
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
@@ -151,7 +151,7 @@ jobs:
       - name: Install Bun
         run: |
           curl -fsSL https://bun.sh/install -o /tmp/bun.sh
-          bash /tmp/bun.sh "bun-v1.3.13"
+          bash /tmp/bun.sh "bun-v1.3.14"
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
 
       - run: bun install --frozen-lockfile
