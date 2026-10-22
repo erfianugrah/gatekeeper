@@ -11,7 +11,7 @@ covering it with no error. This framework makes that drift loud.
 |---|---|---|---|
 | `supabase` | live OpenAPI (`api.supabase.com/api/v1-json`) | `classifySupabaseRequest` ≠ null | 170 (all covered) |
 | `s3` | runtime enum `S3_OPERATIONS` (`src/s3/operations.ts`) | real `detectOperation` routes the probe back | 66 (all covered) |
-| `cloudflare` | live CF OpenAPI (filtered to proxied resources) | a real Hono route in the service sub-app matches | 132 (129 covered, 3 allowlisted) |
+| `cloudflare` | live CF OpenAPI (filtered to proxied resources) | a real Hono route in the service sub-app matches | 134 (131 covered, 3 allowlisted) |
 
 Three different *surface sources*, one uniform interface. Each upstream is policed by the model
 that fits its shape — see "Coverage models" below.

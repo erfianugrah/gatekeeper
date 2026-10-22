@@ -17,6 +17,7 @@
  *   POST   /accounts/:acct/d1/database/:dbId/import                     -> d1:import
  *   GET    /accounts/:acct/d1/database/:dbId/time_travel/bookmark       -> d1:time_travel
  *   POST   /accounts/:acct/d1/database/:dbId/time_travel/restore        -> d1:time_travel
+ *   POST   /accounts/:acct/d1/database/:dbId/undelete                   -> d1:undelete
  */
 
 import type { RequestContext } from '../../policy-types';
@@ -33,7 +34,8 @@ export type D1Action =
 	| 'd1:raw'
 	| 'd1:export'
 	| 'd1:import'
-	| 'd1:time_travel';
+	| 'd1:time_travel'
+	| 'd1:undelete';
 
 // ─── SQL command classification ─────────────────────────────────────────────
 
@@ -161,6 +163,15 @@ export function d1ImportContext(accountId: string, databaseId: string, requestFi
 export function d1TimeTravelContext(accountId: string, databaseId: string, requestFields?: Record<string, string>): RequestContext {
 	return {
 		action: 'd1:time_travel',
+		resource: `account:${accountId}/d1/${databaseId}`,
+		fields: { ...(requestFields ?? {}), 'd1.database_id': databaseId },
+	};
+}
+
+/** Build a RequestContext for restoring a deleted database (POST /d1/database/:dbId/undelete). */
+export function d1UndeleteContext(accountId: string, databaseId: string, requestFields?: Record<string, string>): RequestContext {
+	return {
+		action: 'd1:undelete',
 		resource: `account:${accountId}/d1/${databaseId}`,
 		fields: { ...(requestFields ?? {}), 'd1.database_id': databaseId },
 	};

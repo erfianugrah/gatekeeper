@@ -26,7 +26,7 @@
 	{
 		"method": "DELETE",
 		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}",
-		"summary": "Remove a Namespace",
+		"summary": "Delete a namespace",
 		"covered": true
 	},
 	{
@@ -38,7 +38,7 @@
 	{
 		"method": "DELETE",
 		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/values/{key_name}",
-		"summary": "Delete key-value pair",
+		"summary": "Delete a key-value pair",
 		"covered": true
 	},
 	{
@@ -164,31 +164,31 @@
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/storage/kv/namespaces",
-		"summary": "List Namespaces",
+		"summary": "List namespaces",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}",
-		"summary": "Get a Namespace",
+		"summary": "Get a namespace",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/keys",
-		"summary": "List a Namespace's Keys",
+		"summary": "List keys in a namespace",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/metadata/{key_name}",
-		"summary": "Read the metadata for a key",
+		"summary": "Get a key's metadata",
 		"covered": true
 	},
 	{
 		"method": "GET",
 		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/values/{key_name}",
-		"summary": "Read key-value pair",
+		"summary": "Get a key's value",
 		"covered": true
 	},
 	{
@@ -451,6 +451,12 @@
 	},
 	{
 		"method": "POST",
+		"path": "/accounts/{account_id}/d1/database/{database_id}/undelete",
+		"summary": "Undelete D1 Database",
+		"covered": true
+	},
+	{
+		"method": "POST",
 		"path": "/accounts/{account_id}/hyperdrive/configs",
 		"summary": "Create Hyperdrive",
 		"covered": true
@@ -463,7 +469,7 @@
 	},
 	{
 		"method": "POST",
-		"path": "/accounts/{account_id}/hyperdrive/integrationsOperations/{integration}/createDatabaseSignature",
+		"path": "/accounts/{account_id}/hyperdrive/integrationsOperations/planetScale/createDatabaseSignature",
 		"summary": "Create Database Signature",
 		"covered": false
 	},
@@ -542,7 +548,7 @@
 	{
 		"method": "POST",
 		"path": "/accounts/{account_id}/storage/kv/namespaces",
-		"summary": "Create a Namespace",
+		"summary": "Create a namespace",
 		"covered": true
 	},
 	{
@@ -728,7 +734,7 @@
 	{
 		"method": "PUT",
 		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}",
-		"summary": "Rename a Namespace",
+		"summary": "Rename a namespace",
 		"covered": true
 	},
 	{
@@ -740,7 +746,7 @@
 	{
 		"method": "PUT",
 		"path": "/accounts/{account_id}/storage/kv/namespaces/{namespace_id}/values/{key_name}",
-		"summary": "Write key-value pair with optional metadata",
+		"summary": "Write a key-value pair with optional metadata",
 		"covered": true
 	},
 	{

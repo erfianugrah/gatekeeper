@@ -146,7 +146,7 @@ export const cloudflareProvider: CoverageProvider = {
 			'response hands the caller a session the client redeems directly with Cloudflare, off this gateway - not proxied',
 		'POST /accounts/{account_id}/workers/observability/telemetry/live-tail/heartbeat':
 			'keeps the live-tail session above alive; same off-gateway-channel rationale, and useless without it - not proxied',
-		'POST /accounts/{account_id}/hyperdrive/integrationsOperations/{integration}/createDatabaseSignature':
+		'POST /accounts/{account_id}/hyperdrive/integrationsOperations/planetScale/createDatabaseSignature':
 			'response is a short-lived signed authorization the caller redeems directly with the partner integration to create a database billed to the account - an off-gateway credential grant, same rationale as live-tail',
 	},
 };

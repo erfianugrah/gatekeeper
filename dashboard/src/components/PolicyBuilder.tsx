@@ -88,6 +88,7 @@ const ACTION_GROUPS: readonly ActionGroup[] = [
 			{ value: 'd1:export', label: 'Export', description: 'Export database' },
 			{ value: 'd1:import', label: 'Import', description: 'Import data' },
 			{ value: 'd1:time_travel', label: 'Time Travel', description: 'Point-in-time recovery' },
+			{ value: 'd1:undelete', label: 'Undelete', description: 'Restore a deleted database' },
 		],
 	},
 	{

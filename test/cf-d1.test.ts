@@ -549,6 +549,33 @@ describe('D1 proxy — time travel', () => {
 	});
 });
 
+// ─── Undelete database ─────────────────────────────────────────────────────
+
+describe('D1 proxy - undelete', () => {
+	it('proxies POST /undelete', async () => {
+		const keyId = await createAccountKey(d1WildcardPolicy());
+		mockD1Upstream('POST', `${CF_API_D1_PATH}/database/${DATABASE_ID}/undelete`);
+
+		const res = await SELF.fetch(`http://localhost${D1_BASE}/database/${DATABASE_ID}/undelete`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ new_name: 'restored-db' }),
+		});
+		expect(res.status).toBe(200);
+	});
+
+	it('403 when read-only policy', async () => {
+		const keyId = await createAccountKey(d1ReadOnlyPolicy());
+
+		const res = await SELF.fetch(`http://localhost${D1_BASE}/database/${DATABASE_ID}/undelete`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${keyId}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({}),
+		});
+		expect(res.status).toBe(403);
+	});
+});
+
 // ─── Upstream error forwarding ──────────────────────────────────────────────
 
 describe('D1 proxy — upstream error forwarding', () => {

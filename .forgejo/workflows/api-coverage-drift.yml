@@ -8,7 +8,9 @@ name: API coverage drift
 #
 # The tracking issue is opened/commented on failure and closed again on the first clean run,
 # so an open issue always means "drift is live right now" rather than "drift happened once".
-# The issue lives on GitHub (gh CLI with GH_ISSUE_TOKEN against erfianugrah/gatekeeper).
+# The issue lives on Forgejo (this repo), opened with the per-run github.token via the API -
+# the runner image has no gh CLI, so the earlier GitHub-issue version exited 127 and never
+# filed anything (2026-10-19).
 
 on:
   schedule:
@@ -46,15 +48,15 @@ jobs:
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Open or update drift issue (GitHub)
+      - name: Open or update drift issue
         if: steps.drift.outputs.exit_code != '0'
         env:
-          GH_TOKEN: ${{ secrets.GH_ISSUE_TOKEN }}
+          FORGEJO_TOKEN: ${{ github.token }}
         run: |
-          title="$DRIFT_ISSUE_TITLE"
-          # github.repository here resolves to the FORGEJO repo (erfi/gatekeeper) -
-          # intentional: the issue body links the Forgejo run that found the drift.
-          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          api="${{ forgejo.server_url }}/api/v1"
+          repo="${{ github.repository }}"
+          auth="Authorization: token $FORGEJO_TOKEN"
+          run_url="${{ forgejo.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           {
             echo "The scheduled API-coverage drift check failed - an upstream API likely changed."
             echo
@@ -68,30 +70,38 @@ jobs:
             echo "(deciding per new op whether it needs a classifier rule or an allowlist entry)."
             echo "See \`scripts/api-coverage/README.md\`."
           } > drift-issue-body.md
-
-          existing=$(gh issue list -R erfianugrah/gatekeeper --state open --json number,title \
-            --jq ".[] | select(.title==\"$title\") | .number" | head -n1)
+          body_json="$(jq -Rs . drift-issue-body.md)"
+          existing="$(curl -sf -H "$auth" "$api/repos/$repo/issues?state=open&type=issues&limit=50" \
+            | jq -r --arg t "$DRIFT_ISSUE_TITLE" '.[] | select(.title == $t) | .number' | head -n1)"
           if [ -n "$existing" ]; then
-            gh issue comment "$existing" -R erfianugrah/gatekeeper --body-file drift-issue-body.md
+            curl -sf -X POST -H "$auth" -H "Content-Type: application/json" \
+              --data "$(jq -n --argjson b "$body_json" '{body: $b}')" \
+              "$api/repos/$repo/issues/$existing/comments" > /dev/null
+            echo "Commented on drift issue #$existing."
           else
-            gh issue create -R erfianugrah/gatekeeper --title "$title" --body-file drift-issue-body.md
+            curl -sf -X POST -H "$auth" -H "Content-Type: application/json" \
+              --data "$(jq -n --arg t "$DRIFT_ISSUE_TITLE" --argjson b "$body_json" '{title: $t, body: $b}')" \
+              "$api/repos/$repo/issues" > /dev/null
+            echo "Opened drift issue."
           fi
 
-      - name: Close drift issue when clean (GitHub)
+      - name: Close drift issue when clean
         if: steps.drift.outputs.exit_code == '0'
         env:
-          GH_TOKEN: ${{ secrets.GH_ISSUE_TOKEN }}
+          FORGEJO_TOKEN: ${{ github.token }}
         run: |
-          title="$DRIFT_ISSUE_TITLE"
-          existing=$(gh issue list -R erfianugrah/gatekeeper --state open --json number,title \
-            --jq ".[] | select(.title==\"$title\") | .number" | head -n1)
-          if [ -z "$existing" ]; then
-            echo "No open drift issue to close."
-            exit 0
-          fi
-          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" # forgejo run link, see above
-          gh issue comment "$existing" -R erfianugrah/gatekeeper --body "Drift cleared - all providers covered and snapshots current as of $run_url. Closing automatically; it will reopen (as a new issue) on the next drift."
-          gh issue close "$existing" -R erfianugrah/gatekeeper --reason completed
+          api="${{ forgejo.server_url }}/api/v1"
+          repo="${{ github.repository }}"
+          auth="Authorization: token $FORGEJO_TOKEN"
+          existing="$(curl -sf -H "$auth" "$api/repos/$repo/issues?state=open&type=issues&limit=50" \
+            | jq -r --arg t "$DRIFT_ISSUE_TITLE" '.[] | select(.title == $t) | .number' | head -n1)"
+          [ -n "$existing" ] || { echo "No open drift issue to close."; exit 0; }
+          run_url="${{ forgejo.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sf -X POST -H "$auth" -H "Content-Type: application/json" \
+            --data "$(jq -n --arg b "Drift cleared - all providers covered and snapshots current as of $run_url. Closing; the next drift opens a new issue." '{body: $b}')" \
+            "$api/repos/$repo/issues/$existing/comments" > /dev/null
+          curl -sf -X PATCH -H "$auth" -H "Content-Type: application/json" \
+            --data '{"state": "closed"}' "$api/repos/$repo/issues/$existing" > /dev/null
           echo "Closed drift issue #$existing."
 
       - name: Fail the run if drift detected

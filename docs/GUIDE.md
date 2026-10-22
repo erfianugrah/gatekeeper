@@ -2721,7 +2721,7 @@ The current and only supported policy version is `"2025-01-01"`.
 
 ### D1 actions
 
-`d1:create`, `d1:list`, `d1:get`, `d1:update`, `d1:delete`, `d1:query`, `d1:raw`, `d1:export`, `d1:import`, `d1:time_travel`, `d1:*`
+`d1:create`, `d1:list`, `d1:get`, `d1:update`, `d1:delete`, `d1:query`, `d1:raw`, `d1:export`, `d1:import`, `d1:time_travel`, `d1:undelete`, `d1:*`
 
 ### KV actions
 

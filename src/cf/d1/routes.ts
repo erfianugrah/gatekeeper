@@ -23,6 +23,7 @@
  *   POST   /database/:databaseId/import                   -> d1:import
  *   GET    /database/:databaseId/time_travel/bookmark     -> d1:time_travel
  *   POST   /database/:databaseId/time_travel/restore      -> d1:time_travel
+ *   POST   /database/:databaseId/undelete                 -> d1:undelete
  */
 
 import { Hono } from 'hono';
@@ -39,6 +40,7 @@ import {
 	d1ExportContext,
 	d1ImportContext,
 	d1TimeTravelContext,
+	d1UndeleteContext,
 } from './operations';
 import type { CfProxyEnv } from '../router';
 
@@ -242,6 +244,31 @@ d1Routes.post('/database/:databaseId/time_travel/restore', async (c) => {
 		);
 	} catch (e: any) {
 		console.error(JSON.stringify({ route: 'd1.time_travel.restore', error: e.message, ts: new Date().toISOString() }));
+		return cfJsonError(500, 'Internal server error');
+	}
+});
+
+// ─── Undelete database ──────────────────────────────────────────────────────
+// Body `{ new_name?: string }` is forwarded as-is.
+
+d1Routes.post('/database/:databaseId/undelete', async (c) => {
+	const accountId: string = c.get('accountId');
+	const requestFields: Record<string, string> = c.get('requestFields');
+	const databaseId = c.req.param('databaseId');
+
+	try {
+		const contexts = [d1UndeleteContext(accountId, databaseId, requestFields)];
+		return jsonServiceRoute(
+			c,
+			'd1',
+			'd1:undelete',
+			contexts,
+			`/accounts/${accountId}/d1/database/${databaseId}/undelete`,
+			'POST',
+			databaseId,
+		);
+	} catch (e: any) {
+		console.error(JSON.stringify({ route: 'd1.undelete', error: e.message, ts: new Date().toISOString() }));
 		return cfJsonError(500, 'Internal server error');
 	}
 });

@@ -231,7 +231,7 @@ Namespaced by service. Wildcard suffix supported (`purge:*` matches all purge ac
 | `dns:import` | Import zone file (BIND format)                               |
 | `dns:*`      | All DNS actions                                              |
 
-#### D1 service (10 actions)
+#### D1 service (11 actions)
 
 | Action           | Description                  |
 | ---------------- | ---------------------------- |
@@ -245,6 +245,7 @@ Namespaced by service. Wildcard suffix supported (`purge:*` matches all purge ac
 | `d1:export`      | Export database              |
 | `d1:import`      | Import into database         |
 | `d1:time_travel` | Time travel bookmark/restore |
+| `d1:undelete`    | Restore a deleted database   |
 
 #### KV service (13 actions)
 

@@ -4,6 +4,10 @@ export default defineWorkersConfig({
 	test: {
 		name: "worker",
 		include: ["test/**/*.test.ts"],
+		// The 5s default flaked on the shared Forgejo runner (supabase-mgmt networking:read took
+		// 6.4s in CI run 9451 while other repos built; locally it runs in <600ms). Same headroom
+		// as vitest.cli.config.ts.
+		testTimeout: 20000,
 		poolOptions: {
 			workers: {
 				wrangler: { configPath: "./wrangler.jsonc" },
