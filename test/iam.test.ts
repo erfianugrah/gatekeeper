@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:test';
+import { env } from './cloudflare-test-compat';
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
 	wildcardPolicy as _wildcardPolicy,

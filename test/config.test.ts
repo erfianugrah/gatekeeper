@@ -1,4 +1,4 @@
-import { SELF } from 'cloudflare:test';
+import { SELF } from './cloudflare-test-compat';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { adminHeaders } from './helpers';
 

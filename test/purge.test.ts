@@ -1,4 +1,5 @@
-import { SELF, fetchMock, env } from 'cloudflare:test';
+import { abortAllDurableObjects } from 'cloudflare:test';
+import { SELF, fetchMock, env } from './cloudflare-test-compat';
 import { describe, it, expect, beforeAll, afterEach, beforeEach, afterAll, vi } from 'vitest';
 import {
 	ZONE_ID,
@@ -30,8 +31,11 @@ beforeEach(() => {
 	__testClearInflightCache();
 });
 
-afterEach(() => {
+afterEach(async () => {
 	fetchMock.assertNoPendingInterceptors();
+	// pool-workers >= 0.13 no longer resets per test: restart the Durable Object
+	// so its in-memory rate-limit buckets start full (stored data is kept).
+	await abortAllDurableObjects();
 });
 
 afterAll(async () => {

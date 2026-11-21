@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { env, SELF } from 'cloudflare:test';
+import { env, SELF } from './cloudflare-test-compat';
 import { ADMIN_KEY, adminHeaders } from './helpers';
 
 import type { Gatekeeper } from '../src/durable-object';

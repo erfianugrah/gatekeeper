@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
-import { SELF, fetchMock } from 'cloudflare:test';
+import { SELF, fetchMock } from './cloudflare-test-compat';
 import { s3WildcardPolicy, s3ReadOnlyPolicy, registerUpstreamR2, getR2EndpointId } from './s3-helpers';
 import { adminHeaders } from './helpers';
 

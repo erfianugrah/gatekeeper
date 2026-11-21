@@ -1,4 +1,4 @@
-import { SELF, env, fetchMock } from 'cloudflare:test';
+import { SELF, env, fetchMock } from './cloudflare-test-compat';
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import {
 	adminHeaders,

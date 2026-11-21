@@ -1,4 +1,4 @@
-import { SELF, fetchMock } from 'cloudflare:test';
+import { SELF, fetchMock } from './cloudflare-test-compat';
 import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach } from 'vitest';
 import {
 	ZONE_ID,

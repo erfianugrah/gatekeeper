@@ -1,4 +1,4 @@
-import { SELF, fetchMock } from 'cloudflare:test';
+import { SELF, fetchMock } from './cloudflare-test-compat';
 import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
 import { adminHeaders, waitForAnalytics, registerSupabaseToken, createSupabaseKey, cleanupCreatedResources } from './helpers';
 import { makePreview } from '../src/crypto';

@@ -1,4 +1,4 @@
-import { SELF, fetchMock } from 'cloudflare:test';
+import { SELF, fetchMock } from './cloudflare-test-compat';
 import { __testClearInflightCache } from '../src/index';
 import type { PolicyDocument } from '../src/policy-types';
 

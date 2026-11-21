@@ -15,7 +15,7 @@
  *   GET /admin/supabase/membership/{events,summary,timeseries}
  */
 
-import { SELF, fetchMock } from 'cloudflare:test';
+import { SELF, fetchMock } from './cloudflare-test-compat';
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { registerSupabaseToken, createSupabaseKey, cleanupCreatedResources, adminHeaders, waitForAnalytics } from './helpers';
 import { makePolicy, allowStmt } from './policy-helpers';

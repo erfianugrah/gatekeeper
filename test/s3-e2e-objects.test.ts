@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
-import { fetchMock } from 'cloudflare:test';
+import { fetchMock } from './cloudflare-test-compat';
 import {
 	createCredential,
 	buildClient,

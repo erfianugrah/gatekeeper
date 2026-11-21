@@ -3,7 +3,7 @@
  * Used by all s3-e2e-*.test.ts files and s3-credentials.test.ts.
  */
 
-import { env, SELF, fetchMock } from 'cloudflare:test';
+import { env, SELF, fetchMock } from './cloudflare-test-compat';
 import { AwsClient } from 'aws4fetch';
 import { adminHeaders } from './helpers';
 

@@ -9,8 +9,15 @@
  *   - Admin user CRUD routes + RBAC enforcement
  */
 
-import { describe, it, expect, afterAll } from 'vitest';
-import { env, SELF } from 'cloudflare:test';
+import { reset } from 'cloudflare:test';
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
+
+// pool-workers >= 0.13 isolates storage per file, not per test; these tests
+// each bootstrap their own admin/users, so wipe after each.
+afterEach(async () => {
+	await reset();
+});
+import { env, SELF } from './cloudflare-test-compat';
 import { hashPassword, verifyPassword } from '../src/password';
 import { adminHeaders } from './helpers';
 

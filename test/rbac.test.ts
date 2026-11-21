@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveRole } from '../src/auth-admin';
-import { SELF } from 'cloudflare:test';
+import { SELF } from './cloudflare-test-compat';
 import { adminHeaders } from './helpers';
 
 // --- Unit tests for resolveRole ---

@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:test';
+import { env } from './cloudflare-test-compat';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getStub } from '../src/do-stub';
 

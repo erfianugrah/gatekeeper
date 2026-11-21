@@ -1,4 +1,4 @@
-import { SELF, env } from 'cloudflare:test';
+import { SELF, env } from './cloudflare-test-compat';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { adminHeaders } from './helpers';
 import worker from '../src/index';

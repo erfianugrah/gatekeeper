@@ -1,4 +1,11 @@
-import { SELF, env, fetchMock } from 'cloudflare:test';
+import { reset } from 'cloudflare:test';
+import { SELF, env, fetchMock } from './cloudflare-test-compat';
+
+// pool-workers >= 0.13 isolates storage per file, not per test; these tests
+// assume a fresh Durable Object each (no beforeAll state), so wipe after each.
+afterEach(async () => {
+	await reset();
+});
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { adminHeaders, ADMIN_KEY } from './helpers';
 

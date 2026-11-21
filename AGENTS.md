@@ -43,7 +43,7 @@ Run `wrangler types` after changing bindings in wrangler.jsonc.
 
 There are three test layers:
 
-- **worker** (`vitest.worker.config.ts`): Uses `@cloudflare/vitest-pool-workers` to run `test/**/*.test.ts` in the Workers runtime. Tests use `SELF.fetch()` and Durable Object stubs.
+- **worker** (`vitest.worker.config.ts`): Uses `@cloudflare/vitest-pool-workers` to run `test/**/*.test.ts` in the Workers runtime. Tests use `SELF.fetch()` and Durable Object stubs, imported from `test/cloudflare-test-compat.ts` (pool-workers 0.23 dropped `fetchMock` from `cloudflare:test`; `test/fetch-mock.ts` keeps the MockAgent subset the suite uses). Storage is isolated per test FILE since pool-workers 0.13 (was per test): a file whose tests assume a fresh Durable Object calls `reset()` in `afterEach`.
 - **cli** (`vitest.cli.config.ts`): Runs `cli/**/*.test.ts` in plain Node.js.
 - **e2e** (`playwright.config.ts`): Playwright browser tests in `e2e/**/*.spec.ts`, run against `http://localhost:8787`. The Playwright `webServer` config auto-starts `wrangler dev` (injecting `ADMIN_KEY=test-admin-secret-key-12345` via `--var`, since `.dev.vars` is gitignored); locally it reuses a server you already have running, in CI it boots a fresh one. The dashboard must be built first (`assets.directory` → `dashboard/dist`). Specs: purge profiles, pill inputs, condition editor, form validation, and **Supabase UI** (`supabase-ui.spec.ts` — upstream-token scope types + project-ref validation, PolicyBuilder scope-gated action groups). E2e is a **deploy gate in CI** (`deploy` needs `[preflight, e2e]`) because it catches the `run_worker_first` asset-layer class of bug that the worker test pool is blind to (vitest calls `app.fetch` directly).
 

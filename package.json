@@ -36,7 +36,7 @@
     "env:edit": "sops --input-type dotenv --output-type dotenv .env"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.12.21",
+    "@cloudflare/vitest-pool-workers": "^0.23.0",
     "@playwright/test": "^1.65.1",
     "@types/node": "^25.9.9",
     "aws4fetch": "^1.0.20",
@@ -45,7 +45,7 @@
     "prettier": "^3.10.1",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
-    "vitest": "~3.2.7",
+    "vitest": "^4.1.12",
     "wrangler": "^4.166.0",
     "zod": "^4.6.7",
     "zod-openapi": "^5.4.6"
@@ -54,8 +54,6 @@
     "arctic": "^3.7.0"
   },
   "overrides": {
-    "tinypool": ">=2.2.0",
-    "@vitest/mocker": ">=4.1.11",
     "undici": ">=7.24.0",
     "esbuild": ">=0.28.1",
     "source-map-js": ">=1.2.2",

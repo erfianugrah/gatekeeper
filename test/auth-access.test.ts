@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
-import { env, SELF, fetchMock } from 'cloudflare:test';
+import { env, SELF, fetchMock } from './cloudflare-test-compat';
 import { validateAccessJwt, fetchAccessGroups, __testClearJwksCache } from '../src/auth-access';
 
 // ─── Test helpers ───────────────────────────────────────────────────

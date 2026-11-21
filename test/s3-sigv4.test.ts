@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
-import { SELF, fetchMock } from 'cloudflare:test';
+import { SELF, fetchMock } from './cloudflare-test-compat';
 import { parseAuthHeader } from '../src/s3/sig-v4-verify';
 import { adminHeaders } from './helpers';
 import { registerUpstreamR2, getR2EndpointId, cleanupCreatedS3Resources } from './s3-helpers';

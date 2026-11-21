@@ -10,7 +10,7 @@
  * Kept OUTSIDE the loop writeScope (src/supabase/**, wrangler.jsonc).
  */
 
-import { SELF, fetchMock } from 'cloudflare:test';
+import { SELF, fetchMock } from './cloudflare-test-compat';
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { registerSupabaseToken, createSupabaseKey, cleanupCreatedResources } from './helpers';
 import { makePolicy, allowStmt } from './policy-helpers';

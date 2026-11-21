@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:test';
+import { env } from './cloudflare-test-compat';
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { evaluatePolicy } from '../src/policy-engine';
 import type { PolicyDocument, RequestContext } from '../src/policy-types';

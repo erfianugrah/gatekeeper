@@ -1,4 +1,4 @@
-import { env, SELF } from 'cloudflare:test';
+import { env, SELF } from './cloudflare-test-compat';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { queryMetering, METERING_DESCRIPTORS, queryMeteringAcrossSurfaces } from '../src/analytics-metering';
 import { meteringQuerySchema, crossSurfaceMeteringQuerySchema } from '../src/routes/admin-schemas';
