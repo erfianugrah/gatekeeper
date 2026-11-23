@@ -10,6 +10,8 @@ async function setupAuth(page: import('@playwright/test').Page) {
 	await page.goto(KEYS_URL);
 	await page.evaluate((key) => localStorage.setItem('adminKey', key), ADMIN_KEY);
 	await page.goto(KEYS_URL);
+	// Astro islands are server-rendered first: a click before `client:load` hydration lands on inert HTML.
+	await page.waitForFunction(() => document.querySelector('astro-island') !== null && document.querySelector('astro-island[ssr]') === null);
 }
 
 /** Ensure at least one upstream token exists so the Create Key dialog works. */

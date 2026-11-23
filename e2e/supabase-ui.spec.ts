@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -11,6 +12,8 @@ async function setupAuth(page: import('@playwright/test').Page, url: string) {
 	await page.goto(url);
 	await page.evaluate((key) => localStorage.setItem('adminKey', key), ADMIN_KEY);
 	await page.goto(url);
+	// Astro islands are server-rendered first: a click before `client:load` hydration lands on inert HTML.
+	await page.waitForFunction(() => document.querySelector('astro-island') !== null && document.querySelector('astro-island[ssr]') === null);
 }
 
 /** Create an upstream token of the given scope via the admin API (validation skipped). */
@@ -35,6 +38,13 @@ async function createToken(
 	const data = (await res.json()) as any;
 	expect(data.success).toBeTruthy();
 	return data.result.id as string;
+}
+
+/** Delete an upstream token created by a test. */
+async function deleteToken(request: import('@playwright/test').APIRequestContext, id: string) {
+	const headers = { 'X-Admin-Key': ADMIN_KEY };
+	const res = await request.delete(`/admin/upstream-tokens/${id}`, { headers });
+	expect(res.ok()).toBeTruthy();
 }
 
 /** Create an API key bound to a Supabase upstream token and return its key id. */
@@ -91,11 +101,24 @@ async function waitForSupabaseEvent(request: import('@playwright/test').APIReque
 async function openPolicyBuilderForToken(page: import('@playwright/test').Page, tokenName: string) {
 	const createBtn = page.locator('button:has-text("Create Key")');
 	await expect(createBtn).toBeVisible({ timeout: 10000 });
+	const tokensResponse = page.waitForResponse(
+		(response) => new URL(response.url()).pathname === '/admin/upstream-tokens' && response.request().method() === 'GET' && response.ok(),
+	);
 	await createBtn.click();
 	await expect(page.getByRole('heading', { name: 'Create API Key' })).toBeVisible({ timeout: 10000 });
+	const response = await tokensResponse;
+	const body = await response.json();
+	expect(body.result.some((token: { name: string }) => token.name === tokenName)).toBe(true);
 
-	await page.locator('button[role="combobox"]:has-text("Select upstream token")').click();
-	await page.locator(`[role="option"]:has-text("${tokenName}")`).first().click();
+	const tokenSelect = page.locator('[role="dialog"] button[role="combobox"]').first();
+	await expect(tokenSelect).toContainText('Select upstream token');
+	await tokenSelect.click();
+	const tokenOption = page.locator(`[role="option"]:has-text("${tokenName}")`);
+	await expect(tokenOption).toHaveCount(1);
+	await expect(tokenOption).toBeVisible();
+	await tokenOption.click();
+	await expect(tokenSelect).toContainText(tokenName);
+	await expect(page.locator('[role="listbox"]')).toBeHidden();
 
 	// Policy builder renders after token selection.
 	await expect(page.locator('text=Statement 1')).toBeVisible({ timeout: 5000 });
@@ -204,16 +227,30 @@ test.describe('Upstream Tokens — Supabase scope types', () => {
 
 // ─── Policy Builder: scope-gated action groups ──────────────────────
 
-test.describe('Policy Builder — Supabase scope gating', () => {
+test.describe('Policy Builder - Supabase scope gating', () => {
+	let tokenNames: { mgmt: string; metrics: string; zone: string };
+	let tokenIds: string[] = [];
+
 	test.beforeEach(async ({ request }) => {
-		await createToken(request, { name: 'e2e-sb-mgmt', scope_type: 'supabase' });
-		await createToken(request, { name: 'e2e-sb-metrics', scope_type: 'supabase_metrics' });
-		await createToken(request, { name: 'e2e-zone-cf', scope_type: 'zone' });
+		const suffix = randomUUID();
+		tokenNames = {
+			mgmt: `e2e-sb-mgmt-${suffix}`,
+			metrics: `e2e-sb-metrics-${suffix}`,
+			zone: `e2e-zone-cf-${suffix}`,
+		};
+		tokenIds = [];
+		tokenIds.push(await createToken(request, { name: tokenNames.mgmt, scope_type: 'supabase' }));
+		tokenIds.push(await createToken(request, { name: tokenNames.metrics, scope_type: 'supabase_metrics' }));
+		tokenIds.push(await createToken(request, { name: tokenNames.zone, scope_type: 'zone' }));
+	});
+
+	test.afterEach(async ({ request }) => {
+		for (const id of tokenIds) await deleteToken(request, id);
 	});
 
 	test('Supabase-scoped token shows only the Supabase action group', async ({ page }) => {
 		await setupAuth(page, KEYS_URL);
-		await openPolicyBuilderForToken(page, 'e2e-sb-mgmt');
+		await openPolicyBuilderForToken(page, tokenNames.mgmt);
 
 		await expect(page.locator('button:has-text("supabase:*")')).toBeVisible();
 		// Cloudflare zone groups must NOT appear for a Supabase token.
@@ -223,7 +260,7 @@ test.describe('Policy Builder — Supabase scope gating', () => {
 
 	test('Supabase Metrics token shows only the metrics action group', async ({ page }) => {
 		await setupAuth(page, KEYS_URL);
-		await openPolicyBuilderForToken(page, 'e2e-sb-metrics');
+		await openPolicyBuilderForToken(page, tokenNames.metrics);
 
 		await expect(page.locator('button:has-text("supabase:*")')).toBeVisible();
 		await expect(page.locator('button:has-text("purge:*")')).toHaveCount(0);
@@ -231,7 +268,7 @@ test.describe('Policy Builder — Supabase scope gating', () => {
 
 	test('Supabase-scoped token offers Supabase condition fields and defaults to Project Ref', async ({ page }) => {
 		await setupAuth(page, KEYS_URL);
-		await openPolicyBuilderForToken(page, 'e2e-sb-mgmt');
+		await openPolicyBuilderForToken(page, tokenNames.mgmt);
 
 		// Add a condition -- for a Supabase token the new leaf must default to a Supabase
 		// field (Project Ref), NOT the purge-only 'host' field that would show a warning.
@@ -252,7 +289,7 @@ test.describe('Policy Builder — Supabase scope gating', () => {
 
 	test('template picker applies a Supabase policy (Read-only)', async ({ page }) => {
 		await setupAuth(page, KEYS_URL);
-		await openPolicyBuilderForToken(page, 'e2e-sb-mgmt');
+		await openPolicyBuilderForToken(page, tokenNames.mgmt);
 
 		// Open the "Start from template" picker and choose the Read-only template.
 		await page.locator('[aria-label="Start from template"]').click();
@@ -267,7 +304,7 @@ test.describe('Policy Builder — Supabase scope gating', () => {
 
 	test('Zone-scoped token shows Cloudflare groups, not Supabase', async ({ page }) => {
 		await setupAuth(page, KEYS_URL);
-		await openPolicyBuilderForToken(page, 'e2e-zone-cf');
+		await openPolicyBuilderForToken(page, tokenNames.zone);
 
 		await expect(page.locator('button:has-text("purge:*")')).toBeVisible();
 		await expect(page.locator('button:has-text("dns:*")')).toBeVisible();
