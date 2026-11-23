@@ -85,6 +85,12 @@
 	},
 	{
 		"method": "DELETE",
+		"path": "/v1/projects/{ref}/functions",
+		"summary": "Deletes all Edge Functions from a project",
+		"covered": true
+	},
+	{
+		"method": "DELETE",
 		"path": "/v1/projects/{ref}/functions/{function_slug}",
 		"summary": "Delete a function",
 		"covered": true
@@ -625,6 +631,12 @@
 	},
 	{
 		"method": "PATCH",
+		"path": "/v1/projects/{ref}/config/database/postgres",
+		"summary": "Partially updates project's Postgres config",
+		"covered": true
+	},
+	{
+		"method": "PATCH",
 		"path": "/v1/projects/{ref}/config/realtime",
 		"summary": "Updates realtime configuration",
 		"covered": true
@@ -723,6 +735,12 @@
 		"method": "POST",
 		"path": "/v1/projects",
 		"summary": "Create a project",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/v1/projects/{ref}/analytics/endpoints/logs",
+		"summary": "Gets all project's logs in a single log stream",
 		"covered": true
 	},
 	{
@@ -897,6 +915,12 @@
 		"method": "POST",
 		"path": "/v1/projects/{ref}/network-restrictions/apply",
 		"summary": "Updates project's network restrictions",
+		"covered": true
+	},
+	{
+		"method": "POST",
+		"path": "/v1/projects/{ref}/network-restrictions/review",
+		"summary": "Applies or rejects the change in review in a project's network restrictions",
 		"covered": true
 	},
 	{

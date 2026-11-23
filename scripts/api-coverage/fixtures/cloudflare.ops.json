@@ -764,7 +764,7 @@
 	{
 		"method": "PUT",
 		"path": "/accounts/{account_id}/workers/scripts/{script_name}",
-		"summary": "Upload Worker Module",
+		"summary": "Upload Worker",
 		"covered": true
 	},
 	{
