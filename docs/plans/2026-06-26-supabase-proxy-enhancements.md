@@ -349,7 +349,7 @@ Add to `test/supabase-classify.test.ts`:
 ```typescript
 // --- scope decomposition ---
 
-const REF = 'dewddkcmwrzbpynylyhg'; // reuse existing constant
+const REF = 'abcdefghijklmnopqrst'; // reuse existing constant
 
 it('classifies billing/addons as billing:read', () => {
 	const r = classifySupabaseRequest('GET', `/v1/projects/${REF}/billing/addons`);

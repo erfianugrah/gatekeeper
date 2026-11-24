@@ -21,7 +21,7 @@ import { registerSupabaseToken, createSupabaseKey, cleanupCreatedResources, admi
 import { makePolicy, allowStmt } from './policy-helpers';
 
 const SB_API = 'https://api.supabase.com';
-const REF = 'dewddkcmwrzbpynylyhg';
+const REF = 'abcdefghijklmnopqrst';
 
 beforeAll(() => {
 	fetchMock.activate();

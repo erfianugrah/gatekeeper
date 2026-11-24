@@ -22,7 +22,7 @@ import { makePolicy, allowStmt } from './policy-helpers';
 
 const SLUG = 'acme-org';
 const ORG = `org:${SLUG}`;
-const REF = 'dewddkcmwrzbpynylyhg';
+const REF = 'abcdefghijklmnopqrst';
 
 function invite(keyId: string | null, body: unknown) {
 	const headers: Record<string, string> = { 'Content-Type': 'application/json' };

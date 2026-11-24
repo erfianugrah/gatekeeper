@@ -4,7 +4,7 @@ import { adminHeaders, waitForAnalytics, registerSupabaseToken, createSupabaseKe
 import { makePreview } from '../src/crypto';
 import type { PolicyDocument } from '../src/policy-types';
 
-const REF = 'dewddkcmwrzbpynylyhg';
+const REF = 'abcdefghijklmnopqrst';
 const REF_B = 'bbbbbbbbbbbbbbbbbbbb';
 const V = '2025-01-01' as const;
 const SB_API = 'https://api.supabase.com';

@@ -14,9 +14,9 @@ const SPEC_URL = 'https://api.supabase.com/api/v1-json';
 
 /** Representative concrete values for path-template params, so the classifier's ref/slug guards pass. */
 const PARAM_SAMPLES: Record<string, string> = {
-	ref: 'dewddkcmwrzbpynylyhg',
-	project_id: 'dewddkcmwrzbpynylyhg',
-	project_ref: 'dewddkcmwrzbpynylyhg',
+	ref: 'abcdefghijklmnopqrst',
+	project_id: 'abcdefghijklmnopqrst',
+	project_ref: 'abcdefghijklmnopqrst',
 	branch_id_or_ref: 'br_abc123',
 	slug: 'my-org',
 	slug_or_id: 'my-org',

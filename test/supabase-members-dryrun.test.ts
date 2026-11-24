@@ -18,7 +18,7 @@ import { makePolicy, allowStmt } from './policy-helpers';
 const SB_API = 'https://api.supabase.com';
 const SLUG = 'acme-org';
 const ORG = `org:${SLUG}`;
-const REF = 'dewddkcmwrzbpynylyhg';
+const REF = 'abcdefghijklmnopqrst';
 
 beforeAll(() => {
 	fetchMock.activate();

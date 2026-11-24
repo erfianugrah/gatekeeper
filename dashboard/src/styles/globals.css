@@ -5,10 +5,10 @@
 @import "@fontsource/ibm-plex-mono/700.css";
 
 /* ---------------------------------------------------------------
-   McMaster-Carr appliance-manual aesthetic (matches bonkled's spec).
+   McMaster-Carr appliance-manual aesthetic (the house warm-dark register).
    No rounded corners, no shadows, no gradients, no glow. Hairlines
    only. Gatekeeper has no light-mode toggle today, so this file
-   ships bonkled's warm-dark register as the single permanent theme
+   ships the warm-dark register as the single permanent theme
    (rather than building an unrequested light/dark switch) -- add a
    [data-theme="light"] block later if a toggle is ever wanted.
 --------------------------------------------------------------- */
@@ -24,11 +24,11 @@
   /* Semantic status/category inks -- desaturated "rubber stamp" tones,
      never neon. Gatekeeper's policy surfaces need distinguishable
      allow/deny/read/write/scope categories, so we keep six hues but
-     flatten them to the same appliance-manual register bonkled uses
-     for tile-correct/tile-present/tile-absent, plus two extra muted
-     inks (steel-blue, teal) for the categories bonkled doesn't need. */
-  --color-status-ok: #6fab58; /* allow / read / success (bonkled tile-correct, dark) */
-  --color-status-warn: #d9b96a; /* write / present / pending (bonkled tile-present, dark) */
+     flatten them to the same appliance-manual register's correct /
+     present / absent inks, plus two extra muted inks (steel-blue,
+     teal) for the extra categories. */
+  --color-status-ok: #6fab58; /* allow / read / success (correct ink, dark) */
+  --color-status-warn: #d9b96a; /* write / present / pending (present ink, dark) */
   --color-status-danger: #ff5460; /* deny / destructive (== accent-red) */
   --color-status-neutral: #8c8474; /* absent / disabled (== ink-muted) */
   --color-status-info: #7fa8c9; /* scope / secondary category -- muted steel blue */

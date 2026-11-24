@@ -9,7 +9,7 @@ export const SUPABASE_PROJECT_HOST = (ref: string): string => `https://${ref}.su
 export const SUPABASE_METRICS_PATH = '/customer/v1/privileged/metrics';
 
 // A Supabase project ref is 20 lowercase alphanumeric chars (confirmed against a live project
-// `dewddkcmwrzbpynylyhg` on 2026-06-18). Tight enough to block SSRF via the metrics host
+// `abcdefghijklmnopqrst` on 2026-06-18). Tight enough to block SSRF via the metrics host
 // (`https://<ref>.supabase.co`), loose enough to accept any real ref.
 export const SUPABASE_REF_RE = /^[a-z0-9]{20}$/;
 

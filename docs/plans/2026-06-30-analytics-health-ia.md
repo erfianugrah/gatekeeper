@@ -140,7 +140,7 @@ export function computeSurfaceHealth(inp: HealthInputs): SurfaceHealth[] {
 
 - [ ] **Step 2: Verify it compiles**
 
-Run: `cd /home/erfi/gatekeeper && bunx tsc --noEmit -p dashboard/tsconfig.json 2>&1 | head -20`
+Run: `bunx tsc --noEmit -p dashboard/tsconfig.json 2>&1 | head -20`
 Expected: no errors referencing `health.ts`. (If `dashboard/tsconfig.json` has no `noEmit`-friendly setup, defer to the Task-2 `bun run build:dashboard` gate instead - the file is consumed there.)
 
 > Note: there is no dashboard unit-test runner, so this helper is covered by the `build:dashboard` compile gate and the Overview rendering in Task 2. Standing up vitest for the dashboard is out of scope (YAGNI).
@@ -331,7 +331,7 @@ Leave the generic `Total Requests` / `Purge` / `S3` / `DNS` / `CF Services` / `A
 
 - [ ] **Step 7: Build the dashboard to verify it compiles + no orphaned references**
 
-Run: `cd /home/erfi/gatekeeper && bun run build:dashboard 2>&1 | tail -25`
+Run: `bun run build:dashboard 2>&1 | tail -25`
 Expected: build succeeds. No `supabaseAlerts` / `supabaseTimeouts` / `supabaseUnauthorized` / `supabaseUpstream5xx` references remain (they were deleted). `AlertTriangle`, `Timer`, `Database` imports are still used by other cards/icons so they stay.
 
 Confirm no stragglers: `rg -n 'supabaseAlerts|supabaseTimeoutRate|supabaseUnauthorizedRate|supabaseUpstream5xx' dashboard/src/components/OverviewDashboard.tsx`
@@ -340,7 +340,7 @@ Expected: no output.
 - [ ] **Step 8: Format + commit**
 
 ```bash
-cd /home/erfi/gatekeeper
+cd <repo>
 bunx prettier --write dashboard/src/components/analytics/health.ts dashboard/src/components/OverviewDashboard.tsx
 git add dashboard/src/components/analytics/health.ts dashboard/src/components/OverviewDashboard.tsx
 git commit -m "feat(dashboard): replace Supabase health banner with generic per-surface Health table"
@@ -489,7 +489,7 @@ Change it to:
 
 - [ ] **Step 5: Build to verify**
 
-Run: `cd /home/erfi/gatekeeper && bun run build:dashboard 2>&1 | tail -25`
+Run: `bun run build:dashboard 2>&1 | tail -25`
 Expected: build succeeds. `/dashboard/metering` is emitted as a page.
 
 Confirm no orphaned references: `rg -n "AnalyticsView|setView|MeteringPanel|Gauge|ListOrdered" dashboard/src/components/AnalyticsPage.tsx`
@@ -498,7 +498,7 @@ Expected: no output.
 - [ ] **Step 6: Format + commit**
 
 ```bash
-cd /home/erfi/gatekeeper
+cd <repo>
 bunx prettier --write dashboard/src/components/AnalyticsPage.tsx
 git add dashboard/src/pages/dashboard/metering.astro dashboard/src/layouts/DashboardLayout.astro dashboard/src/components/AnalyticsPage.tsx
 git commit -m "feat(dashboard): promote Metering to its own Observability nav page"
@@ -553,13 +553,13 @@ test.describe('Metering - dashboard page', () => {
 
 - [ ] **Step 2: Run the e2e**
 
-Run: `cd /home/erfi/gatekeeper && bunx playwright test e2e/metering-ui.spec.ts`
+Run: `bunx playwright test e2e/metering-ui.spec.ts`
 Expected: all tests pass (Playwright `webServer` auto-starts `wrangler dev`; the dashboard `dist` must be built - it is, from Task 2/3 `build:dashboard`). The API-smoke tests are unchanged and still pass.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/erfi/gatekeeper
+cd <repo>
 git add e2e/metering-ui.spec.ts
 git commit -m "test(e2e): point metering UI test at the standalone /dashboard/metering page"
 ```
@@ -570,17 +570,17 @@ git commit -m "test(e2e): point metering UI test at the standalone /dashboard/me
 
 - [ ] **Step 1: Full dashboard build**
 
-Run: `cd /home/erfi/gatekeeper && bun run build:dashboard 2>&1 | tail -15`
+Run: `bun run build:dashboard 2>&1 | tail -15`
 Expected: success.
 
 - [ ] **Step 2: Worker + CLI typecheck unaffected**
 
-Run: `cd /home/erfi/gatekeeper && bun run typecheck`
+Run: `bun run typecheck`
 Expected: passes (no dashboard files in scope; this just confirms nothing in `src/`/`cli/` was touched).
 
 - [ ] **Step 3: e2e suite for metering + supabase UI (touched surfaces)**
 
-Run: `cd /home/erfi/gatekeeper && bunx playwright test e2e/metering-ui.spec.ts e2e/supabase-ui.spec.ts`
+Run: `bunx playwright test e2e/metering-ui.spec.ts e2e/supabase-ui.spec.ts`
 Expected: pass.
 
 - [ ] **Step 4: Manual visual smoke (optional, if a dev server is up)**

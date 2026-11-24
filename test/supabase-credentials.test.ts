@@ -11,7 +11,7 @@ import type { PolicyDocument } from '../src/policy-types';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const REF = 'dewddkcmwrzbpynylyhg'; // a real 20-char lowercase project ref shape
+const REF = 'abcdefghijklmnopqrst'; // a 20-char lowercase project ref shape
 const REF_OTHER = 'zzzzzzzzzzzzzzzzzzzz';
 
 /** Get the DO stub for direct RPC calls. */

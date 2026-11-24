@@ -177,7 +177,7 @@ describe('supabase member writes are not PAT-drivable', () => {
 - [ ] **Step 2: Run it and confirm it passes against the current fixture.**
 
 ```bash
-cd /home/erfi/gatekeeper && bunx vitest run -c vitest.worker.config.ts test/supabase-member-write-pin.test.ts
+bunx vitest run -c vitest.worker.config.ts test/supabase-member-write-pin.test.ts
 ```
 
 Expect `Tests  5 passed (5)`. This test is green from the start by design - it is a
@@ -187,7 +187,7 @@ regression tripwire, not a red-green cycle. Prove it can fail before trusting it
       re-run, confirm the failure names it, then restore:
 
 ```bash
-cd /home/erfi/gatekeeper
+cd <repo>
 cp scripts/api-coverage/fixtures/supabase.ops.json /tmp/sb-ops.bak
 jq '. + [{"method":"POST","path":"/v1/organizations/{slug}/members","summary":"fake","covered":true}]' \
   /tmp/sb-ops.bak > scripts/api-coverage/fixtures/supabase.ops.json
@@ -259,7 +259,7 @@ with
 - [ ] **Step 6: Run the sensors.**
 
 ```bash
-cd /home/erfi/gatekeeper && bun run typecheck && bun run lint && bun run test
+bun run typecheck && bun run lint && bun run test
 ```
 
 Expect `typecheck` and `lint` silent-clean, and the suite at 65 files / 1353 tests passed
@@ -323,7 +323,7 @@ import { POLICY_TEMPLATES, applyTemplate } from '../dashboard/src/lib/policy-tem
 import { evaluatePolicy, validatePolicy } from '../src/policy-engine';
 import type { RequestContext } from '../src/policy-types';
 
-const REF = 'dewddkcmwrzbpynylyhg';
+const REF = 'abcdefghijklmnopqrst';
 const PROJECT = `project:${REF}`;
 const OTHER_PROJECT = 'project:aabbccddee1122334455';
 
@@ -412,7 +412,7 @@ describe('sb-agent policy template', () => {
 - [ ] **Step 2: Run it and verify it fails for the right reason.**
 
 ```bash
-cd /home/erfi/gatekeeper && bunx vitest run -c vitest.worker.config.ts test/supabase-agent-profile.test.ts
+bunx vitest run -c vitest.worker.config.ts test/supabase-agent-profile.test.ts
 ```
 
 Expect the whole file to error before any test runs, with
@@ -451,7 +451,7 @@ read/write split.
 - [ ] **Step 4: Run the template tests.**
 
 ```bash
-cd /home/erfi/gatekeeper && bunx vitest run -c vitest.worker.config.ts test/supabase-agent-profile.test.ts test/policy-templates.test.ts
+bunx vitest run -c vitest.worker.config.ts test/supabase-agent-profile.test.ts test/policy-templates.test.ts
 ```
 
 Expect both files green. `test/policy-templates.test.ts` picks the new entry up automatically:
@@ -468,7 +468,7 @@ clean, action shape, and known action prefix.
 - [ ] **Step 6: Run the sensors.**
 
 ```bash
-cd /home/erfi/gatekeeper && bun run typecheck && bun run lint && bun run test && bun run build:dashboard
+bun run typecheck && bun run lint && bun run test && bun run build:dashboard
 ```
 
 Expect 66 files / 1373 tests passed: 65 / 1353 after Task 1, plus this file's 19, plus **one**
@@ -681,7 +681,7 @@ describe('key subject - audit attribution', () => {
 - [ ] **Step 3: Run it and verify it fails for the right reason.**
 
 ```bash
-cd /home/erfi/gatekeeper && bunx vitest run -c vitest.worker.config.ts test/key-subject.test.ts
+bunx vitest run -c vitest.worker.config.ts test/key-subject.test.ts
 ```
 
 Expect all 6 to fail: `expected undefined to be 'agent:planner/run-7f3a'` on the create,
@@ -863,7 +863,7 @@ subject of the key that made the call.
       `scripts/generate-openapi.ts`, and `bun run check:openapi` fails on any diff:
 
 ```bash
-cd /home/erfi/gatekeeper && bun run openapi && bun run check:openapi
+bun run openapi && bun run check:openapi
 ```
 
 Expect `openapi.json is up to date.` and a `git diff --stat` showing only `openapi.json`.
@@ -872,7 +872,7 @@ Confirm the field landed. Note that only the **response** schema is a named comp
 `components.schemas.CreateKeyRequest` to query:
 
 ```bash
-cd /home/erfi/gatekeeper
+cd <repo>
 jq -r '.components.schemas.ApiKey.properties.subject.anyOf | map(.type) | join("|")' openapi.json
 jq -c '.paths["/admin/keys"].post.requestBody.content["application/json"].schema.properties.subject' openapi.json
 ```
@@ -882,7 +882,7 @@ Expect `string|null` and `{"type":"string","minLength":1,"maxLength":256}`.
 - [ ] **Step 11: Run the sensors.**
 
 ```bash
-cd /home/erfi/gatekeeper && bun run typecheck && bun run lint && bun run test && bun run check:openapi
+bun run typecheck && bun run lint && bun run test && bun run check:openapi
 ```
 
 Expect 67 files / 1379 tests passed (66 / 1373 after Task 2, plus this file's 6), and every

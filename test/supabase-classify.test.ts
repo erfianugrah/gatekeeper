@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { classifySupabaseRequest } from '../src/supabase/classify';
 
-const REF = 'dewddkcmwrzbpynylyhg';
+const REF = 'abcdefghijklmnopqrst';
 
 describe('classifySupabaseRequest', () => {
 	// --- existing coverage ---
